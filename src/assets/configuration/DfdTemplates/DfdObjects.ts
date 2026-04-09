@@ -150,6 +150,11 @@ export const DfdObjects: DiagramObjectTemplate[] = [
         name: "data_flow",
         namespace: ["dfd", "data_flow"],
         type: DiagramObjectType.Line,
+        handle_template: "generic_handle",
+        latch_template: {
+            source: "generic_latch",
+            target: "generic_latch"
+        },
         properties: {
             name: {
                 type: PropertyType.String,
