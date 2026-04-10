@@ -1,9 +1,9 @@
 import * as EditorCommands from "../../../Commands";
 import { ObjectMover } from "./ObjectMover";
-import { Alignment, AnchorView, GroupView } from "@OpenChart/DiagramView";
+import { Alignment, AnchorView } from "@OpenChart/DiagramView";
 import type { SubjectTrack } from "@OpenChart/DiagramInterface";
 import type { PowerEditPlugin } from "../PowerEditPlugin";
-import type { CanvasView, DiagramObjectView, LatchView } from "@OpenChart/DiagramView";
+import type { CanvasView, DiagramObjectView, GroupView, LatchView } from "@OpenChart/DiagramView";
 import type { CommandExecutor } from "../CommandExecutor";
 
 export class LatchMover extends ObjectMover {
@@ -137,21 +137,30 @@ export class LatchMover extends ObjectMover {
      *  (Default: The interface's canvas.)
      * @returns
      *  The topmost block or anchor, undefined if there isn't one.
+     * @remarks
+     *  Walks this group's direct blocks first, then recurses into nested
+     *  groups. Without the recursion, blocks that live inside a trust
+     *  boundary are invisible to a latch drag originating outside it and
+     *  the usual anchor-hover affordance never triggers.
      */
     private getBlocksAndAnchorsAt(
         x: number, y: number,
         group: CanvasView | GroupView
     ): DiagramObjectView | undefined {
-        const objects = group.blocks;
-        for (let i = objects.length - 1; 0 <= i; i--) {
-            let object: DiagramObjectView | undefined = objects[i];
-            if (object instanceof GroupView) {
-                object = this.getBlocksAndAnchorsAt(x, y, object);
-            } else {
-                object = object.getObjectAt(x, y);
+        // Direct blocks
+        const blocks = group.blocks;
+        for (let i = blocks.length - 1; 0 <= i; i--) {
+            const hit = blocks[i].getObjectAt(x, y);
+            if (hit) {
+                return hit;
             }
-            if (object) {
-                return object;
+        }
+        // Nested groups (recurse)
+        const groups = group.groups;
+        for (let i = groups.length - 1; 0 <= i; i--) {
+            const hit = this.getBlocksAndAnchorsAt(x, y, groups[i]);
+            if (hit) {
+                return hit;
             }
         }
         return undefined;

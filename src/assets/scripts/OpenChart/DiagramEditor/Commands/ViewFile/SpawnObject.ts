@@ -1,6 +1,6 @@
 import { GroupCommand } from "../GroupCommand";
 import { addObjectToGroup } from "../Model";
-import { Alignment, DiagramViewFile } from "@OpenChart/DiagramView";
+import { Alignment, DiagramViewFile, findDeepestContainingGroup } from "@OpenChart/DiagramView";
 import { round, roundNearestMultiple } from "@OpenChart/Utilities";
 import type { DiagramObjectView } from "@OpenChart/DiagramView";
 
@@ -47,8 +47,11 @@ export class SpawnObject extends GroupCommand {
         }
         // Position object
         this.object.moveTo(x, y);
-        // Add object to group
-        this.do(addObjectToGroup(this.object, file.canvas));
+        // Add object to the deepest group that contains the spawn point,
+        // so new objects (including trust boundaries) land inside whichever
+        // boundary the user aimed at instead of at the canvas root.
+        const target = findDeepestContainingGroup(file.canvas, x, y) ?? file.canvas;
+        this.do(addObjectToGroup(this.object, target));
     }
 
 }

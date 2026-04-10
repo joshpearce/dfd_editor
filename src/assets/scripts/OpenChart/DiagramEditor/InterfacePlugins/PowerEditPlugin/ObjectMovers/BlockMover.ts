@@ -1,7 +1,7 @@
 import * as EditorCommands from "../../../Commands";
 import { LineView } from "@OpenChart/DiagramView";
 import { ObjectMover } from "./ObjectMover";
-import { Alignment, BoundingBox, CanvasView, GroupView } from "@OpenChart/DiagramView";
+import { Alignment, BoundingBox, CanvasView, findDeepestContainingGroup, GroupView } from "@OpenChart/DiagramView";
 import type { BlockView, DiagramObjectView } from "@OpenChart/DiagramView";
 import type { SubjectTrack } from "@OpenChart/DiagramInterface";
 import type { PowerEditPlugin } from "../PowerEditPlugin";
@@ -25,16 +25,18 @@ export class BlockMover extends ObjectMover {
     private lines: Map<string, LineView>;
 
     /**
-     * The group the block belonged to at drag start, if any.
+     * The group the block is currently parented to, if any. Updated as the
+     * block is chain-ejected up the group hierarchy during drag.
      */
-    private dragSourceGroup: GroupView | null;
+    private currentGroup: GroupView | null;
 
     /**
-     * Snapshot of the drag-source group's bounding box at drag start.
-     * The group's live bbox follows the block, so we must snapshot it before
-     * any movement to reliably detect when the block has left the group.
+     * Snapshot of {@link currentGroup}'s bounding box taken when the block
+     * entered it. The group's live bbox grows with its children, so we must
+     * compare against a frozen snapshot to reliably detect when the block
+     * has moved outside the group's original territory.
      */
-    private dragSourceGroupBox: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
+    private currentGroupBox: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
 
 
     /**
@@ -55,8 +57,8 @@ export class BlockMover extends ObjectMover {
         this.lines = new Map();
         this.block = block;
         this.alignment = block.alignment;
-        this.dragSourceGroup = null;
-        this.dragSourceGroupBox = null;
+        this.currentGroup = null;
+        this.currentGroupBox = null;
     }
 
 
@@ -65,13 +67,25 @@ export class BlockMover extends ObjectMover {
      */
     public captureSubject(): void {
         if (this.block.parent instanceof GroupView) {
-            this.dragSourceGroup = this.block.parent;
-            const bb = this.block.parent.face.boundingBox;
-            this.dragSourceGroupBox = {
-                xMin: bb.xMin, yMin: bb.yMin,
-                xMax: bb.xMax, yMax: bb.yMax
-            };
+            this.currentGroup = this.block.parent;
+            this.snapshotCurrentGroupBox();
         }
+    }
+
+    /**
+     * Freezes the current parent group's bounding box so leave-detection
+     * compares against the territory at the time of entry.
+     */
+    private snapshotCurrentGroupBox(): void {
+        if (!this.currentGroup) {
+            this.currentGroupBox = null;
+            return;
+        }
+        const bb = this.currentGroup.face.boundingBox;
+        this.currentGroupBox = {
+            xMin: bb.xMin, yMin: bb.yMin,
+            xMax: bb.xMax, yMax: bb.yMax
+        };
     }
 
     /**
@@ -98,18 +112,33 @@ export class BlockMover extends ObjectMover {
             }
             this.execute(moveObjectsBy(this.block, ...delta));
         }
-        // If block was inside a group, check immediately whether it has left the
-        // group's original territory. Transfer to canvas root as soon as it does,
-        // so the group stops visually following the block during the drag.
-        if (this.dragSourceGroup && this.dragSourceGroupBox) {
+        // If the block is inside a group, eject it up the hierarchy one level
+        // at a time as it leaves each containing group's original territory.
+        // The snapshot comparison prevents the group from visually following
+        // the block (its live bbox would otherwise grow to keep the block
+        // inside). The loop handles leaping multiple levels in one tick.
+        while (this.currentGroup && this.currentGroupBox) {
             const bx = this.block.x;
             const by = this.block.y;
-            const { xMin, yMin, xMax, yMax } = this.dragSourceGroupBox;
-            if (bx < xMin || bx > xMax || by < yMin || by > yMax) {
-                this.execute(removeObjectFromGroup([this.block]));
-                this.execute(addObjectToGroup(this.block, canvas));
-                this.dragSourceGroup = null;
-                this.dragSourceGroupBox = null;
+            const { xMin, yMin, xMax, yMax } = this.currentGroupBox;
+            const insideCurrent
+                = xMin <= bx && bx <= xMax
+                && yMin <= by && by <= yMax;
+            if (insideCurrent) {
+                break;
+            }
+            // Move the block up one level toward the canvas root.
+            const parent = this.currentGroup.parent;
+            const newParent: CanvasView | GroupView
+                = parent instanceof GroupView ? parent : canvas;
+            this.execute(removeObjectFromGroup([this.block]));
+            this.execute(addObjectToGroup(this.block, newParent));
+            if (newParent instanceof GroupView) {
+                this.currentGroup = newParent;
+                this.snapshotCurrentGroupBox();
+            } else {
+                this.currentGroup = null;
+                this.currentGroupBox = null;
             }
         }
         // Update overlap
@@ -178,17 +207,12 @@ export class BlockMover extends ObjectMover {
             this.execute(unselectAllObjects(editor));
             this.execute(selectObject(editor, this.block));
         }
-        const bx = block.x;
-        const by = block.y;
-        if (block.parent === canvas) {
-            // Check if the block was dropped INTO a group
-            for (const group of canvas.groups) {
-                if (group.face.boundingBox.contains(bx, by)) {
-                    this.execute(removeObjectFromGroup([block]));
-                    this.execute(addObjectToGroup(block, group));
-                    break;
-                }
-            }
+        // Reparent to the deepest group that contains the drop point.
+        // Falls through to the canvas when nothing contains it.
+        const target = findDeepestContainingGroup(canvas, block.x, block.y) ?? canvas;
+        if (block.parent !== target) {
+            this.execute(removeObjectFromGroup([block]));
+            this.execute(addObjectToGroup(block, target));
         }
     }
 

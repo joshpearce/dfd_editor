@@ -1,9 +1,9 @@
 import * as EditorCommands from "../../Commands";
 import { Crypto, wasHotkeyActive } from "@OpenChart/Utilities";
 import { findImplicitSelection, traverse } from "@OpenChart/DiagramModel";
-import { BlockMover, GenericMover, GroupResizeMover, LatchMover } from "./ObjectMovers";
+import { BlockMover, GenericMover, GroupMover, GroupResizeMover, LatchMover } from "./ObjectMovers";
 import { Cursor, DiagramInterfacePlugin, SubjectTrack } from "@OpenChart/DiagramInterface";
-import { AnchorView, BlockView, GroupView, HandleView, LatchView, LineView, Orientation, ResizeEdge } from "@OpenChart/DiagramView";
+import { AnchorView, BlockView, CanvasView, GroupView, HandleView, LatchView, LineView, Orientation, ResizeEdge } from "@OpenChart/DiagramView";
 import type { CursorMap } from "./CursorMap";
 import type { ObjectMover } from "./ObjectMovers";
 import type { CommandExecutor } from "./CommandExecutor";
@@ -146,12 +146,16 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      *  The topmost object.
      */
     protected smartHover(x: number, y: number, _event: MouseEvent): DiagramObjectView | undefined {
-        const { lines, blocks, groups } = this.editor.file.canvas;
+        const canvas = this.editor.file.canvas;
+        const { lines, blocks } = canvas;
         let object: DiagramObjectView | undefined;
-        // Clear stale resize-edge state before re-testing. The stash lives on
-        // the group's face so the cursor map can read it by reference.
-        for (const group of groups) {
-            group.hoveredEdge = ResizeEdge.None;
+        // Collect every descendant group in deepest-first, topmost-z order so
+        // a nested boundary's halo can win over its container's halo and any
+        // stale `hoveredEdge` state on deeper groups gets cleared each tick.
+        const allGroups: GroupView[] = [];
+        PowerEditPlugin.collectGroupsDeepestFirst(canvas, allGroups);
+        for (const g of allGroups) {
+            g.hoveredEdge = ResizeEdge.None;
         }
         // 1. Direct canvas blocks (highest priority).
         for (let i = blocks.length - 1; 0 <= i; i--) {
@@ -159,23 +163,24 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
                 return object;
             }
         }
-        // 2. Group resize halos — they live outside the bounding box, so
-        //    testing them before anything else inside the group is safe.
-        for (let i = groups.length - 1; 0 <= i; i--) {
-            const group = groups[i];
+        // 2. Group resize halos — innermost first. A halo lives outside the
+        //    group's bounding box, so halo detection is independent of where
+        //    the cursor sits with respect to other groups.
+        for (const group of allGroups) {
             const edge = group.getResizeEdgeAt(x, y);
             if (edge !== ResizeEdge.None) {
                 group.hoveredEdge = edge;
                 return group;
             }
         }
-        // 3. Content inside groups (blocks, nested groups, nested lines).
-        //    We remember the topmost group whose interior the cursor is in
-        //    so we can fall back to it below, but any non-self child hit
-        //    wins outright so "content beats container."
+        // 3. Content inside groups. `group.getObjectAt` already recurses
+        //    into nested groups via `findUnlinkedObjectAt`, so iterating
+        //    canvas.groups top-down returns the deepest child hit. We still
+        //    remember the topmost group body for the final fallback so an
+        //    empty interior click selects the group.
         let groupHit: DiagramObjectView | undefined;
-        for (let i = groups.length - 1; 0 <= i; i--) {
-            const group = groups[i];
+        for (let i = canvas.groups.length - 1; 0 <= i; i--) {
+            const group = canvas.groups[i] as GroupView;
             const inside = group.getObjectAt(x, y);
             if (inside && inside !== group) {
                 return inside;
@@ -195,6 +200,22 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
         }
         // 5. Group body fallback (empty interior click selects the group).
         return groupHit;
+    }
+
+    /**
+     * Collects every descendant group of `root` into `out` in deepest-first,
+     * topmost-z order. Used by {@link smartHover} so nested trust boundaries
+     * participate in halo detection.
+     */
+    private static collectGroupsDeepestFirst(
+        root: CanvasView | GroupView, out: GroupView[]
+    ): void {
+        const groups = root.groups;
+        for (let i = groups.length - 1; 0 <= i; i--) {
+            const g = groups[i] as GroupView;
+            PowerEditPlugin.collectGroupsDeepestFirst(g, out);
+            out.push(g);
+        }
     }
 
 
@@ -416,7 +437,9 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
         if (group.hoveredEdge !== ResizeEdge.None) {
             return new GroupResizeMover(this, execute, group, group.hoveredEdge);
         }
-        return new GenericMover(this, execute, [group]);
+        // Otherwise the group is being dragged. GroupMover handles both
+        // movement and reparent-on-drop (into or out of nested boundaries).
+        return new GroupMover(this, execute, group);
     }
 
     /**
