@@ -102,6 +102,38 @@ export class GroupFace extends DiagramFace {
 
 
     /**
+     * Returns the four user-chosen bound fields as a tuple.
+     * @returns
+     *  `[xMin, yMin, xMax, yMax]`
+     */
+    public get userBounds(): [number, number, number, number] {
+        return [this._userXMin, this._userYMin, this._userXMax, this._userYMax];
+    }
+
+    /**
+     * Directly assigns the four user-chosen bound fields.
+     * @param xMin
+     *  The minimum x coordinate.
+     * @param yMin
+     *  The minimum y coordinate.
+     * @param xMax
+     *  The maximum x coordinate.
+     * @param yMax
+     *  The maximum y coordinate.
+     * @remarks
+     *  Low-level setter for the persistence engine. Does not run layout,
+     *  clamp, or move children — call {@link calculateLayout} afterward if
+     *  the bounding box needs to reflect the new values.
+     */
+    public setBounds(xMin: number, yMin: number, xMax: number, yMax: number): void {
+        this._userXMin = xMin;
+        this._userYMin = yMin;
+        this._userXMax = xMax;
+        this._userYMax = yMax;
+    }
+
+
+    /**
      * Creates a new {@link GroupFace}.
      */
     constructor() {

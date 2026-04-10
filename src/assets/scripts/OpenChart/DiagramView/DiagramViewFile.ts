@@ -1,4 +1,4 @@
-import { ManualLayoutEngine } from "./DiagramLayoutEngine";
+import { GroupBoundsEngine, ManualLayoutEngine } from "./DiagramLayoutEngine";
 import { Canvas, DiagramModelFile, DiagramObjectSerializer } from "@OpenChart/DiagramModel";
 import type { CameraLocation } from "./CameraLocation";
 import type { DiagramViewExport } from "./DiagramViewExport";
@@ -47,6 +47,10 @@ export class DiagramViewFile extends DiagramModelFile {
         // Run layout engine
         if (diagram && !(diagram instanceof Canvas) && diagram.layout) {
             new ManualLayoutEngine(diagram.layout).run([this.canvas]);
+        }
+        // Run group bounds engine
+        if (diagram && !(diagram instanceof Canvas) && diagram.groupBounds) {
+            new GroupBoundsEngine(diagram.groupBounds).run([this.canvas]);
         }
         // Set camera
         this.camera = diagram?.camera ?? { x: 0, y: 0, k: 1 };
@@ -116,15 +120,28 @@ export class DiagramViewFile extends DiagramModelFile {
         // Calculate final layout
         const layout = ManualLayoutEngine.generatePositionMap([canvas]);
 
+        // Apply existing group bounds to clone
+        const existingBounds = GroupBoundsEngine.generateGroupBoundsMap([this.canvas]);
+        const remappedBounds = Object.fromEntries(
+            Object.entries(existingBounds).map(
+                ([i, b]) => [instanceMap.get(i)!, b]
+            )
+        );
+        new GroupBoundsEngine(remappedBounds).run([canvas]);
+
+        // Calculate final group bounds
+        const groupBounds = GroupBoundsEngine.generateGroupBoundsMap([canvas]);
+
         // Return clone
         return new DiagramViewFile(
             this.factory,
             {
-                schema  : this.factory.id,
-                theme   : this.factory.theme.id,
-                objects : DiagramObjectSerializer.exportObjects([canvas]),
-                layout  : layout,
-                camera  : { ...this.camera }
+                schema      : this.factory.id,
+                theme       : this.factory.theme.id,
+                objects     : DiagramObjectSerializer.exportObjects([canvas]),
+                layout      : layout,
+                groupBounds : groupBounds,
+                camera      : { ...this.camera }
             }
         );
 
@@ -138,11 +155,12 @@ export class DiagramViewFile extends DiagramModelFile {
     public toExport(): DiagramViewExport {
         const model = super.toExport();
         return {
-            schema  : model.schema,
-            theme   : this.factory.theme.id,
-            objects : model.objects,
-            layout  : ManualLayoutEngine.generatePositionMap([this.canvas]),
-            camera  : this.camera
+            schema      : model.schema,
+            theme       : this.factory.theme.id,
+            objects     : model.objects,
+            layout      : ManualLayoutEngine.generatePositionMap([this.canvas]),
+            groupBounds : GroupBoundsEngine.generateGroupBoundsMap([this.canvas]),
+            camera      : this.camera
         };
     }
 

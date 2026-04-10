@@ -399,7 +399,7 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     object.replaceFace(face);
                     break;
                 case FaceType.Group:
-                    face = new GroupFace();
+                    face = (object.face as GroupFace).clone();
                     object.replaceFace(face);
                     break;
                 case FaceType.LineGridCanvas:
