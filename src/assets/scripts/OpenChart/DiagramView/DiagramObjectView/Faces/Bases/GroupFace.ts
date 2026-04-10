@@ -5,6 +5,21 @@ import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
 import type { DiagramObjectView, GroupView } from "../../Views";
 
+/**
+ * Default half-width of an empty group (in diagram units).
+ */
+const DEFAULT_HW = 150;
+
+/**
+ * Default half-height of an empty group (in diagram units).
+ */
+const DEFAULT_HH = 100;
+
+/**
+ * Padding added around children when the group has members.
+ */
+const CHILD_PADDING = 20;
+
 export class GroupFace extends DiagramFace {
 
     /**
@@ -12,12 +27,22 @@ export class GroupFace extends DiagramFace {
      */
     declare protected view: GroupView;
 
+    /**
+     * Stored center x — used when the group is empty.
+     */
+    private _x: number = 0;
+
+    /**
+     * Stored center y — used when the group is empty.
+     */
+    private _y: number = 0;
+
 
     /**
      * Whether view's position has been set by the user.
      * @remarks
-     *  The position of a group is always defined by its children. Its position
-     *  cannot be "set" by the user.
+     *  The position of a group is always defined by its children (or by the
+     *  explicit stored position when empty). It cannot be "set" by the user.
      */
     public get userSetPosition(): number  {
         return PositionSetByUser.False;
@@ -25,9 +50,6 @@ export class GroupFace extends DiagramFace {
 
     /**
      * Whether view's position has been set by the user.
-     * @remarks
-     *  The position of a group is always defined by its children. Its position
-     *  cannot be "set" by the user.
      */
     public set userSetPosition(value: number) {}
 
@@ -84,6 +106,9 @@ export class GroupFace extends DiagramFace {
      *  The change in y.
      */
     public moveBy(dx: number, dy: number): void {
+        // Update stored center
+        this._x += dx;
+        this._y += dy;
         // Move children
         for (const object of this.view.objects) {
             object.face.moveBy(dx, dy);
@@ -104,14 +129,28 @@ export class GroupFace extends DiagramFace {
      *  True if the layout changed, false otherwise.
      */
     public calculateLayout(): boolean {
-        // Calculate bounding box
-        this.calculateBoundingBoxFromViews(this.view.objects);
-        // Update relative location
-        this.boundingBox.x = this.boundingBox.xMid;
-        this.boundingBox.y = this.boundingBox.yMid;
+        const objects = [...this.view.objects];
+        if (objects.length === 0) {
+            // Empty group: use stored position with default dimensions
+            this.boundingBox.xMin = this._x - DEFAULT_HW;
+            this.boundingBox.yMin = this._y - DEFAULT_HH;
+            this.boundingBox.xMax = this._x + DEFAULT_HW;
+            this.boundingBox.yMax = this._y + DEFAULT_HH;
+        } else {
+            // Has children: derive bounds from them, with padding
+            this.calculateBoundingBoxFromViews(objects);
+            this.boundingBox.xMin -= CHILD_PADDING;
+            this.boundingBox.yMin -= CHILD_PADDING;
+            this.boundingBox.xMax += CHILD_PADDING;
+            this.boundingBox.yMax += CHILD_PADDING;
+            // Keep stored position in sync with children's center
+            this._x = this.boundingBox.xMid;
+            this._y = this.boundingBox.yMid;
+        }
+        this.boundingBox.x = this._x;
+        this.boundingBox.y = this._y;
         return true;
     }
-
 
 
     /**
@@ -130,6 +169,42 @@ export class GroupFace extends DiagramFace {
         if (!this.isVisible(region)) {
             return;
         }
+        const { xMin, yMin, xMax, yMax } = this.boundingBox;
+        const w = xMax - xMin;
+        const h = yMax - yMin;
+
+        // Draw body
+        ctx.save();
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]);
+        if (this.view.focused) {
+            // Selected: filled + bright animated border (marching-ants via SelectionAnimation)
+            ctx.fillStyle = "rgba(99, 102, 241, 0.08)";
+            ctx.strokeStyle = "rgba(99, 102, 241, 0.9)";
+            ctx.fillRect(xMin, yMin, w, h);
+        } else {
+            // Idle: no fill, faint static border so it doesn't look like a selection
+            ctx.strokeStyle = "rgba(99, 102, 241, 0.35)";
+            ctx.lineDashOffset = 0; // Prevent global animation offset from animating idle boundaries
+        }
+        ctx.strokeRect(xMin, yMin, w, h);
+        ctx.restore();
+
+        // Draw label in the top-left corner if the group has a name
+        const label = this.view.properties.isDefined()
+            ? this.view.properties.toString()
+            : "";
+        if (label) {
+            ctx.save();
+            ctx.font = "bold 13px sans-serif";
+            ctx.fillStyle = this.view.focused
+                ? "rgba(99, 102, 241, 0.9)"
+                : "rgba(99, 102, 241, 0.55)";
+            ctx.fillText(label, xMin + 8, yMin + 18);
+            ctx.restore();
+        }
+
+        // Render child objects
         for (const obj of this.view.objects) {
             obj.renderTo(ctx, region, settings);
         }
@@ -166,7 +241,10 @@ export class GroupFace extends DiagramFace {
      *  A clone of the face.
      */
     public clone(): GroupFace {
-        return new GroupFace();
+        const clone = new GroupFace();
+        clone._x = this._x;
+        clone._y = this._y;
+        return clone;
     }
 
 }

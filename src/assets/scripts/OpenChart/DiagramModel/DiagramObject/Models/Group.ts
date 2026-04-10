@@ -9,6 +9,11 @@ import type { RootProperty } from "../Property";
 export class Group extends DiagramObject {
 
     /**
+     * The group's (internal) nested groups.
+     */
+    protected _groups: Group[];
+
+    /**
      * The group's (internal) blocks.
      */
     protected _blocks: Block[];
@@ -18,6 +23,13 @@ export class Group extends DiagramObject {
      */
     protected _lines: Line[];
 
+
+    /**
+     * The group's nested groups.
+     */
+    public get groups(): ReadonlyArray<Group> {
+        return this._groups;
+    }
 
     /**
      * The group's blocks.
@@ -59,6 +71,7 @@ export class Group extends DiagramObject {
         properties: RootProperty
     ) {
         super(id, instance, attributes, properties);
+        this._groups = [];
         this._blocks = [];
         this._lines = [];
     }
@@ -71,6 +84,9 @@ export class Group extends DiagramObject {
      */
     private *getObjects(): Generator<DiagramObject> {
         let i;
+        for (i = 0; i < this._groups.length; i++) {
+            yield this._groups[i];
+        }
         for (i = 0; i < this._lines.length; i++) {
             yield this._lines[i];
         }
@@ -93,8 +109,14 @@ export class Group extends DiagramObject {
      *  The child's index.
      */
     public getObjectIndex(child: DiagramObject): number {
-        const list = child instanceof Line ? this._lines : this._blocks;
-        return list.findIndex(o => o.instance === child.instance);
+        if (child instanceof Line) {
+            return this._lines.findIndex(o => o.instance === child.instance);
+        } else if (child instanceof Block) {
+            return this._blocks.findIndex(o => o.instance === child.instance);
+        } else if (child instanceof Group) {
+            return this._groups.findIndex(o => o.instance === child.instance);
+        }
+        return -1;
     }
 
     /**
@@ -118,6 +140,9 @@ export class Group extends DiagramObject {
         } else if (child instanceof Block) {
             index ??= this._blocks.length;
             this._blocks.splice(index, 0, child);
+        } else if (child instanceof Group) {
+            index ??= this._groups.length;
+            this._groups.splice(index, 0, child);
         } else {
             throw new Error(`Groups cannot contain '${child.constructor.name}'.`);
         }
@@ -146,8 +171,13 @@ export class Group extends DiagramObject {
         // Remove child
         const index = this.getObjectIndex(child);
         if (index !== -1) {
-            const list = child instanceof Line ? this._lines : this._blocks;
-            list.splice(index, 1);
+            if (child instanceof Line) {
+                this._lines.splice(index, 1);
+            } else if (child instanceof Block) {
+                this._blocks.splice(index, 1);
+            } else if (child instanceof Group) {
+                this._groups.splice(index, 1);
+            }
         } else {
             return index;
         }
@@ -230,6 +260,14 @@ export class Group extends DiagramObject {
         match?: (obj: DiagramObject) => boolean
     ): T {
         const anchorMap = new Map<string, Anchor>();
+        // Clone nested groups
+        for (const group of this._groups) {
+            if (match && !match(group)) {
+                continue;
+            }
+            const clone = group.clone(undefined, instanceMap);
+            object.addObject(clone);
+        }
         // Clone blocks
         for (const block of this.blocks) {
             if (match && !match(block)) {

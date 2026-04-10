@@ -71,18 +71,7 @@ const DfdObjects = {
         style: DarkStyle.Line()
     },
     trust_boundary: {
-        type: FaceType.Group,
-        style: {
-            head: {
-                fill_color: "#374151",
-                text_color: "#e5e7eb"
-            },
-            body: {
-                fill_color: "rgba(99, 102, 241, 0.08)",
-                stroke_color: "rgba(99, 102, 241, 0.5)",
-                stroke_width: 2
-            }
-        }
+        type: FaceType.Group
     }
 };
 

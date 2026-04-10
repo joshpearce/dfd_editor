@@ -4,6 +4,7 @@ import { ViewUpdateReason } from "../ViewUpdateReason";
 import { Canvas, DiagramObject, RootProperty } from "@OpenChart/DiagramModel";
 import type { LineView } from "./LineView";
 import type { BlockView } from "./BlockView";
+import type { GroupView } from "./GroupView";
 import type { ViewObject } from "../ViewObject";
 import type { ViewportRegion } from "../ViewportRegion";
 import type { RenderSettings } from "../RenderSettings";
@@ -34,6 +35,11 @@ export class CanvasView extends Canvas implements ViewObject {
      * The object's (internal) parent.
      */
     declare protected _parent: DiagramObjectView | null;
+
+    /**
+     * The canvas's (internal) nested groups.
+     */
+    declare protected _groups: GroupView[];
 
     /**
      * The canvas's (internal) blocks.

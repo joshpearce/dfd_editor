@@ -3,7 +3,7 @@ import { Crypto, wasHotkeyActive } from "@OpenChart/Utilities";
 import { findImplicitSelection, traverse } from "@OpenChart/DiagramModel";
 import { BlockMover, GenericMover, LatchMover } from "./ObjectMovers";
 import { Cursor, DiagramInterfacePlugin, SubjectTrack } from "@OpenChart/DiagramInterface";
-import { AnchorView, BlockView, HandleView, LatchView, LineView, Orientation } from "@OpenChart/DiagramView";
+import { AnchorView, BlockView, GroupView, HandleView, LatchView, LineView, Orientation } from "@OpenChart/DiagramView";
 import type { CursorMap } from "./CursorMap";
 import type { ObjectMover } from "./ObjectMovers";
 import type { CommandExecutor } from "./CommandExecutor";
@@ -19,6 +19,7 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
     private static CursorMap: CursorMap = {
         [LineView.name]   : () => Cursor.Move,
         [BlockView.name]  : () => Cursor.Move,
+        [GroupView.name]  : () => Cursor.Move,
         [LatchView.name]  : () => Cursor.Pointer,
         [AnchorView.name] : () => Cursor.Default,
         [HandleView.name] : (o) => {
@@ -123,16 +124,21 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      *  The topmost object.
      */
     protected smartHover(x: number, y: number, _event: MouseEvent): DiagramObjectView | undefined {
-        const lines = this.editor.file.canvas.lines;
-        const blocks = this.editor.file.canvas.blocks;
+        const { lines, blocks, groups } = this.editor.file.canvas;
         let object: DiagramObjectView | undefined;
-        // Evaluate blocks first
+        // Evaluate direct canvas blocks first (highest priority)
         for (let i = blocks.length - 1; 0 <= i; i--) {
             if (object = blocks[i].getObjectAt(x, y)) {
                 return object;
             }
         }
-        // Evaluate lines second
+        // Evaluate groups (also searches their child blocks/lines)
+        for (let i = groups.length - 1; 0 <= i; i--) {
+            if (object = groups[i].getObjectAt(x, y)) {
+                return object;
+            }
+        }
+        // Evaluate lines last
         for (let i = lines.length - 1; 0 <= i; i--) {
             if (object = lines[i].getObjectAt(x, y)) {
                 return object;
@@ -176,6 +182,8 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
             this.mover = this.handleAnchor(execute, this.selection, event);
         } else if (this.selection instanceof BlockView) {
             this.mover = this.handleBlock(execute, this.selection, event);
+        } else if (this.selection instanceof GroupView) {
+            this.mover = this.handleGroup(execute, this.selection, event);
         } else if (this.selection instanceof HandleView) {
             this.mover = this.handleHandle(execute, this.selection, event);
         } else if (this.selection instanceof LatchView) {
@@ -335,6 +343,24 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
         o = findImplicitSelection(o) as DiagramObjectView[];
         // Return mover
         return new GenericMover(this, execute, o);
+    }
+
+    /**
+     * Handles a group selection.
+     * @param execute
+     *  The current command executor.
+     * @param group
+     *  The selected group.
+     * @param event
+     *  The select event.
+     * @returns
+     *  The group's mover.
+     */
+    private handleGroup(
+        execute: CommandExecutor, group: GroupView, event: MouseEvent
+    ): ObjectMover {
+        this.select(execute, group, event);
+        return new GenericMover(this, execute, [group]);
     }
 
     /**

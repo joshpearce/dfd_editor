@@ -50,7 +50,10 @@ export function unselectAllObjects(
 ): SynchronousEditorCommand {
     const canvas = editor.file.canvas;
     const cmd = new GroupCommand();
-    cmd.do(new SelectObjects([...canvas.objects], false));
+    // traverse() walks the full tree (including blocks nested inside groups).
+    // canvas.objects only yields direct children, so objects inside groups
+    // would never be deselected without this.
+    cmd.do(new SelectObjects([...traverse(canvas)], false));
     cmd.do(new StopContinuousAnimation(editor.interface, SelectionAnimation));
     return cmd;
 }

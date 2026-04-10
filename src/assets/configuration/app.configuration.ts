@@ -4,7 +4,7 @@ import DfdFilePreprocessor from "./DfdFilePreprocessor/DfdFilePreprocessor";
 import DfdCommandProcessor from "./DfdCommandProcessor/DfdCommandProcessor";
 import { DarkTheme } from "./DfdThemes/DarkTheme";
 import { LightTheme } from "./DfdThemes/LightTheme";
-import { DfdCanvas, DfdObjects } from "./DfdTemplates";
+import { DfdCanvas, DfdObjects, BaseTemplates } from "./DfdTemplates";
 import type { AppConfiguration } from "../scripts/Application";
 
 const configuration: AppConfiguration = {
@@ -62,6 +62,7 @@ const configuration: AppConfiguration = {
         id: "dfd_v1",
         canvas: DfdCanvas,
         templates: [
+            ...BaseTemplates,
             ...DfdObjects
         ]
     },

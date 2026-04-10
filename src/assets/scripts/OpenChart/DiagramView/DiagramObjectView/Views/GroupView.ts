@@ -36,6 +36,11 @@ export class GroupView extends Group implements ViewObject {
     declare protected _parent: DiagramObjectView | null;
 
     /**
+     * The group's (internal) nested groups.
+     */
+    declare protected _groups: GroupView[];
+
+    /**
      * The group's (internal) blocks.
      */
     declare protected _blocks: BlockView[];
@@ -50,6 +55,13 @@ export class GroupView extends Group implements ViewObject {
      */
     public get parent(): DiagramObjectView | null {
         return this._parent;
+    }
+
+    /**
+     * The group's nested groups.
+     */
+    public get groups(): ReadonlyArray<GroupView> {
+        return this._groups;
     }
 
     /**

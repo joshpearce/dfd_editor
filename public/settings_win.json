@@ -7,7 +7,7 @@
     },
     "edit": {
         "clone_offset": [4, 4],
-        "anchor_line_template": "dynamic_line"
+        "anchor_line_template": "data_flow"
     },
     "view": {
         "diagram": {

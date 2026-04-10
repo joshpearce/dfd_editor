@@ -2,7 +2,7 @@ import * as EditorCommands from "../../../Commands";
 import { LineView } from "@OpenChart/DiagramView";
 import { ObjectMover } from "./ObjectMover";
 import { Alignment, BoundingBox, CanvasView, GroupView } from "@OpenChart/DiagramView";
-import type { BlockView } from "@OpenChart/DiagramView";
+import type { BlockView, DiagramObjectView } from "@OpenChart/DiagramView";
 import type { SubjectTrack } from "@OpenChart/DiagramInterface";
 import type { PowerEditPlugin } from "../PowerEditPlugin";
 import type { CommandExecutor } from "../CommandExecutor";
@@ -24,6 +24,18 @@ export class BlockMover extends ObjectMover {
      */
     private lines: Map<string, LineView>;
 
+    /**
+     * The group the block belonged to at drag start, if any.
+     */
+    private dragSourceGroup: GroupView | null;
+
+    /**
+     * Snapshot of the drag-source group's bounding box at drag start.
+     * The group's live bbox follows the block, so we must snapshot it before
+     * any movement to reliably detect when the block has left the group.
+     */
+    private dragSourceGroupBox: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
+
 
     /**
      * Creates a new {@link ObjectMover}.
@@ -43,13 +55,24 @@ export class BlockMover extends ObjectMover {
         this.lines = new Map();
         this.block = block;
         this.alignment = block.alignment;
+        this.dragSourceGroup = null;
+        this.dragSourceGroupBox = null;
     }
 
 
     /**
      * Captures the subject.
      */
-    public captureSubject(): void {}
+    public captureSubject(): void {
+        if (this.block.parent instanceof GroupView) {
+            this.dragSourceGroup = this.block.parent;
+            const bb = this.block.parent.face.boundingBox;
+            this.dragSourceGroupBox = {
+                xMin: bb.xMin, yMin: bb.yMin,
+                xMax: bb.xMax, yMax: bb.yMax
+            };
+        }
+    }
 
     /**
      * Moves the subject.
@@ -59,7 +82,8 @@ export class BlockMover extends ObjectMover {
     public moveSubject(track: SubjectTrack): void {
         const editor = this.plugin.editor;
         const canvas = editor.file.canvas;
-        const { moveObjectsBy, userSetObjectPosition } = EditorCommands;
+        const { moveObjectsBy, userSetObjectPosition,
+                addObjectToGroup, removeObjectFromGroup } = EditorCommands;
         // Get distance
         let delta;
         if (this.alignment === Alignment.Grid) {
@@ -73,6 +97,20 @@ export class BlockMover extends ObjectMover {
                 this.execute(userSetObjectPosition(this.block));
             }
             this.execute(moveObjectsBy(this.block, ...delta));
+        }
+        // If block was inside a group, check immediately whether it has left the
+        // group's original territory. Transfer to canvas root as soon as it does,
+        // so the group stops visually following the block during the drag.
+        if (this.dragSourceGroup && this.dragSourceGroupBox) {
+            const bx = this.block.x;
+            const by = this.block.y;
+            const { xMin, yMin, xMax, yMax } = this.dragSourceGroupBox;
+            if (bx < xMin || bx > xMax || by < yMin || by > yMax) {
+                this.execute(removeObjectFromGroup([this.block]));
+                this.execute(addObjectToGroup(this.block, canvas));
+                this.dragSourceGroup = null;
+                this.dragSourceGroupBox = null;
+            }
         }
         // Update overlap
         this.updateOverlap(canvas);
@@ -129,7 +167,8 @@ export class BlockMover extends ObjectMover {
      * Releases the subject from movement.
      */
     public releaseSubject(): void {
-        const { routeLinesThroughBlock, selectObject, unselectAllObjects } = EditorCommands;
+        const { routeLinesThroughBlock, selectObject, unselectAllObjects,
+                addObjectToGroup, removeObjectFromGroup } = EditorCommands;
         const editor = this.plugin.editor;
         const canvas = editor.file.canvas;
         const block = this.block;
@@ -138,6 +177,18 @@ export class BlockMover extends ObjectMover {
             this.execute(routeLinesThroughBlock(canvas, block, lines));
             this.execute(unselectAllObjects(editor));
             this.execute(selectObject(editor, this.block));
+        }
+        const bx = block.x;
+        const by = block.y;
+        if (block.parent === canvas) {
+            // Check if the block was dropped INTO a group
+            for (const group of canvas.groups) {
+                if (group.face.boundingBox.contains(bx, by)) {
+                    this.execute(removeObjectFromGroup([block]));
+                    this.execute(addObjectToGroup(block, group));
+                    break;
+                }
+            }
         }
     }
 
