@@ -8,17 +8,17 @@ import type { DiagramObjectView, GroupView } from "../../Views";
 /**
  * Default half-width of a fresh group (in diagram units).
  */
-const DEFAULT_HW = 150;
+export const DEFAULT_HW = 150;
 
 /**
  * Default half-height of a fresh group (in diagram units).
  */
-const DEFAULT_HH = 100;
+export const DEFAULT_HH = 100;
 
 /**
  * Padding added around children when growing the group to contain them.
  */
-const CHILD_PADDING = 20;
+export const CHILD_PADDING = 20;
 
 /**
  * Absolute minimum width/height the group is allowed to shrink to, in
@@ -29,7 +29,7 @@ const MIN_SIZE = 60;
 /**
  * Width of the outer hit halo for resize detection (in diagram units).
  */
-const RESIZE_HALO = 12;
+export const RESIZE_HALO = 12;
 
 /**
  * Identifies which edge (or corner) of a group face is being resized.

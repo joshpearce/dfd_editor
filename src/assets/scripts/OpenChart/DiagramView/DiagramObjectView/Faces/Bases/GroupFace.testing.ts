@@ -1,8 +1,8 @@
 /**
- * @file GroupTestFixture.ts
+ * @file GroupFace.testing.ts
  *
  * Test-only fixture helpers for GroupFace and GroupView unit tests.
- * NOT production code — do not import from production barrels (index.ts).
+ * NOT production code — do not add to any production barrel (index.ts).
  * Import via direct relative path from spec files only.
  *
  * Reused by:
@@ -15,11 +15,12 @@ import {
     Alignment, BlockView, DiagramObjectViewFactory, FaceType,
     GroupView, Orientation
 } from "@OpenChart/DiagramView";
-import { sampleSchema } from "../../../../DiagramModel/DiagramModel.spec";
+import { sampleSchema } from "../../../../DiagramModel/DiagramModel.fixture";
 import { DiagramObjectType } from "@OpenChart/DiagramModel";
 import type { DiagramObjectView } from "@OpenChart/DiagramView";
 import type { DiagramThemeConfiguration } from "@OpenChart/ThemeLoader";
 import type { DiagramSchemaConfiguration } from "@OpenChart/DiagramModel";
+import type { CanvasView, DiagramTheme } from "@OpenChart/DiagramView";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -115,7 +116,7 @@ export async function createGroupTestingFactory(): Promise<DiagramObjectViewFact
  * Exported so callers that need a loaded {@link DiagramTheme} (e.g. for
  * `DiagramViewFile.applyTheme`) can obtain it without re-defining the config.
  */
-export async function loadGroupTheme() {
+export async function loadGroupTheme(): Promise<DiagramTheme> {
     return ThemeLoader.load(groupTheme);
 }
 
@@ -191,7 +192,7 @@ export function makeGroupWithChildren(
  * @returns The matching {@link GroupView}, or `undefined` if not found.
  */
 export function findGroupViewByInstance(
-    root: { groups: ReadonlyArray<unknown> },
+    root: CanvasView | GroupView,
     instance: string
 ): GroupView | undefined {
     const groups = root.groups as ReadonlyArray<GroupView>;

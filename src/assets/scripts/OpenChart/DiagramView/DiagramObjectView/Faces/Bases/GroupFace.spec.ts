@@ -12,28 +12,21 @@
  * @see {@link GroupFace}
  */
 
-import { describe, it, expect } from "vitest";
-import { AnchorView, BlockView, GroupView, ResizeEdge } from "@OpenChart/DiagramView";
+import { beforeAll, describe, it, expect } from "vitest";
+import { AnchorView, GroupView, ResizeEdge } from "@OpenChart/DiagramView";
+import {
+    DEFAULT_HW,
+    DEFAULT_HH,
+    CHILD_PADDING,
+    RESIZE_HALO
+} from "./GroupFace";
 import {
     createGroupTestingFactory,
     makeGroupView,
     makeBlockView,
     makeGroupWithChildren
-} from "./GroupTestFixture";
-
-
-///////////////////////////////////////////////////////////////////////////////
-//  Shared constants (mirror GroupFace.ts private values)                   ///
-///////////////////////////////////////////////////////////////////////////////
-
-/** Default half-width of a fresh group, from GroupFace.ts:11 */
-const DEFAULT_HW = 150;
-/** Default half-height of a fresh group, from GroupFace.ts:16 */
-const DEFAULT_HH = 100;
-/** Padding added around children when auto-growing, from GroupFace.ts:22 */
-const CHILD_PADDING = 20;
-/** Width of the outer hit halo for resize detection, from GroupFace.ts:33 */
-const RESIZE_HALO = 12;
+} from "./GroupFace.testing";
+import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -43,14 +36,14 @@ const RESIZE_HALO = 12;
 
 describe("GroupFace", () => {
 
-    // -------------------------------------------------------------------------
-    //  Factory setup — one factory per describe block to avoid repeated awaits
-    // -------------------------------------------------------------------------
+    let factory: DiagramObjectViewFactory;
+    beforeAll(async () => {
+        factory = await createGroupTestingFactory();
+    });
 
     describe("calculateLayout", () => {
 
-        it("returns default bounds when group has no children", async () => {
-            const factory = await createGroupTestingFactory();
+        it("returns default bounds when group has no children", () => {
             const group = makeGroupWithChildren(factory, []);
 
             const [xMin, yMin, xMax, yMax] = group.face.userBounds;
@@ -66,9 +59,7 @@ describe("GroupFace", () => {
             expect(bb.yMax).toBe(DEFAULT_HH);
         });
 
-        it("grows userBounds when a child overflows, and bounds are stable across repeated calls", async () => {
-            const factory = await createGroupTestingFactory();
-
+        it("grows userBounds when a child overflows, and bounds are stable across repeated calls", () => {
             // Use a nested GroupView as the child so the child's bounding box is
             // fully deterministic (controlled via setBounds).
             //
@@ -101,8 +92,7 @@ describe("GroupFace", () => {
 
     describe("resizeBy", () => {
 
-        it("W edge +20 shifts xMin forward by 20 (no clamping)", async () => {
-            const factory = await createGroupTestingFactory();
+        it("W edge +20 shifts xMin forward by 20 (no clamping)", () => {
             const group = makeGroupWithChildren(factory, []);
             // Default xMin = -150.  Moving W by +20 means xMin → -130.
             // Ceiling = min(xMax - MIN_SIZE, Infinity) = min(150 - 60, ∞) = 90.
@@ -114,9 +104,7 @@ describe("GroupFace", () => {
             expect(xMin).toBe(-DEFAULT_HW + 20);
         });
 
-        it("E edge -200 clamps at children floor + CHILD_PADDING (not MIN_SIZE floor)", async () => {
-            const factory = await createGroupTestingFactory();
-
+        it("E edge -200 clamps at children floor + CHILD_PADDING (not MIN_SIZE floor)", () => {
             // Child bounding box: xMin=50, yMin=-30, xMax=100, yMax=30
             // xMaxFloor = 100 + CHILD_PADDING = 120
             // MIN_SIZE floor = xMin + MIN_SIZE = -150 + 60 = -90
@@ -143,8 +131,7 @@ describe("GroupFace", () => {
             expect(xMax).toBe(expectedXMax);
         });
 
-        it("NW corner shifts both xMin and yMin without clamping", async () => {
-            const factory = await createGroupTestingFactory();
+        it("NW corner shifts both xMin and yMin without clamping", () => {
             const group = makeGroupWithChildren(factory, []);
 
             const [appliedDx, appliedDy] = group.face.resizeBy(ResizeEdge.NW, -30, -40);
@@ -156,33 +143,65 @@ describe("GroupFace", () => {
             expect(yMin).toBe(-DEFAULT_HH - 40);
         });
 
+        it("N edge +big_dy clamps yMin at childYMin - CHILD_PADDING", () => {
+            // Child bounding box: xMin=-30, yMin=-50, xMax=30, yMax=50
+            // yMinCeiling = -50 - CHILD_PADDING = -70  (wait: yMinCeiling = childYMin - CHILD_PADDING)
+            // Actually per GroupFace.resizeBy:
+            //   yMinCeiling = childYMin - CHILD_PADDING = -50 - 20 = -70
+            //   ceiling = min(yMax - MIN_SIZE, yMinCeiling) = min(100 - 60, -70) = min(40, -70) = -70
+            //   target = -100 + 500 = 400
+            //   clamped = min(400, -70) = -70
+            //   appliedDy = -70 - (-100) = 30  (shrink north side by 30)
+            const childBounds: [number, number, number, number] = [-30, -50, 30, 50];
+            const child = makeGroupWithChildren(factory, [], childBounds);
+            const group = makeGroupWithChildren(factory, [child]);
+
+            // Reset to predictable starting state: default bounds
+            group.face.setBounds(-DEFAULT_HW, -DEFAULT_HH, DEFAULT_HW, DEFAULT_HH);
+
+            const bigDy = 500; // try to shrink the north edge way inward
+            const [appliedDx, appliedDy] = group.face.resizeBy(ResizeEdge.N, 0, bigDy);
+            expect(appliedDx).toBe(0);
+
+            // The N clamp must stop at childYMin - CHILD_PADDING = -50 - 20 = -70
+            const expectedYMin = childBounds[1] - CHILD_PADDING; // -70
+            const [, yMin] = group.face.userBounds;
+            expect(yMin).toBe(expectedYMin);
+            // appliedDy = expectedYMin - (-DEFAULT_HH) = -70 - (-100) = 30
+            expect(appliedDy).toBe(expectedYMin - (-DEFAULT_HH));
+        });
+
     });
 
     describe("getResizeEdgeAt", () => {
 
-        it("classifies all 8 edges, interior, and outside-halo correctly", async () => {
-            const factory = await createGroupTestingFactory();
+        it("classifies all 8 edges, interior, and outside-halo correctly", () => {
             const group = makeGroupWithChildren(factory, []);
 
-            // Default group: [-150, -100, 150, 100], halo = 12
+            // Default group: [-DEFAULT_HW, -DEFAULT_HH, DEFAULT_HW, DEFAULT_HH]
+            // halo = RESIZE_HALO
             const face = group.face;
 
             // Interior — well inside the bounding box, no edge
             expect(face.getResizeEdgeAt(0, 0)).toBe(ResizeEdge.None);
 
             // Cardinal edges — just outside the box but within the halo
-            expect(face.getResizeEdgeAt(-156, 0)).toBe(ResizeEdge.W);
-            expect(face.getResizeEdgeAt(156, 0)).toBe(ResizeEdge.E);
-            expect(face.getResizeEdgeAt(0, -106)).toBe(ResizeEdge.N);
-            expect(face.getResizeEdgeAt(0, 106)).toBe(ResizeEdge.S);
+            // West: x = -DEFAULT_HW - RESIZE_HALO/2, y = 0
+            expect(face.getResizeEdgeAt(-DEFAULT_HW - RESIZE_HALO / 2, 0)).toBe(ResizeEdge.W);
+            // East: x = DEFAULT_HW + RESIZE_HALO/2, y = 0
+            expect(face.getResizeEdgeAt(DEFAULT_HW + RESIZE_HALO / 2, 0)).toBe(ResizeEdge.E);
+            // North: x = 0, y = -DEFAULT_HH - RESIZE_HALO/2
+            expect(face.getResizeEdgeAt(0, -DEFAULT_HH - RESIZE_HALO / 2)).toBe(ResizeEdge.N);
+            // South: x = 0, y = DEFAULT_HH + RESIZE_HALO/2
+            expect(face.getResizeEdgeAt(0, DEFAULT_HH + RESIZE_HALO / 2)).toBe(ResizeEdge.S);
 
             // Corners — just outside both axes
-            expect(face.getResizeEdgeAt(-156, -106)).toBe(ResizeEdge.NW);
-            expect(face.getResizeEdgeAt(156, -106)).toBe(ResizeEdge.NE);
-            expect(face.getResizeEdgeAt(-156, 106)).toBe(ResizeEdge.SW);
-            expect(face.getResizeEdgeAt(156, 106)).toBe(ResizeEdge.SE);
+            expect(face.getResizeEdgeAt(-DEFAULT_HW - RESIZE_HALO / 2, -DEFAULT_HH - RESIZE_HALO / 2)).toBe(ResizeEdge.NW);
+            expect(face.getResizeEdgeAt(DEFAULT_HW + RESIZE_HALO / 2, -DEFAULT_HH - RESIZE_HALO / 2)).toBe(ResizeEdge.NE);
+            expect(face.getResizeEdgeAt(-DEFAULT_HW - RESIZE_HALO / 2, DEFAULT_HH + RESIZE_HALO / 2)).toBe(ResizeEdge.SW);
+            expect(face.getResizeEdgeAt(DEFAULT_HW + RESIZE_HALO / 2, DEFAULT_HH + RESIZE_HALO / 2)).toBe(ResizeEdge.SE);
 
-            // Far outside the halo — must return None (halo = 12, so at -163 we're beyond it)
+            // Far outside the halo — must return None
             expect(face.getResizeEdgeAt(-DEFAULT_HW - RESIZE_HALO - 1, 0)).toBe(ResizeEdge.None);
         });
 
@@ -190,9 +209,7 @@ describe("GroupFace", () => {
 
     describe("moveBy", () => {
 
-        it("shifts group bounds and child positions together", async () => {
-            const factory = await createGroupTestingFactory();
-
+        it("shifts group bounds, boundingBox, and child positions together", () => {
             const child = makeBlockView(factory);
             child.moveTo(50, 50);
             const initialChildX = child.x;
@@ -212,14 +229,22 @@ describe("GroupFace", () => {
             // Child must also have moved by the same delta
             expect(child.x).toBeCloseTo(initialChildX + 30, 5);
             expect(child.y).toBeCloseTo(initialChildY + 40, 5);
+
+            // boundingBox must be synced with the shifted user bounds
+            const bb = group.face.boundingBox;
+            expect(bb.xMin).toBe(xMin1);
+            expect(bb.yMin).toBe(yMin1);
+            expect(bb.xMax).toBe(xMax1);
+            expect(bb.yMax).toBe(yMax1);
+            expect(bb.x).toBeCloseTo((xMin1 + xMax1) / 2, 5);
+            expect(bb.y).toBeCloseTo((yMin1 + yMax1) / 2, 5);
         });
 
     });
 
     describe("clone", () => {
 
-        it("copies all four bounds from the source (regression: restyle must not drop bounds)", async () => {
-            const factory = await createGroupTestingFactory();
+        it("copies all four bounds from the source (regression: restyle must not drop bounds)", () => {
             const group = makeGroupWithChildren(factory, []);
 
             // Resize so the bounds differ from the default
@@ -231,8 +256,7 @@ describe("GroupFace", () => {
             expect(cloned.userBounds).toEqual(originalBounds);
         });
 
-        it("clone is independent of the original (mutation does not bleed through)", async () => {
-            const factory = await createGroupTestingFactory();
+        it("clone is independent of the original (mutation does not bleed through)", () => {
             const group = makeGroupWithChildren(factory, []);
             group.face.resizeBy(ResizeEdge.E, 50, 0);
             const boundsBeforeMutation = group.face.userBounds;
@@ -252,8 +276,7 @@ describe("GroupFace", () => {
 
     describe("userBounds getter", () => {
 
-        it("returns a fresh tuple each call (mutating the result must not affect the group)", async () => {
-            const factory = await createGroupTestingFactory();
+        it("returns a fresh tuple each call (mutating the result must not affect the group)", () => {
             const group = makeGroupWithChildren(factory, []);
 
             const bounds1 = group.face.userBounds;
@@ -269,8 +292,7 @@ describe("GroupFace", () => {
 
     describe("setBounds", () => {
 
-        it("syncs boundingBox xMin/yMin/xMax/yMax/x/y immediately", async () => {
-            const factory = await createGroupTestingFactory();
+        it("syncs boundingBox xMin/yMin/xMax/yMax/x/y immediately", () => {
             const group = makeGroupWithChildren(factory, []);
 
             group.face.setBounds(-300, -200, 300, 200);
@@ -290,29 +312,27 @@ describe("GroupFace", () => {
 
     describe("getObjectAt", () => {
 
-        it("returns an object from the child's subtree when the point is inside the child's bounding box", async () => {
-            const factory = await createGroupTestingFactory();
-
+        it("returns an AnchorView belonging to the child block when the point hits the block's center", () => {
+            // In this factory configuration, schema anchor keys ("up"/"left"/…) do not
+            // match AnchorPosition enum keys ("0"/"90"/…), so calculateAnchorPositions
+            // cannot spread the anchors: all four remain at the block's moveTo
+            // coordinate.  BlockFace.getObjectAt tries anchors before returning the
+            // block itself, so probing the block's center always yields an AnchorView.
+            //
+            // The important invariant under test: the returned object belongs to the
+            // child block's subtree, not to a foreign object or the group itself.
             const child = makeBlockView(factory);
             child.moveTo(50, 50);
             const group = makeGroupWithChildren(factory, [child]);
 
-            // Hit the child's center.  GroupFace.getObjectAt delegates to
-            // findUnlinkedObjectAt, which calls child.getObjectAt.  BlockFace
-            // tries anchors first, so the result may be an AnchorView or the
-            // BlockView itself — either way it must NOT be the group, and must
-            // NOT be undefined.
             const hit = group.face.getObjectAt(child.x, child.y);
-            expect(hit).toBeDefined();
-            expect(hit).not.toBeInstanceOf(GroupView);
-            // The result is either the block itself or one of its anchors.
-            const isBlockOrAnchor = hit instanceof BlockView || hit instanceof AnchorView;
-            expect(isBlockOrAnchor).toBe(true);
+            // Must be an anchor (not undefined and not the group)
+            expect(hit).toBeInstanceOf(AnchorView);
+            // The anchor's parent must be the child block (not some other object)
+            expect(hit?.parent).toBe(child);
         });
 
-        it("returns the group itself when the point is inside the group but not inside any child", async () => {
-            const factory = await createGroupTestingFactory();
-
+        it("returns the group itself when the point is inside the group but not inside any child", () => {
             // Child is positioned in one corner; query the opposite corner
             const child = makeBlockView(factory);
             child.moveTo(100, 80);
@@ -323,11 +343,10 @@ describe("GroupFace", () => {
             expect(hit).toBeInstanceOf(GroupView);
         });
 
-        it("returns undefined when the point is outside the group's bounding box", async () => {
-            const factory = await createGroupTestingFactory();
+        it("returns undefined when the point is outside the group's bounding box", () => {
             const group = makeGroupWithChildren(factory, []);
 
-            // Default bounds are [-150,-100,150,100]; query outside those
+            // Default bounds are [-DEFAULT_HW,-DEFAULT_HH,DEFAULT_HW,DEFAULT_HH]
             const hit = group.face.getObjectAt(500, 500);
             expect(hit).toBeUndefined();
         });

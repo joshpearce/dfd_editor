@@ -1,7 +1,7 @@
 import { Font } from "./Utilities";
 import { describe, it, expect } from "vitest";
 import { DarkStyle, ThemeLoader } from "./ThemeLoader";
-import { sampleExport, sampleSchema } from "./DiagramModel/DiagramModel.spec";
+import { sampleExport, sampleSchema } from "./DiagramModel/DiagramModel.fixture";
 import {
     Alignment, AnchorView, BlockView, CanvasView,
     DiagramObjectViewFactory, DiagramViewFile, FaceType,
@@ -16,7 +16,7 @@ import {
     loadGroupTheme,
     makeBlockView,
     makeGroupWithChildren
-} from "./DiagramView/DiagramObjectView/Faces/Bases/GroupTestFixture";
+} from "./DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 
 
 ///////////////////////////////////////////////////////////////////////////////
