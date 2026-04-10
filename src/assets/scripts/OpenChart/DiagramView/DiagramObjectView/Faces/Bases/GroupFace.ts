@@ -105,13 +105,15 @@ export class GroupFace extends DiagramFace {
      * Returns the four user-chosen bound fields as a tuple.
      * @returns
      *  `[xMin, yMin, xMax, yMax]`
+     * @see {@link GroupBoundsMap}
      */
     public get userBounds(): [number, number, number, number] {
         return [this._userXMin, this._userYMin, this._userXMax, this._userYMax];
     }
 
     /**
-     * Directly assigns the four user-chosen bound fields.
+     * Directly assigns the four user-chosen bound fields and syncs the
+     * displayed bounding box.
      * @param xMin
      *  The minimum x coordinate.
      * @param yMin
@@ -121,15 +123,24 @@ export class GroupFace extends DiagramFace {
      * @param yMax
      *  The maximum y coordinate.
      * @remarks
-     *  Low-level setter for the persistence engine. Does not run layout,
-     *  clamp, or move children — call {@link calculateLayout} afterward if
-     *  the bounding box needs to reflect the new values.
+     *  Low-level setter for the persistence engine. Writes the user-chosen
+     *  bounds **and** syncs the displayed bounding box so reads see the
+     *  persisted values immediately. Does not run layout, clamp to children,
+     *  or move children — the persisted four-tuple is the final word.
      */
     public setBounds(xMin: number, yMin: number, xMax: number, yMax: number): void {
         this._userXMin = xMin;
         this._userYMin = yMin;
         this._userXMax = xMax;
         this._userYMax = yMax;
+        // Sync the displayed bounding box directly: persistence is authoritative
+        // and must not be reshaped by calculateLayout's child-expansion logic.
+        this.boundingBox.xMin = xMin;
+        this.boundingBox.yMin = yMin;
+        this.boundingBox.xMax = xMax;
+        this.boundingBox.yMax = yMax;
+        this.boundingBox.x = (xMin + xMax) / 2;
+        this.boundingBox.y = (yMin + yMax) / 2;
     }
 
 

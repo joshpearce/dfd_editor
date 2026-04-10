@@ -1,8 +1,20 @@
 import { traverse } from "@OpenChart/DiagramModel";
 import type { GroupBoundsMap } from "./GroupBoundsMap";
 import { GroupView, type DiagramObjectView } from "../../DiagramObjectView";
+import type { DiagramLayoutEngine } from "../DiagramLayoutEngine";
 
-export class GroupBoundsEngine {
+/**
+ * Persistence engine for user-set group bounds.
+ *
+ * Walks the view tree and either records or restores the
+ * `[xMin, yMin, xMax, yMax]` four-tuple for every {@link GroupView}.
+ * Every group is persisted unconditionally — unlike positions (where
+ * multiple layout engines can compete and a `userSetBy` flag guards
+ * which engine wins), group bounds have a single source of truth: user
+ * resize plus `calculateLayout`'s auto-grow. A flag would be pure
+ * overhead with no correctness benefit.
+ */
+export class GroupBoundsEngine implements DiagramLayoutEngine {
 
     /**
      * The engine's bounds map.
@@ -35,7 +47,6 @@ export class GroupBoundsEngine {
                 continue;
             }
             object.face.setBounds(bounds[0], bounds[1], bounds[2], bounds[3]);
-            object.face.calculateLayout();
         }
     }
 

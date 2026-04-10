@@ -120,17 +120,16 @@ export class DiagramViewFile extends DiagramModelFile {
         // Calculate final layout
         const layout = ManualLayoutEngine.generatePositionMap([canvas]);
 
-        // Apply existing group bounds to clone
+        // Apply existing group bounds to clone.
+        // GroupFace.clone() already copies _user* faithfully, so we only need
+        // to remap instance ids and pass remappedBounds directly — no need to
+        // run the engine on the intermediate canvas and regenerate.
         const existingBounds = GroupBoundsEngine.generateGroupBoundsMap([this.canvas]);
         const remappedBounds = Object.fromEntries(
-            Object.entries(existingBounds).map(
-                ([i, b]) => [instanceMap.get(i)!, b]
-            )
+            Object.entries(existingBounds)
+                .filter(([i]) => instanceMap.has(i))
+                .map(([i, b]) => [instanceMap.get(i)!, b])
         );
-        new GroupBoundsEngine(remappedBounds).run([canvas]);
-
-        // Calculate final group bounds
-        const groupBounds = GroupBoundsEngine.generateGroupBoundsMap([canvas]);
 
         // Return clone
         return new DiagramViewFile(
@@ -140,7 +139,7 @@ export class DiagramViewFile extends DiagramModelFile {
                 theme       : this.factory.theme.id,
                 objects     : DiagramObjectSerializer.exportObjects([canvas]),
                 layout      : layout,
-                groupBounds : groupBounds,
+                groupBounds : remappedBounds,
                 camera      : { ...this.camera }
             }
         );
