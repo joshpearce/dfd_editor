@@ -6,19 +6,49 @@ import type { RenderSettings } from "../../RenderSettings";
 import type { DiagramObjectView, GroupView } from "../../Views";
 
 /**
- * Default half-width of an empty group (in diagram units).
+ * Default half-width of a fresh group (in diagram units).
  */
 const DEFAULT_HW = 150;
 
 /**
- * Default half-height of an empty group (in diagram units).
+ * Default half-height of a fresh group (in diagram units).
  */
 const DEFAULT_HH = 100;
 
 /**
- * Padding added around children when the group has members.
+ * Padding added around children when growing the group to contain them.
  */
 const CHILD_PADDING = 20;
+
+/**
+ * Absolute minimum width/height the group is allowed to shrink to, in
+ * diagram units.
+ */
+const MIN_SIZE = 60;
+
+/**
+ * Width of the outer hit halo for resize detection (in diagram units).
+ */
+const RESIZE_HALO = 12;
+
+/**
+ * Identifies which edge (or corner) of a group face is being resized.
+ * Horizontal and vertical components are independent bitmask bits so corners
+ * are simply `N | E`, `S | W`, and so on.
+ */
+export const ResizeEdge = {
+    None : 0,
+    N    : 1,
+    S    : 2,
+    W    : 4,
+    E    : 8,
+    NW   : 1 | 4,
+    NE   : 1 | 8,
+    SW   : 2 | 4,
+    SE   : 2 | 8
+} as const;
+export type ResizeEdge = typeof ResizeEdge[keyof typeof ResizeEdge];
+
 
 export class GroupFace extends DiagramFace {
 
@@ -28,21 +58,38 @@ export class GroupFace extends DiagramFace {
     declare protected view: GroupView;
 
     /**
-     * Stored center x — used when the group is empty.
+     * The user-chosen minimum x of the group.
      */
-    private _x: number = 0;
+    private _userXMin: number = -DEFAULT_HW;
 
     /**
-     * Stored center y — used when the group is empty.
+     * The user-chosen minimum y of the group.
      */
-    private _y: number = 0;
+    private _userYMin: number = -DEFAULT_HH;
+
+    /**
+     * The user-chosen maximum x of the group.
+     */
+    private _userXMax: number = DEFAULT_HW;
+
+    /**
+     * The user-chosen maximum y of the group.
+     */
+    private _userYMax: number = DEFAULT_HH;
+
+    /**
+     * Which resize edge the cursor is currently hovering, if any. Populated
+     * by the edit plugin during hit testing so the cursor map can read it
+     * back without re-running edge detection.
+     */
+    public hoveredEdge: ResizeEdge = ResizeEdge.None;
 
 
     /**
      * Whether view's position has been set by the user.
      * @remarks
-     *  The position of a group is always defined by its children (or by the
-     *  explicit stored position when empty). It cannot be "set" by the user.
+     *  The group's position lives inside its explicit bounds, not a single
+     *  center point, so the usual `PositionSetByUser` flag does not apply.
      */
     public get userSetPosition(): number  {
         return PositionSetByUser.False;
@@ -92,6 +139,47 @@ export class GroupFace extends DiagramFace {
         }
     }
 
+    /**
+     * Returns the resize edge at the given coordinate, if the coordinate is
+     * inside the outer resize halo.
+     * @param x
+     *  The x coordinate.
+     * @param y
+     *  The y coordinate.
+     * @returns
+     *  The resize edge, or {@link ResizeEdge.None} if the coordinate is not
+     *  on a resize halo.
+     * @remarks
+     *  The hit zone lives just outside the current bounding box so that
+     *  clicks inside the group still fall through to move / child selection.
+     *  Corners are implied by the bitmask: e.g. being in both the west outer
+     *  band and the north outer band yields {@link ResizeEdge.NW}.
+     */
+    public getResizeEdgeAt(x: number, y: number): ResizeEdge {
+        const { xMin, yMin, xMax, yMax } = this.boundingBox;
+        // Reject points that aren't inside the outer halo rectangle.
+        if (x < xMin - RESIZE_HALO || x > xMax + RESIZE_HALO) {
+            return ResizeEdge.None;
+        }
+        if (y < yMin - RESIZE_HALO || y > yMax + RESIZE_HALO) {
+            return ResizeEdge.None;
+        }
+        // Classify each axis independently. A point strictly inside the
+        // bounding box on both axes is not a resize hit.
+        let edge: number = ResizeEdge.None;
+        if (y < yMin) {
+            edge |= ResizeEdge.N;
+        } else if (y > yMax) {
+            edge |= ResizeEdge.S;
+        }
+        if (x < xMin) {
+            edge |= ResizeEdge.W;
+        } else if (x > xMax) {
+            edge |= ResizeEdge.E;
+        }
+        return edge as ResizeEdge;
+    }
+
 
     ///////////////////////////////////////////////////////////////////////////
     //  2. Movement  //////////////////////////////////////////////////////////
@@ -106,15 +194,103 @@ export class GroupFace extends DiagramFace {
      *  The change in y.
      */
     public moveBy(dx: number, dy: number): void {
-        // Update stored center
-        this._x += dx;
-        this._y += dy;
+        // Shift user bounds
+        this._userXMin += dx;
+        this._userYMin += dy;
+        this._userXMax += dx;
+        this._userYMax += dy;
         // Move children
         for (const object of this.view.objects) {
             object.face.moveBy(dx, dy);
         }
         // Recalculate layout
         this.calculateLayout();
+    }
+
+    /**
+     * Resizes the face by shifting the specified edges/corners by the given
+     * delta. Children are not moved.
+     * @param edge
+     *  The edge bitmask to shift.
+     * @param dx
+     *  The desired change in x for west/east edges.
+     * @param dy
+     *  The desired change in y for north/south edges.
+     * @returns
+     *  The actual clamped `[dx, dy]` delta applied. Clamping kicks in when
+     *  the resize would clip an existing child (minus padding) or shrink the
+     *  box below the absolute minimum size.
+     */
+    public resizeBy(edge: ResizeEdge, dx: number, dy: number): [number, number] {
+        // Derive the constraints imposed by existing children. Infinity
+        // sentinels mean "no constraint from this side."
+        let childXMin = Infinity;
+        let childYMin = Infinity;
+        let childXMax = -Infinity;
+        let childYMax = -Infinity;
+        for (const object of this.view.objects) {
+            const bb = object.face.boundingBox;
+            if (bb.xMin < childXMin) {
+                childXMin = bb.xMin;
+            }
+            if (bb.yMin < childYMin) {
+                childYMin = bb.yMin;
+            }
+            if (bb.xMax > childXMax) {
+                childXMax = bb.xMax;
+            }
+            if (bb.yMax > childYMax) {
+                childYMax = bb.yMax;
+            }
+        }
+        const xMinCeiling = Number.isFinite(childXMin)
+            ? childXMin - CHILD_PADDING
+            : Infinity;
+        const yMinCeiling = Number.isFinite(childYMin)
+            ? childYMin - CHILD_PADDING
+            : Infinity;
+        const xMaxFloor = Number.isFinite(childXMax)
+            ? childXMax + CHILD_PADDING
+            : -Infinity;
+        const yMaxFloor = Number.isFinite(childYMax)
+            ? childYMax + CHILD_PADDING
+            : -Infinity;
+
+        let appliedDx = 0;
+        let appliedDy = 0;
+
+        // Horizontal component
+        if (edge & ResizeEdge.W) {
+            const target = this._userXMin + dx;
+            const ceiling = Math.min(this._userXMax - MIN_SIZE, xMinCeiling);
+            const clamped = Math.min(target, ceiling);
+            appliedDx = clamped - this._userXMin;
+            this._userXMin = clamped;
+        } else if (edge & ResizeEdge.E) {
+            const target = this._userXMax + dx;
+            const floor = Math.max(this._userXMin + MIN_SIZE, xMaxFloor);
+            const clamped = Math.max(target, floor);
+            appliedDx = clamped - this._userXMax;
+            this._userXMax = clamped;
+        }
+
+        // Vertical component
+        if (edge & ResizeEdge.N) {
+            const target = this._userYMin + dy;
+            const ceiling = Math.min(this._userYMax - MIN_SIZE, yMinCeiling);
+            const clamped = Math.min(target, ceiling);
+            appliedDy = clamped - this._userYMin;
+            this._userYMin = clamped;
+        } else if (edge & ResizeEdge.S) {
+            const target = this._userYMax + dy;
+            const floor = Math.max(this._userYMin + MIN_SIZE, yMaxFloor);
+            const clamped = Math.max(target, floor);
+            appliedDy = clamped - this._userYMax;
+            this._userYMax = clamped;
+        }
+
+        this.calculateLayout();
+        return [appliedDx, appliedDy];
     }
 
 
@@ -127,28 +303,69 @@ export class GroupFace extends DiagramFace {
      * Calculates the face's layout.
      * @returns
      *  True if the layout changed, false otherwise.
+     * @remarks
+     *  The displayed bounding box is the user-chosen box expanded as needed
+     *  to keep all children inside (with padding). This means child moves
+     *  grow the box automatically, but user resizes never clip children.
+     *  Any growth is written back into the user bounds so subsequent resize
+     *  operations start from the true displayed box.
      */
     public calculateLayout(): boolean {
-        const objects = [...this.view.objects];
-        if (objects.length === 0) {
-            // Empty group: use stored position with default dimensions
-            this.boundingBox.xMin = this._x - DEFAULT_HW;
-            this.boundingBox.yMin = this._y - DEFAULT_HH;
-            this.boundingBox.xMax = this._x + DEFAULT_HW;
-            this.boundingBox.yMax = this._y + DEFAULT_HH;
-        } else {
-            // Has children: derive bounds from them, with padding
-            this.calculateBoundingBoxFromViews(objects);
-            this.boundingBox.xMin -= CHILD_PADDING;
-            this.boundingBox.yMin -= CHILD_PADDING;
-            this.boundingBox.xMax += CHILD_PADDING;
-            this.boundingBox.yMax += CHILD_PADDING;
-            // Keep stored position in sync with children's center
-            this._x = this.boundingBox.xMid;
-            this._y = this.boundingBox.yMid;
+        let xMin = this._userXMin;
+        let yMin = this._userYMin;
+        let xMax = this._userXMax;
+        let yMax = this._userYMax;
+
+        let hasChildren = false;
+        let cXMin = Infinity;
+        let cYMin = Infinity;
+        let cXMax = -Infinity;
+        let cYMax = -Infinity;
+        for (const object of this.view.objects) {
+            hasChildren = true;
+            const bb = object.face.boundingBox;
+            if (bb.xMin < cXMin) {
+                cXMin = bb.xMin;
+            }
+            if (bb.yMin < cYMin) {
+                cYMin = bb.yMin;
+            }
+            if (bb.xMax > cXMax) {
+                cXMax = bb.xMax;
+            }
+            if (bb.yMax > cYMax) {
+                cYMax = bb.yMax;
+            }
         }
-        this.boundingBox.x = this._x;
-        this.boundingBox.y = this._y;
+        if (hasChildren) {
+            const pXMin = cXMin - CHILD_PADDING;
+            const pYMin = cYMin - CHILD_PADDING;
+            const pXMax = cXMax + CHILD_PADDING;
+            const pYMax = cYMax + CHILD_PADDING;
+            if (pXMin < xMin) {
+                xMin = pXMin;
+            }
+            if (pYMin < yMin) {
+                yMin = pYMin;
+            }
+            if (pXMax > xMax) {
+                xMax = pXMax;
+            }
+            if (pYMax > yMax) {
+                yMax = pYMax;
+            }
+            this._userXMin = xMin;
+            this._userYMin = yMin;
+            this._userXMax = xMax;
+            this._userYMax = yMax;
+        }
+
+        this.boundingBox.xMin = xMin;
+        this.boundingBox.yMin = yMin;
+        this.boundingBox.xMax = xMax;
+        this.boundingBox.yMax = yMax;
+        this.boundingBox.x = (xMin + xMax) / 2;
+        this.boundingBox.y = (yMin + yMax) / 2;
         return true;
     }
 
@@ -204,6 +421,30 @@ export class GroupFace extends DiagramFace {
             ctx.restore();
         }
 
+        // Draw resize affordances when focused (8 handles: corners + edge midpoints)
+        if (this.view.focused) {
+            ctx.save();
+            const handleSize = 8;
+            const half = handleSize / 2;
+            const xs = [xMin, (xMin + xMax) / 2, xMax];
+            const ys = [yMin, (yMin + yMax) / 2, yMax];
+            ctx.fillStyle = "rgba(99, 102, 241, 0.95)";
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    if (i === 1 && j === 1) {
+                        continue; // skip center
+                    }
+                    const hx = xs[i];
+                    const hy = ys[j];
+                    ctx.fillRect(hx - half, hy - half, handleSize, handleSize);
+                    ctx.strokeRect(hx - half, hy - half, handleSize, handleSize);
+                }
+            }
+            ctx.restore();
+        }
+
         // Render child objects
         for (const obj of this.view.objects) {
             obj.renderTo(ctx, region, settings);
@@ -242,8 +483,10 @@ export class GroupFace extends DiagramFace {
      */
     public clone(): GroupFace {
         const clone = new GroupFace();
-        clone._x = this._x;
-        clone._y = this._y;
+        clone._userXMin = this._userXMin;
+        clone._userYMin = this._userYMin;
+        clone._userXMax = this._userXMax;
+        clone._userYMax = this._userYMax;
         return clone;
     }
 

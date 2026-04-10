@@ -24,6 +24,8 @@ export enum Cursor {
     W_Resize   = "w-resize",
     EW_Resize  = "ew-resize",
     NS_Resize  = "ns-resize",
+    NESW_Resize = "nesw-resize",
+    NWSE_Resize = "nwse-resize",
     Col_Resize = "col-resize",
     Row_Resize = "row-resize"
 }

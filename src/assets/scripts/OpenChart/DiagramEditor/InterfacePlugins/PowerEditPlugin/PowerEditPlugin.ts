@@ -1,9 +1,9 @@
 import * as EditorCommands from "../../Commands";
 import { Crypto, wasHotkeyActive } from "@OpenChart/Utilities";
 import { findImplicitSelection, traverse } from "@OpenChart/DiagramModel";
-import { BlockMover, GenericMover, LatchMover } from "./ObjectMovers";
+import { BlockMover, GenericMover, GroupResizeMover, LatchMover } from "./ObjectMovers";
 import { Cursor, DiagramInterfacePlugin, SubjectTrack } from "@OpenChart/DiagramInterface";
-import { AnchorView, BlockView, GroupView, HandleView, LatchView, LineView, Orientation } from "@OpenChart/DiagramView";
+import { AnchorView, BlockView, GroupView, HandleView, LatchView, LineView, Orientation, ResizeEdge } from "@OpenChart/DiagramView";
 import type { CursorMap } from "./CursorMap";
 import type { ObjectMover } from "./ObjectMovers";
 import type { CommandExecutor } from "./CommandExecutor";
@@ -19,7 +19,25 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
     private static CursorMap: CursorMap = {
         [LineView.name]   : () => Cursor.Move,
         [BlockView.name]  : () => Cursor.Move,
-        [GroupView.name]  : () => Cursor.Move,
+        [GroupView.name]  : (o) => {
+            const edge = (o as GroupView).hoveredEdge;
+            switch (edge) {
+                case ResizeEdge.N:
+                case ResizeEdge.S:
+                    return Cursor.NS_Resize;
+                case ResizeEdge.W:
+                case ResizeEdge.E:
+                    return Cursor.EW_Resize;
+                case ResizeEdge.NW:
+                case ResizeEdge.SE:
+                    return Cursor.NWSE_Resize;
+                case ResizeEdge.NE:
+                case ResizeEdge.SW:
+                    return Cursor.NESW_Resize;
+                default:
+                    return Cursor.Move;
+            }
+        },
         [LatchView.name]  : () => Cursor.Pointer,
         [AnchorView.name] : () => Cursor.Default,
         [HandleView.name] : (o) => {
@@ -101,7 +119,11 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      */
     public handleHoverStart(x: number, y: number, event: MouseEvent): void {
         const s = this.smartHover(x, y, event);
-        if (this.selection === s) {
+        // Groups need a re-evaluation on every hover tick even when the
+        // hovered object is unchanged, because the resize edge under the
+        // cursor can change as you slide along the perimeter and the cursor
+        // icon needs to track it.
+        if (this.selection === s && !(s instanceof GroupView)) {
             return undefined;
         }
         let hoverTarget = s;
@@ -126,24 +148,53 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
     protected smartHover(x: number, y: number, _event: MouseEvent): DiagramObjectView | undefined {
         const { lines, blocks, groups } = this.editor.file.canvas;
         let object: DiagramObjectView | undefined;
-        // Evaluate direct canvas blocks first (highest priority)
+        // Clear stale resize-edge state before re-testing. The stash lives on
+        // the group's face so the cursor map can read it by reference.
+        for (const group of groups) {
+            group.hoveredEdge = ResizeEdge.None;
+        }
+        // 1. Direct canvas blocks (highest priority).
         for (let i = blocks.length - 1; 0 <= i; i--) {
             if (object = blocks[i].getObjectAt(x, y)) {
                 return object;
             }
         }
-        // Evaluate groups (also searches their child blocks/lines)
+        // 2. Group resize halos — they live outside the bounding box, so
+        //    testing them before anything else inside the group is safe.
         for (let i = groups.length - 1; 0 <= i; i--) {
-            if (object = groups[i].getObjectAt(x, y)) {
-                return object;
+            const group = groups[i];
+            const edge = group.getResizeEdgeAt(x, y);
+            if (edge !== ResizeEdge.None) {
+                group.hoveredEdge = edge;
+                return group;
             }
         }
-        // Evaluate lines last
+        // 3. Content inside groups (blocks, nested groups, nested lines).
+        //    We remember the topmost group whose interior the cursor is in
+        //    so we can fall back to it below, but any non-self child hit
+        //    wins outright so "content beats container."
+        let groupHit: DiagramObjectView | undefined;
+        for (let i = groups.length - 1; 0 <= i; i--) {
+            const group = groups[i];
+            const inside = group.getObjectAt(x, y);
+            if (inside && inside !== group) {
+                return inside;
+            }
+            if (inside === group && !groupHit) {
+                groupHit = group;
+            }
+        }
+        // 4. Canvas-level lines. Lines created via anchor-drag are added to
+        //    the canvas (see handleAnchor), so a line that visually crosses
+        //    a group's interior isn't in that group's child list and must
+        //    be tested here — before the group body becomes the final hit.
         for (let i = lines.length - 1; 0 <= i; i--) {
             if (object = lines[i].getObjectAt(x, y)) {
                 return object;
             }
         }
+        // 5. Group body fallback (empty interior click selects the group).
+        return groupHit;
     }
 
 
@@ -360,6 +411,11 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
         execute: CommandExecutor, group: GroupView, event: MouseEvent
     ): ObjectMover {
         this.select(execute, group, event);
+        // If the click landed on a resize halo (recorded during smartHover),
+        // begin a resize gesture instead of a move.
+        if (group.hoveredEdge !== ResizeEdge.None) {
+            return new GroupResizeMover(this, execute, group, group.hoveredEdge);
+        }
         return new GenericMover(this, execute, [group]);
     }
 

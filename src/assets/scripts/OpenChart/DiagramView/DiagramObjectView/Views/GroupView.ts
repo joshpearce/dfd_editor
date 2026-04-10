@@ -1,5 +1,6 @@
 import { Crypto } from "@OpenChart/Utilities";
 import { linkFaceToView } from "../FaceLinker";
+import { ResizeEdge } from "../Faces";
 import { ViewUpdateReason } from "../ViewUpdateReason";
 import { DiagramObject, Group, RootProperty } from "@OpenChart/DiagramModel";
 import type { LineView } from "./LineView";
@@ -293,6 +294,50 @@ export class GroupView extends Group implements ViewObject {
         this.face.moveBy(dx, dy);
         // Recalculate parent layout
         this.parent?.handleUpdate(ViewUpdateReason.Movement);
+    }
+
+    /**
+     * Which resize edge the cursor is currently hovering, if any.
+     */
+    public get hoveredEdge(): ResizeEdge {
+        return this._face.hoveredEdge;
+    }
+
+    /**
+     * Which resize edge the cursor is currently hovering, if any.
+     */
+    public set hoveredEdge(value: ResizeEdge) {
+        this._face.hoveredEdge = value;
+    }
+
+    /**
+     * Returns the resize edge at the given coordinate, if the coordinate
+     * lies inside the group's outer resize halo.
+     * @param x
+     *  The x coordinate.
+     * @param y
+     *  The y coordinate.
+     */
+    public getResizeEdgeAt(x: number, y: number): ResizeEdge {
+        return this._face.getResizeEdgeAt(x, y);
+    }
+
+    /**
+     * Resizes the view by shifting the specified edges by the given delta.
+     * Children are not moved.
+     * @param edge
+     *  The edge(s) to shift.
+     * @param dx
+     *  The desired change in x.
+     * @param dy
+     *  The desired change in y.
+     * @returns
+     *  The actual clamped `[dx, dy]` delta applied.
+     */
+    public resizeBy(edge: ResizeEdge, dx: number, dy: number): [number, number] {
+        const applied = this._face.resizeBy(edge, dx, dy);
+        this.parent?.handleUpdate(ViewUpdateReason.Movement);
+        return applied;
     }
 
 

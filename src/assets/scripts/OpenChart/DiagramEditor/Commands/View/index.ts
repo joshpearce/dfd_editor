@@ -4,10 +4,11 @@ import {
     RouteLinesThroughBlock,
     MoveObjectsBy,
     MoveObjectsTo,
+    ResizeGroupBy,
     SetTangibility,
     UserSetObjectPosition
 } from "./index.commands";
-import type { BlockView, CanvasView, DiagramObjectView, GroupView, LineView } from "@OpenChart/DiagramView";
+import type { BlockView, CanvasView, DiagramObjectView, GroupView, LineView, ResizeEdge } from "@OpenChart/DiagramView";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -114,6 +115,25 @@ export function moveObjectsTo(
     object: DiagramObjectView | DiagramObjectView[], x: number, y: number
 ): MoveObjectsTo {
     return new MoveObjectsTo(object, x, y);
+}
+
+/**
+ * Resizes a group by shifting one or more of its edges.
+ * @param group
+ *  The group to resize.
+ * @param edge
+ *  The edge bitmask identifying which sides (or corners) to move.
+ * @param dx
+ *  The desired change in x.
+ * @param dy
+ *  The desired change in y.
+ * @returns
+ *  A command that represents the action.
+ */
+export function resizeGroupBy(
+    group: GroupView, edge: ResizeEdge, dx: number, dy: number
+): ResizeGroupBy {
+    return new ResizeGroupBy(group, edge, dx, dy);
 }
 
 /**
