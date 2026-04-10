@@ -72,6 +72,7 @@ export const sampleViewExport: DiagramViewExport = {
         "6722ba7c-df56-4588-97e1-212c78f50b3e": [10, 10],
         "1dd3ff00-4931-4005-9e7b-b6511e9cd246": [5, 5]
     },
+    groupBounds: {},
     camera: { x: 0, y: 0, k: 1 }
 };
 
