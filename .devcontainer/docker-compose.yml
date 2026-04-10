@@ -1,0 +1,87 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      proxy:
+        condition: service_healthy
+    ports:
+      - "${VITE_PORT:-5173}:5173"
+    networks:
+      - isolated
+    environment:
+      - http_proxy=http://proxy:8080
+      - https_proxy=http://proxy:8080
+      - HTTP_PROXY=http://proxy:8080
+      - HTTPS_PROXY=http://proxy:8080
+      - no_proxy=localhost,127.0.0.1
+      - NO_PROXY=localhost,127.0.0.1
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+      - GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+      - VITE_HOST=true
+      - IS_DEMO=1
+    volumes:
+      - ..:/workspaces/dfd_editor:cached
+      - proxy-certs:/tmp/mitmproxy-certs:ro
+      # Persistent dotfiles (from template seed files)
+      - ./containers/app/home/vscode/.bashrc:/home/vscode/.bashrc:cached
+      - ./containers/app/home/vscode/.zshrc:/home/vscode/.zshrc:cached
+      - ./containers/app/home/vscode/.tmux.conf:/home/vscode/.tmux.conf:cached
+      - ./containers/app/home/vscode/.claude:/home/vscode/.claude:cached
+      - /Users/josh/.config/devagent/claude-token:/run/secrets/claude-token:ro
+      - /Users/josh/.config/devagent/github_token:/run/secrets/github-token:ro
+      # Named volume for node_modules so native binaries (esbuild, rollup,
+      # better-sqlite3, etc.) are Linux-compiled inside the container rather
+      # than inheriting the host's macOS builds from the workspace bind mount.
+      - node-modules:/workspaces/dfd_editor/node_modules
+    cap_drop:
+      - NET_RAW
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - MKNOD
+      - NET_ADMIN
+      - SYS_MODULE
+      - SYS_RAWIO
+      - SYS_BOOT
+      - SYS_NICE
+      - SYS_RESOURCE
+    mem_limit: 4g
+    cpus: "2"
+    pids_limit: 512
+    labels:
+      devagent.managed: "true"
+      devagent.project_path: "/Users/josh/code/dfd_editor"
+      devagent.template: "basic"
+    entrypoint: ["sh", "/workspaces/dfd_editor/.devcontainer/entrypoint.sh"]
+    command: ["sleep", "infinity"]
+
+  proxy:
+    image: mitmproxy/mitmproxy:latest
+    networks:
+      - isolated
+      - external
+    volumes:
+      - proxy-certs:/home/mitmproxy/.mitmproxy
+      - ./containers/proxy/opt/devagent-proxy:/opt/devagent-proxy
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/opt/devagent-proxy/filter.py"]
+    healthcheck:
+      test: ["CMD", "test", "-f", "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"]
+      interval: 2s
+      timeout: 1s
+      retries: 15
+      start_period: 5s
+    labels:
+      devagent.managed: "true"
+      devagent.sidecar_type: "proxy"
+
+networks:
+  isolated:
+    internal: true
+  external:
+
+volumes:
+  proxy-certs:
+  node-modules:

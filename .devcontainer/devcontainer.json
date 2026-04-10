@@ -1,0 +1,22 @@
+{
+  "name": "dfd_editor",
+  "dockerComposeFile": [
+    "docker-compose.yml",
+    "docker-compose.worktree.yml"
+  ],
+  "service": "app",
+  "runServices": ["app", "proxy"],
+  "workspaceFolder": "/workspaces/dfd_editor",
+  "remoteUser": "vscode",
+  "postCreateCommand": "bash /workspaces/dfd_editor/.devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "Vue.volar",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "vitest.explorer"
+      ]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+# Per-worktree overrides, layered on top of docker-compose.yml via the
+# dockerComposeFile array in devcontainer.json.
+#
+# The base compose file already reads ${VITE_PORT:-5173} from the
+# environment, so the common case (avoiding port collisions between
+# worktrees) is handled by creating a .devcontainer/.env file — which is
+# gitignored — with entries like:
+#
+#   VITE_PORT=5174
+#
+# This overlay exists as a stable extension point for future per-worktree
+# customization (extra mounts, different resource limits, additional
+# services) without having to touch the base compose file. It must exist
+# because devcontainer.json references it; the empty service maps below
+# are intentional no-ops.
+services:
+  app: {}
+  proxy: {}
