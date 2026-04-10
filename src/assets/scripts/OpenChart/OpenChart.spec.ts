@@ -493,39 +493,116 @@ describe("OpenChart", () => {
             });
 
             it("preserves nested group bounds when the inner group extends beyond the outer's child footprint", async () => {
+                // Approach (a): forge the export map directly to isolate the reimport
+                // contract from any construction-side calculateLayout behaviour.
+                //
+                // Contract under test (I1 / I-B):
+                //   GroupBoundsEngine is authoritative — persisted bounds must not be
+                //   reshaped by calculateLayout's child-expansion logic on reimport,
+                //   and both userBounds and boundingBox must reflect the persisted
+                //   four-tuples after import.
+                //
+                // How this falsifies the two broken worlds:
+                //
+                // (I-A broken world) If GroupBoundsEngine.run calls calculateLayout()
+                //   after setBounds, the engine visits outer before inner (BFS from
+                //   canvas).  At that moment, inner still has its default bounding box
+                //   (DEFAULT_HW=150, DEFAULT_HH=100).  calculateLayout on outer then
+                //   sees inner's default bb as a child that overflows the persisted
+                //   outer bounds of [-100,-80,100,80] (padded inner default footprint
+                //   is [-170,-120,170,120] which exceeds the outer bounds on all
+                //   sides), so calculateLayout grows outer to [-170,-120,170,120].
+                //   The userBounds assertion on outer then fails.
+                //
+                // (I-B broken world) If the six boundingBox sync lines are removed
+                //   from GroupFace.setBounds, the bounding box is never updated to
+                //   reflect the persisted values and stays at whatever calculateLayout
+                //   left it during the constructor's initial canvas.calculateLayout()
+                //   call ([-170,-120,170,120] for outer, [-150,-100,150,100] for
+                //   inner).  The boundingBox assertions then fail.
+                //
+                // Note: outer bounds [-100,-80,100,80] are intentionally smaller than
+                //   the inner group's default auto-fit footprint ([-170,-120,170,120])
+                //   so that calculateLayout would corrupt them if allowed to run after
+                //   setBounds.
+
                 const factory = await createTestingGroupFactory();
 
-                // Outer group at [-200, -200, 200, 200].
-                // Inner group whose saved bounds intentionally extend far outside
-                // the outer group's child-footprint-based auto-fit ([-500,-500,500,500]).
-                // The inner group has no children, so calculateLayout would otherwise
-                // auto-fit it to default size — but setBounds is now authoritative.
-                const innerGroup = await makeResizedGroup(factory, [-500, -500, 500, 500]);
-                const outerGroup = await makeResizedGroup(factory, [-200, -200, 200, 200], [innerGroup]);
+                const outerInst = "cccc0000-0000-0000-0000-000000000001";
+                const innerInst = "dddd0000-0000-0000-0000-000000000002";
+                const canvasInst = "eeee0000-0000-0000-0000-000000000003";
 
-                const file = new DiagramViewFile(factory);
-                file.canvas.addObject(outerGroup);
-                file.canvas.calculateLayout();
+                // Outer bounds are smaller than the inner group's default auto-fit
+                // footprint plus padding ([-150,-100,150,100] + 20 = [-170,-120,170,120]).
+                // calculateLayout would grow outer to [-170,-120,170,120] if called
+                // after setBounds in the engine (the I-A broken world).
+                const outerBounds: [number, number, number, number] = [-100, -80, 100, 80];
+                // Inner bounds are much larger than its default auto-fit, so the
+                // boundingBox assertion clearly distinguishes persisted vs default.
+                const innerBounds: [number, number, number, number] = [-500, -500, 500, 500];
 
-                const outerBoundsBeforeExport = outerGroup.face.userBounds;
-                const innerBoundsBeforeExport = innerGroup.face.userBounds;
+                const forgedExport: DiagramViewExport = {
+                    schema: "sample_schema",
+                    theme: "dark_theme",
+                    objects: [
+                        {
+                            id: "generic_canvas",
+                            instance: canvasInst,
+                            objects: [outerInst]
+                        },
+                        {
+                            id: "generic_group",
+                            instance: outerInst,
+                            objects: [innerInst]
+                        },
+                        {
+                            id: "generic_group",
+                            instance: innerInst,
+                            objects: []
+                        }
+                    ],
+                    layout: {},
+                    groupBounds: {
+                        [outerInst]: outerBounds,
+                        [innerInst]: innerBounds
+                    },
+                    camera: { x: 0, y: 0, k: 1 }
+                };
 
-                // Export and re-import
-                const exported = file.toExport();
-                const file2 = new DiagramViewFile(factory, exported);
+                const file2 = new DiagramViewFile(factory, forgedExport);
 
-                const reimportedOuter = findGroupViewByInstance(file2.canvas, outerGroup.instance);
-                const reimportedInner = findGroupViewByInstance(file2.canvas, innerGroup.instance);
+                const reimportedOuter = findGroupViewByInstance(file2.canvas, outerInst);
+                const reimportedInner = findGroupViewByInstance(file2.canvas, innerInst);
 
                 expect(reimportedOuter).toBeInstanceOf(GroupView);
                 expect(reimportedInner).toBeInstanceOf(GroupView);
 
-                // The outer group must not have grown to wrap the inner's 1000x1000 extent.
-                // Without the I1 fix (setBounds authoritative, no calculateLayout after),
-                // the outer bounds would be grown by calculateLayout to approximately
-                // [-520, -520, 520, 520] (inner bounds + CHILD_PADDING).
-                expect(reimportedOuter!.face.userBounds).toEqual(outerBoundsBeforeExport);
-                expect(reimportedInner!.face.userBounds).toEqual(innerBoundsBeforeExport);
+                // userBounds must match the forged tuples exactly (I-A contract).
+                // With I-A broken (calculateLayout in engine after setBounds): outer
+                // grows to [-170,-120,170,120] because inner's default bb overflows
+                // the persisted outer bounds on reimport.
+                expect(reimportedOuter!.face.userBounds).toEqual(outerBounds);
+                expect(reimportedInner!.face.userBounds).toEqual(innerBounds);
+
+                // boundingBox must also reflect the persisted values directly (I-B
+                // contract).  If the six boundingBox sync lines are removed from
+                // setBounds, boundingBox stays at calculateLayout's auto-grown values
+                // ([-170,-120,170,120] for outer, [-150,-100,150,100] for inner).
+                const outerBB = reimportedOuter!.face.boundingBox;
+                expect(outerBB.xMin).toBe(-100);
+                expect(outerBB.yMin).toBe(-80);
+                expect(outerBB.xMax).toBe(100);
+                expect(outerBB.yMax).toBe(80);
+                expect(outerBB.x).toBe(0);
+                expect(outerBB.y).toBe(0);
+
+                const innerBB = reimportedInner!.face.boundingBox;
+                expect(innerBB.xMin).toBe(-500);
+                expect(innerBB.yMin).toBe(-500);
+                expect(innerBB.xMax).toBe(500);
+                expect(innerBB.yMax).toBe(500);
+                expect(innerBB.x).toBe(0);
+                expect(innerBB.y).toBe(0);
             });
 
         });
