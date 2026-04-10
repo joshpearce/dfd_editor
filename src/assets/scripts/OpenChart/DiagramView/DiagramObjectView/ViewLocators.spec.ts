@@ -7,7 +7,7 @@
  * Key contracts verified:
  *   - Returns the deepest (innermost) containing group for a nested tree.
  *   - Returns `null` when the point is outside every group.
- *   - `exclude` skips the excluded group itself.
+ *   - `exclude` skips the excluded group itself (short-circuit: `g === exclude`).
  *   - `exclude` skips all descendants of the excluded group (`isDescendantOf`
  *     walker — critical self-exclusion contract used by GroupMover).
  *   - Last-added sibling wins when two overlapping groups both contain the
@@ -24,27 +24,13 @@
  */
 
 import { beforeAll, describe, it, expect } from "vitest";
-import { DiagramViewFile } from "@OpenChart/DiagramView";
 import { findDeepestContainingGroup } from "./ViewLocators";
 import {
     createGroupTestingFactory,
+    makeEmptyCanvas,
     makeGroupWithChildren
 } from "./Faces/Bases/GroupFace.testing";
-import type { DiagramObjectViewFactory, CanvasView } from "@OpenChart/DiagramView";
-
-
-///////////////////////////////////////////////////////////////////////////////
-//  Helpers  //////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-
-/**
- * Creates a fresh empty canvas backed by a group-capable factory.
- * Each call returns a new, independent canvas so tests do not share state.
- */
-function makeCanvas(factory: DiagramObjectViewFactory): CanvasView {
-    return new DiagramViewFile(factory).canvas;
-}
+import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -64,12 +50,12 @@ describe("findDeepestContainingGroup", () => {
     describe("empty canvas", () => {
 
         it("returns null when the canvas has no groups", () => {
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
             expect(findDeepestContainingGroup(canvas, 0, 0)).toBeNull();
         });
 
         it("returns null for any coordinate when the canvas has no groups", () => {
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
             expect(findDeepestContainingGroup(canvas, 9999, 9999)).toBeNull();
         });
 
@@ -80,7 +66,7 @@ describe("findDeepestContainingGroup", () => {
     describe("deepest containing group", () => {
 
         it("returns the innermost group when a point is inside three nested groups", () => {
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
 
             // Three-level nesting: canvas → outer → inner → innermost
             const outer     = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
@@ -91,7 +77,9 @@ describe("findDeepestContainingGroup", () => {
             outer.addObject(inner);
             inner.addObject(innermost);
 
-            // Pin bounds so auto-grow from addObject does not shift the hit regions.
+            // Re-pin bounds after nesting. addObject doesn't currently re-run
+            // calculateLayout on the parent, but future changes to Group's update
+            // semantics could; pinning explicitly keeps the test deterministic.
             outer.face.setBounds(0, 0, 400, 400);
             inner.face.setBounds(100, 100, 300, 300);
             innermost.face.setBounds(150, 150, 250, 250);
@@ -102,7 +90,7 @@ describe("findDeepestContainingGroup", () => {
         });
 
         it("returns the single group when there is only one level of nesting", () => {
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
 
             const group = makeGroupWithChildren(factory, [], [0, 0, 200, 200]);
             canvas.addObject(group);
@@ -120,7 +108,7 @@ describe("findDeepestContainingGroup", () => {
     describe("point outside all groups", () => {
 
         it("returns null when the point is outside every group", () => {
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
 
             const outer     = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
             const inner     = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
@@ -148,7 +136,7 @@ describe("findDeepestContainingGroup", () => {
         // silently altering group-reparent logic.
 
         it("hits the group when the point is exactly at xMin", () => {
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
             const group = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
             canvas.addObject(group);
             group.face.setBounds(100, 100, 300, 300);
@@ -159,7 +147,7 @@ describe("findDeepestContainingGroup", () => {
         });
 
         it("hits the group when the point is exactly at xMax", () => {
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
             const group = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
             canvas.addObject(group);
             group.face.setBounds(100, 100, 300, 300);
@@ -170,7 +158,7 @@ describe("findDeepestContainingGroup", () => {
         });
 
         it("misses the group when the point is just past xMax", () => {
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
             const group = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
             canvas.addObject(group);
             group.face.setBounds(100, 100, 300, 300);
@@ -182,96 +170,147 @@ describe("findDeepestContainingGroup", () => {
 
     // -------------------------------------------------------------------------
 
-    describe("exclude parameter — skips the excluded group itself", () => {
+    describe("exclude parameter", () => {
 
-        it("skips the excluded inner group and returns the outer group (excluded group itself)", () => {
-            const canvas = makeCanvas(factory);
+        // ----- Short-circuit: g === exclude ----------------------------------
+        // These tests exercise the `g === exclude` branch. The walker
+        // (`isDescendantOf`) is NOT called here; the group is rejected before
+        // the recursion ever descends into its subtree.
 
-            const outer = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
-            const inner = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
+        describe("exclude short-circuit (g === exclude)", () => {
 
-            canvas.addObject(outer);
-            outer.addObject(inner);
-            outer.face.setBounds(0, 0, 400, 400);
-            inner.face.setBounds(100, 100, 300, 300);
+            it("skips the excluded inner group and returns the outer group", () => {
+                const canvas = makeEmptyCanvas(factory);
 
-            // Exclude inner: outer is not excluded nor is it a descendant of inner,
-            // so the deepest group that still contains (200, 200) is outer.
-            const result = findDeepestContainingGroup(canvas, 200, 200, inner);
-            expect(result).not.toBeNull();
-            expect(result!.instance).toBe(outer.instance);
+                const outer = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
+                const inner = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
+
+                canvas.addObject(outer);
+                outer.addObject(inner);
+                outer.face.setBounds(0, 0, 400, 400);
+                inner.face.setBounds(100, 100, 300, 300);
+
+                // Exclude inner: outer is not excluded nor is it a descendant of inner,
+                // so the deepest group that still contains (200, 200) is outer.
+                const result = findDeepestContainingGroup(canvas, 200, 200, inner);
+                expect(result).not.toBeNull();
+                expect(result!.instance).toBe(outer.instance);
+            });
+
+            it("returns null when the only top-level group is excluded (inner groups are its descendants)", () => {
+                // `outer` is encountered first at the canvas level and is rejected via
+                // `g === exclude`. Because outer is never recursed into, inner and
+                // innermost are never visited. This is the short-circuit, not the
+                // isDescendantOf walker.
+                const canvas = makeEmptyCanvas(factory);
+
+                const outer     = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
+                const inner     = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
+                const innermost = makeGroupWithChildren(factory, [], [150, 150, 250, 250]);
+
+                canvas.addObject(outer);
+                outer.addObject(inner);
+                inner.addObject(innermost);
+
+                outer.face.setBounds(0, 0, 400, 400);
+                inner.face.setBounds(100, 100, 300, 300);
+                innermost.face.setBounds(150, 150, 250, 250);
+
+                // Exclude outer: the short-circuit fires at the canvas level.
+                const result = findDeepestContainingGroup(canvas, 200, 200, outer);
+                expect(result).toBeNull();
+            });
+
+            it("returns a sibling group that is not a descendant of the excluded group", () => {
+                const canvas = makeEmptyCanvas(factory);
+
+                // First top-level group with a nested child
+                const outer     = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
+                const inner     = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
+                // Sibling group — not nested under outer
+                const sibling   = makeGroupWithChildren(factory, [], [500, 500, 800, 800]);
+
+                canvas.addObject(outer);
+                outer.addObject(inner);
+                canvas.addObject(sibling);
+
+                outer.face.setBounds(0, 0, 400, 400);
+                inner.face.setBounds(100, 100, 300, 300);
+                sibling.face.setBounds(500, 500, 800, 800);
+
+                // Query (600, 600) with outer excluded.
+                // outer is rejected via g === exclude; sibling is not a descendant of
+                // outer so it passes both the short-circuit and the walker.
+                const result = findDeepestContainingGroup(canvas, 600, 600, outer);
+                expect(result).not.toBeNull();
+                expect(result!.instance).toBe(sibling.instance);
+            });
+
+            it("does not skip a group that is a sibling of (not a descendant of) the excluded group", () => {
+                const canvas = makeEmptyCanvas(factory);
+
+                const groupA = makeGroupWithChildren(factory, [], [0, 0, 200, 200]);
+                const groupB = makeGroupWithChildren(factory, [], [300, 300, 500, 500]);
+
+                canvas.addObject(groupA);
+                canvas.addObject(groupB);
+
+                groupA.face.setBounds(0, 0, 200, 200);
+                groupB.face.setBounds(300, 300, 500, 500);
+
+                // Exclude groupA — groupB is a sibling, not a descendant of groupA.
+                const result = findDeepestContainingGroup(canvas, 400, 400, groupA);
+                expect(result).not.toBeNull();
+                expect(result!.instance).toBe(groupB.instance);
+            });
+
         });
 
-    });
+        // ----- Descendant walker: isDescendantOf returns true ----------------
+        // This describe exercises the `isDescendantOf(g, exclude)` positive
+        // branch. The test calls findDeepestContainingGroup with a non-canvas
+        // root so the walker actually visits a group that is a descendant of
+        // `exclude` (rather than being `exclude` itself).
 
-    // -------------------------------------------------------------------------
+        describe("exclude descendant walker (isDescendantOf)", () => {
 
-    describe("exclude parameter — skips descendants of the excluded group", () => {
-        // This is the isDescendantOf walker case used by GroupMover's
-        // self-exclusion.  Regressing this function would let a group be
-        // reparented into one of its own descendants.
+            it("skips descendants of an excluded ancestor when called on a non-canvas root", () => {
+                // Setup: canvas → outer → inner → innermost
+                //
+                // Call with root=inner (NOT canvas), exclude=outer (inner's parent).
+                // The walker's positive branch fires here: `innermost` is not `outer`
+                // itself but IS a descendant of `outer` via the parent chain, so it
+                // must be skipped.
+                //
+                // Scratch-verification contract:
+                //   - With `isDescendantOf` returning `false`: `innermost` is NOT
+                //     skipped and is returned (test FAILS — regression detected).
+                //   - With `isDescendantOf` correct: `innermost` is skipped and the
+                //     call returns `null` (test PASSES).
+                const canvas = makeEmptyCanvas(factory);
 
-        it("returns null when the only top-level group is excluded (inner groups are its descendants)", () => {
-            const canvas = makeCanvas(factory);
+                const outer     = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
+                const inner     = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
+                const innermost = makeGroupWithChildren(factory, [], [150, 150, 250, 250]);
 
-            const outer     = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
-            const inner     = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
-            const innermost = makeGroupWithChildren(factory, [], [150, 150, 250, 250]);
+                canvas.addObject(outer);
+                outer.addObject(inner);
+                inner.addObject(innermost);
 
-            canvas.addObject(outer);
-            outer.addObject(inner);
-            inner.addObject(innermost);
+                // Re-pin bounds after nesting. addObject doesn't currently re-run
+                // calculateLayout on the parent, but future changes to Group's update
+                // semantics could; pinning explicitly keeps the test deterministic.
+                outer.face.setBounds(0, 0, 400, 400);
+                inner.face.setBounds(100, 100, 300, 300);
+                innermost.face.setBounds(150, 150, 250, 250);
 
-            outer.face.setBounds(0, 0, 400, 400);
-            inner.face.setBounds(100, 100, 300, 300);
-            innermost.face.setBounds(150, 150, 250, 250);
+                // root=inner, exclude=outer: inner.groups = [innermost].
+                // g=innermost, g === outer? no. isDescendantOf(innermost, outer)? YES
+                // (outer is innermost's grandparent). → skip. No other siblings. → null.
+                const hit = findDeepestContainingGroup(inner, 200, 200, outer);
+                expect(hit).toBeNull();
+            });
 
-            // Exclude outer: inner and innermost are its descendants, so all
-            // three are skipped.  The canvas has no other top-level groups.
-            const result = findDeepestContainingGroup(canvas, 200, 200, outer);
-            expect(result).toBeNull();
-        });
-
-        it("returns a sibling group that is not a descendant of the excluded group", () => {
-            const canvas = makeCanvas(factory);
-
-            // First top-level group with a nested child
-            const outer     = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
-            const inner     = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
-            // Sibling group — not nested under outer
-            const sibling   = makeGroupWithChildren(factory, [], [500, 500, 800, 800]);
-
-            canvas.addObject(outer);
-            outer.addObject(inner);
-            canvas.addObject(sibling);
-
-            outer.face.setBounds(0, 0, 400, 400);
-            inner.face.setBounds(100, 100, 300, 300);
-            sibling.face.setBounds(500, 500, 800, 800);
-
-            // Query (600, 600) with outer excluded.
-            // outer and inner are excluded; sibling is not a descendant of outer.
-            const result = findDeepestContainingGroup(canvas, 600, 600, outer);
-            expect(result).not.toBeNull();
-            expect(result!.instance).toBe(sibling.instance);
-        });
-
-        it("does not skip a group that is a sibling of (not a descendant of) the excluded group", () => {
-            const canvas = makeCanvas(factory);
-
-            const groupA = makeGroupWithChildren(factory, [], [0, 0, 200, 200]);
-            const groupB = makeGroupWithChildren(factory, [], [300, 300, 500, 500]);
-
-            canvas.addObject(groupA);
-            canvas.addObject(groupB);
-
-            groupA.face.setBounds(0, 0, 200, 200);
-            groupB.face.setBounds(300, 300, 500, 500);
-
-            // Exclude groupA — groupB is a sibling, not a descendant of groupA.
-            const result = findDeepestContainingGroup(canvas, 400, 400, groupA);
-            expect(result).not.toBeNull();
-            expect(result!.instance).toBe(groupB.instance);
         });
 
     });
@@ -283,7 +322,7 @@ describe("findDeepestContainingGroup", () => {
         it("returns the last-added group when two overlapping sibling groups both contain the point", () => {
             // groupA and groupB overlap. groupB is added after groupA, so it
             // sits on top in draw order and is iterated first (reverse scan).
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
 
             const groupA = makeGroupWithChildren(factory, [], [0, 0, 200, 200]);
             const groupB = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
@@ -302,7 +341,7 @@ describe("findDeepestContainingGroup", () => {
 
         it("returns groupA when addition order is reversed (order drives the result, not identity)", () => {
             // Same geometry, opposite addition order — groupA must now win.
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
 
             const groupA = makeGroupWithChildren(factory, [], [0, 0, 200, 200]);
             const groupB = makeGroupWithChildren(factory, [], [100, 100, 300, 300]);
@@ -329,7 +368,7 @@ describe("findDeepestContainingGroup", () => {
             // outerA and outerB overlap at (200, 200).
             // outerB is added last, so it wins.  innerB is the deepest group
             // inside outerB that contains (200, 200).
-            const canvas = makeCanvas(factory);
+            const canvas = makeEmptyCanvas(factory);
 
             const outerA = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
             const innerA = makeGroupWithChildren(factory, [], [50, 50, 350, 350]);

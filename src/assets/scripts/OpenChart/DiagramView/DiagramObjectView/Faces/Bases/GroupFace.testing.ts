@@ -12,7 +12,7 @@
 
 import { ThemeLoader, DarkStyle } from "@OpenChart/ThemeLoader";
 import {
-    Alignment, BlockView, DiagramObjectViewFactory, FaceType,
+    Alignment, BlockView, CanvasView, DiagramObjectViewFactory, FaceType,
     GroupView, Orientation
 } from "@OpenChart/DiagramView";
 import { sampleSchema } from "../../../../DiagramModel/DiagramModel.fixture";
@@ -20,7 +20,7 @@ import { DiagramObjectType } from "@OpenChart/DiagramModel";
 import type { DiagramObjectView } from "@OpenChart/DiagramView";
 import type { DiagramThemeConfiguration } from "@OpenChart/ThemeLoader";
 import type { DiagramSchemaConfiguration } from "@OpenChart/DiagramModel";
-import type { CanvasView, DiagramTheme } from "@OpenChart/DiagramView";
+import type { DiagramTheme } from "@OpenChart/DiagramView";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -108,6 +108,23 @@ const groupTheme: DiagramThemeConfiguration = {
 export async function createGroupTestingFactory(): Promise<DiagramObjectViewFactory> {
     const theme = await ThemeLoader.load(groupTheme);
     return new DiagramObjectViewFactory(groupSchema, theme);
+}
+
+/**
+ * Creates a fresh empty {@link CanvasView} from the given factory.
+ *
+ * Cheaper than `new DiagramViewFile(factory).canvas` — avoids pulling
+ * `ManualLayoutEngine` and `GroupBoundsEngine` through every test that only
+ * needs an empty root container.
+ *
+ * @param factory - A factory produced by {@link createGroupTestingFactory}.
+ * @returns A new, empty {@link CanvasView}.
+ */
+export function makeEmptyCanvas(factory: DiagramObjectViewFactory): CanvasView {
+    // factory.canvas is the CanvasTemplate; .name resolves to the string key
+    // registered in the schema (e.g. "generic_canvas"). Using the name string
+    // keeps us within the public createNewDiagramObject(name: string, …) overload.
+    return factory.createNewDiagramObject(factory.canvas.name, CanvasView);
 }
 
 /**
