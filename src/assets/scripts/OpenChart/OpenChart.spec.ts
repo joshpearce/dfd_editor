@@ -8,11 +8,15 @@ import {
     Focus, Hover, LineView, Orientation,
     GroupView, ResizeEdge
 } from "./DiagramView";
-import type { DiagramObjectView } from "./DiagramView";
 import type { DiagramViewExport } from "./DiagramView";
 import type { DiagramThemeConfiguration } from "./ThemeLoader";
-import { DiagramObjectType } from "./DiagramModel";
-import type { DiagramSchemaConfiguration } from "./DiagramModel";
+import {
+    createGroupTestingFactory,
+    findGroupViewByInstance,
+    loadGroupTheme,
+    makeBlockView,
+    makeGroupWithChildren
+} from "./DiagramView/DiagramObjectView/Faces/Bases/GroupTestFixture";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -319,136 +323,32 @@ describe("OpenChart", () => {
     //  4. Group Bounds Persistence Tests  ////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////
 
-
-    /**
-     * Schema extended with a `generic_group` template.
-     */
-    const groupSchema: DiagramSchemaConfiguration = {
-        ...sampleSchema,
-        templates: [
-            ...sampleSchema.templates,
-            {
-                name: "generic_group",
-                type: DiagramObjectType.Group,
-                properties: {}
-            }
-        ]
-    };
-
-    /**
-     * Theme extended with a `generic_group` design entry.
-     */
-    const groupTheme: DiagramThemeConfiguration = {
-        ...sampleTheme,
-        designs: {
-            ...sampleTheme.designs,
-            generic_group: {
-                type: FaceType.Group,
-                attributes: 0
-            }
-        }
-    };
-
-    /**
-     * Creates a factory that includes the group schema and theme.
-     */
-    async function createTestingGroupFactory(): Promise<DiagramObjectViewFactory> {
-        const theme = await ThemeLoader.load(groupTheme);
-        return new DiagramObjectViewFactory(groupSchema, theme);
-    }
-
-    /**
-     * Creates a new {@link GroupView} via the group-capable factory.
-     */
-    async function makeGroupView(factory: DiagramObjectViewFactory): Promise<GroupView> {
-        return factory.createNewDiagramObject("generic_group", GroupView);
-    }
-
-    /**
-     * Creates a new {@link BlockView} via the group-capable factory.
-     */
-    async function makeBlockView(factory: DiagramObjectViewFactory): Promise<BlockView> {
-        return factory.createNewDiagramObject("generic_block", BlockView);
-    }
-
-    /**
-     * Creates a new {@link GroupView} with explicit bounds and optional children.
-     * @param factory
-     *  The factory to create the group with.
-     * @param bounds
-     *  The `[xMin, yMin, xMax, yMax]` bounds to set on the group.
-     * @param children
-     *  Optional child objects to add to the group.
-     * @returns
-     *  The configured {@link GroupView}.
-     */
-    async function makeResizedGroup(
-        factory: DiagramObjectViewFactory,
-        bounds: [number, number, number, number],
-        children?: DiagramObjectView[]
-    ): Promise<GroupView> {
-        const group = await makeGroupView(factory);
-        group.face.setBounds(...bounds);
-        if (children) {
-            for (const child of children) {
-                group.addObject(child);
-            }
-        }
-        return group;
-    }
-
-    /**
-     * Recursively searches a canvas or group for a {@link GroupView} with
-     * the given instance id.
-     *
-     * `canvas.groups` / `group.groups` are typed as `ReadonlyArray<Group>` from
-     * the model base class, but in a {@link DiagramViewFile} they are always
-     * {@link GroupView} instances. The cast is centralised here so callers do
-     * not need to re-prove the invariant.
-     */
-    function findGroupViewByInstance(
-        root: CanvasView | GroupView,
-        instance: string
-    ): GroupView | undefined {
-        const groups = root.groups as ReadonlyArray<GroupView>;
-        for (const g of groups) {
-            if (g.instance === instance) {
-                return g;
-            }
-            const nested = findGroupViewByInstance(g, instance);
-            if (nested) {
-                return nested;
-            }
-        }
-        return undefined;
-    }
-
     describe("Group Bounds Persistence", () => {
 
         describe("round-trip test", () => {
 
             it("preserves userBounds of a resized group with children after export+reimport", async () => {
-                const factory = await createTestingGroupFactory();
+                const factory = await createGroupTestingFactory();
 
                 // (a) Resized trust boundary with two child blocks
-                const blockA1 = await makeBlockView(factory);
-                const blockA2 = await makeBlockView(factory);
+                const blockA1 = makeBlockView(factory);
+                const blockA2 = makeBlockView(factory);
                 blockA1.moveTo(50, 50);
                 blockA2.moveTo(200, 200);
-                const groupA = await makeResizedGroup(factory, [-150, -100, 150, 100], [blockA1, blockA2]);
+                const groupA = makeGroupWithChildren(factory, [blockA1, blockA2], [-150, -100, 150, 100]);
                 groupA.face.calculateLayout();
                 groupA.resizeBy(ResizeEdge.E, 80, 0);
                 groupA.resizeBy(ResizeEdge.S, 0, 60);
 
                 // (c) Nested trust boundary inside (a) — add BEFORE capturing boundsA,
                 // because addObject triggers calculateLayout which may grow groupA's bounds
-                const groupC = await makeResizedGroup(factory, [-150, -100, 150, 100]);
+                const groupC = makeGroupWithChildren(factory, [], [-150, -100, 150, 100]);
                 groupA.addObject(groupC);
                 groupC.face.calculateLayout();
                 groupC.resizeBy(ResizeEdge.SE, 30, 30);
 
                 // (b) Empty trust boundary at a non-origin coordinate (~500, 500)
-                const groupB = await makeResizedGroup(factory, [425, 425, 575, 575]);
+                const groupB = makeGroupWithChildren(factory, [], [425, 425, 575, 575]);
                 groupB.face.calculateLayout();
 
                 // Assemble a canvas for export using a fresh file.
@@ -526,7 +426,7 @@ describe("OpenChart", () => {
                 //   so that calculateLayout would corrupt them if allowed to run after
                 //   setBounds.
 
-                const factory = await createTestingGroupFactory();
+                const factory = await createGroupTestingFactory();
 
                 const outerInst = "cccc0000-0000-0000-0000-000000000001";
                 const innerInst = "dddd0000-0000-0000-0000-000000000002";
@@ -610,7 +510,7 @@ describe("OpenChart", () => {
         describe("backward compat test", () => {
 
             it("imports a file with no groupBounds field without throwing", async () => {
-                const factory = await createTestingGroupFactory();
+                const factory = await createGroupTestingFactory();
 
                 // Build a minimal export with no groupBounds field at all
                 const groupInst = "aaaa0000-0000-0000-0000-000000000001";
@@ -657,10 +557,10 @@ describe("OpenChart", () => {
         describe("clone preserves bounds", () => {
 
             it("cloned file's group userBounds match the source's userBounds", async () => {
-                const factory = await createTestingGroupFactory();
+                const factory = await createGroupTestingFactory();
 
                 // Build a file with a single resized group
-                const group = await makeResizedGroup(factory, [100, 200, 400, 500]);
+                const group = makeGroupWithChildren(factory, [], [100, 200, 400, 500]);
                 const sourceBounds = group.face.userBounds;
 
                 const file = new DiagramViewFile(factory);
@@ -683,10 +583,10 @@ describe("OpenChart", () => {
         describe("restyle preserves bounds", () => {
 
             it("applyTheme does not reset userBounds on a resized group", async () => {
-                const factory = await createTestingGroupFactory();
+                const factory = await createGroupTestingFactory();
 
                 // Build a file with a resized group
-                const group = await makeResizedGroup(factory, [-300, -200, 300, 200]);
+                const group = makeGroupWithChildren(factory, [], [-300, -200, 300, 200]);
                 const bounds = group.face.userBounds;
 
                 const file = new DiagramViewFile(factory);
@@ -694,7 +594,7 @@ describe("OpenChart", () => {
                 file.canvas.calculateLayout();
 
                 // Apply the same theme (simulates a theme switch)
-                const freshTheme = await ThemeLoader.load(groupTheme);
+                const freshTheme = await loadGroupTheme();
                 await file.applyTheme(freshTheme);
 
                 // The group object reference may have changed (restyle replaces faces),
