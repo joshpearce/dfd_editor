@@ -5,10 +5,13 @@ import { sampleExport, sampleSchema } from "./DiagramModel/DiagramModel.spec";
 import {
     Alignment, AnchorView, BlockView, CanvasView,
     DiagramObjectViewFactory, DiagramViewFile, FaceType,
-    Focus, Hover, LineView, Orientation
+    Focus, Hover, LineView, Orientation,
+    GroupView, ResizeEdge
 } from "./DiagramView";
 import type { DiagramViewExport } from "./DiagramView";
 import type { DiagramThemeConfiguration } from "./ThemeLoader";
+import { DiagramObjectType } from "./DiagramModel";
+import type { DiagramSchemaConfiguration } from "./DiagramModel";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -304,4 +307,268 @@ describe("OpenChart", () => {
             expect(file.canvas.y).toEqual(124);
         });
     });
+});
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  4. Group Bounds Persistence Tests  ////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+/**
+ * Schema extended with a `generic_group` template.
+ */
+const groupSchema: DiagramSchemaConfiguration = {
+    ...sampleSchema,
+    templates: [
+        ...sampleSchema.templates,
+        {
+            name: "generic_group",
+            type: DiagramObjectType.Group,
+            properties: {}
+        }
+    ]
+};
+
+/**
+ * Theme extended with a `generic_group` design entry.
+ * GroupDesign has no `style` field — only `type` and `attributes`.
+ */
+const groupTheme: DiagramThemeConfiguration = {
+    ...sampleTheme,
+    designs: {
+        ...sampleTheme.designs,
+        generic_group: {
+            type: FaceType.Group,
+            attributes: 0
+        }
+    }
+};
+
+/**
+ * Creates a factory that includes the group schema and theme.
+ */
+async function createTestingGroupFactory(): Promise<DiagramObjectViewFactory> {
+    const theme = await ThemeLoader.load(groupTheme);
+    return new DiagramObjectViewFactory(groupSchema, theme);
+}
+
+/**
+ * Creates a new {@link GroupView} via the group-capable factory.
+ */
+async function makeGroupView(factory: DiagramObjectViewFactory): Promise<GroupView> {
+    return factory.createNewDiagramObject("generic_group", GroupView);
+}
+
+/**
+ * Creates a new {@link BlockView} via the group-capable factory.
+ */
+async function makeBlockView(factory: DiagramObjectViewFactory): Promise<BlockView> {
+    return factory.createNewDiagramObject("generic_block", BlockView);
+}
+
+describe("Group Bounds Persistence", () => {
+
+    describe("round-trip test", () => {
+
+        it("preserves userBounds of a resized group with children after export+reimport", async () => {
+            const factory = await createTestingGroupFactory();
+
+            // (a) Resized trust boundary with two child blocks
+            const groupA = await makeGroupView(factory);
+            const blockA1 = await makeBlockView(factory);
+            const blockA2 = await makeBlockView(factory);
+            blockA1.moveTo(50, 50);
+            blockA2.moveTo(200, 200);
+            groupA.addObject(blockA1);
+            groupA.addObject(blockA2);
+            groupA.face.calculateLayout();
+            groupA.resizeBy(ResizeEdge.E, 80, 0);
+            groupA.resizeBy(ResizeEdge.S, 0, 60);
+
+            // (c) Nested trust boundary inside (a) — add BEFORE capturing boundsA,
+            // because addObject triggers calculateLayout which may grow groupA's bounds
+            const groupC = await makeGroupView(factory);
+            groupA.addObject(groupC);
+            groupC.face.calculateLayout();
+            groupC.resizeBy(ResizeEdge.SE, 30, 30);
+
+            // (b) Empty trust boundary at a non-origin coordinate (~500, 500)
+            const groupB = await makeGroupView(factory);
+            groupB.face.setBounds(425, 425, 575, 575);
+            groupB.face.calculateLayout();
+
+            // Assemble a canvas for export using a fresh file.
+            const file = new DiagramViewFile(factory);
+            file.canvas.addObject(groupA);
+            file.canvas.addObject(groupB);
+            file.canvas.calculateLayout();
+
+            // Capture bounds after canvas layout (canvas.calculateLayout may
+            // recursively call calculateLayout on children, re-expanding bounds)
+            const finalBoundsA = groupA.face.userBounds;
+            const finalBoundsC = groupC.face.userBounds;
+            const finalBoundsB = groupB.face.userBounds;
+
+            // Export then re-import
+            const exported = file.toExport();
+            const file2 = new DiagramViewFile(factory, exported);
+
+            // Find groups in the re-imported canvas by matching instance IDs.
+            // canvas.groups is typed as ReadonlyArray<Group> from the model base class,
+            // but at runtime (in a DiagramViewFile) they are always GroupView instances.
+            const findGroup = (canvas: typeof file2.canvas, instance: string): GroupView | undefined => {
+                const topGroups = canvas.groups as ReadonlyArray<GroupView>;
+                for (const obj of topGroups) {
+                    if (obj.instance === groupA.instance) {
+                        if (instance === groupA.instance) { return obj; }
+                        // search nested
+                        const nested = obj.groups as ReadonlyArray<GroupView>;
+                        for (const n of nested) {
+                            if (n.instance === instance) { return n; }
+                        }
+                    }
+                    if (obj.instance === groupB.instance) {
+                        if (instance === groupB.instance) { return obj; }
+                    }
+                }
+                return undefined;
+            };
+
+            const importedA = findGroup(file2.canvas, groupA.instance);
+            const importedB = findGroup(file2.canvas, groupB.instance);
+            const importedC = findGroup(file2.canvas, groupC.instance);
+
+            expect(importedA).toBeInstanceOf(GroupView);
+            expect(importedB).toBeInstanceOf(GroupView);
+            expect(importedC).toBeInstanceOf(GroupView);
+
+            // Each group's userBounds must match the pre-export tuple exactly
+            expect(importedA!.face.userBounds).toEqual(finalBoundsA);
+            expect(importedB!.face.userBounds).toEqual(finalBoundsB);
+            expect(importedC!.face.userBounds).toEqual(finalBoundsC);
+
+            // (b) is still empty
+            expect([...importedB!.groups].length).toBe(0);
+            expect([...importedB!.blocks].length).toBe(0);
+
+            // (b) encodes the ~(500, 500) position: center between 425 and 575
+            const [bXMin, bYMin, bXMax, bYMax] = importedB!.face.userBounds;
+            const bCenterX = (bXMin + bXMax) / 2;
+            const bCenterY = (bYMin + bYMax) / 2;
+            expect(bCenterX).toBeCloseTo(500, 5);
+            expect(bCenterY).toBeCloseTo(500, 5);
+        });
+
+    });
+
+    describe("backward compat test", () => {
+
+        it("imports a file with no groupBounds field without throwing", async () => {
+            const factory = await createTestingGroupFactory();
+
+            // Build a minimal export with no groupBounds field at all
+            const groupInst = "aaaa0000-0000-0000-0000-000000000001";
+            const canvasInst = "bbbb0000-0000-0000-0000-000000000001";
+            const exportWithoutGroupBounds: DiagramViewExport = {
+                schema: "sample_schema",
+                theme: "dark_theme",
+                objects: [
+                    {
+                        id: "generic_canvas",
+                        instance: canvasInst,
+                        objects: [groupInst]
+                    },
+                    {
+                        id: "generic_group",
+                        instance: groupInst,
+                        objects: []
+                    }
+                ],
+                layout: {},
+                camera: { x: 0, y: 0, k: 1 }
+                // groupBounds intentionally omitted
+            };
+
+            // Must not throw
+            let file: DiagramViewFile | undefined;
+            expect(() => {
+                file = new DiagramViewFile(factory, exportWithoutGroupBounds);
+            }).not.toThrow();
+
+            // Groups should fall back to auto-fit defaults — userBounds are finite.
+            // canvas.groups is typed as ReadonlyArray<Group> from the model base class;
+            // cast to GroupView since this is a DiagramViewFile.
+            expect(file).toBeDefined();
+            const groups = file!.canvas.groups as ReadonlyArray<GroupView>;
+            expect(groups.length).toBe(1);
+            const [xMin, yMin, xMax, yMax] = groups[0].face.userBounds;
+            expect(Number.isFinite(xMin)).toBe(true);
+            expect(Number.isFinite(yMin)).toBe(true);
+            expect(Number.isFinite(xMax)).toBe(true);
+            expect(Number.isFinite(yMax)).toBe(true);
+        });
+
+    });
+
+    describe("clone preserves bounds", () => {
+
+        it("cloned file's group userBounds match the source's userBounds", async () => {
+            const factory = await createTestingGroupFactory();
+
+            // Build a file with a single resized group
+            const group = await makeGroupView(factory);
+            group.face.setBounds(100, 200, 400, 500);
+            group.face.calculateLayout();
+            const sourceBounds = group.face.userBounds;
+
+            const file = new DiagramViewFile(factory);
+            file.canvas.addObject(group);
+            file.canvas.calculateLayout();
+
+            // Clone the file
+            const cloned = file.clone();
+
+            // The cloned canvas should have exactly one group.
+            // canvas.groups is typed as ReadonlyArray<Group>; cast to GroupView.
+            const clonedGroups = cloned.canvas.groups as ReadonlyArray<GroupView>;
+            expect(clonedGroups.length).toBe(1);
+
+            // Its userBounds must exactly match the source's pre-clone bounds
+            expect(clonedGroups[0].face.userBounds).toEqual(sourceBounds);
+        });
+
+    });
+
+    describe("restyle preserves bounds", () => {
+
+        it("applyTheme does not reset userBounds on a resized group", async () => {
+            const factory = await createTestingGroupFactory();
+
+            // Build a file with a resized group
+            const group = await makeGroupView(factory);
+            group.face.setBounds(-300, -200, 300, 200);
+            group.face.calculateLayout();
+            const bounds = group.face.userBounds;
+
+            const file = new DiagramViewFile(factory);
+            file.canvas.addObject(group);
+            file.canvas.calculateLayout();
+
+            // Apply the same theme (simulates a theme switch)
+            const freshTheme = await ThemeLoader.load(groupTheme);
+            await file.applyTheme(freshTheme);
+
+            // The group object reference may have changed (restyle replaces faces),
+            // so look it up fresh from the canvas.
+            // canvas.groups is typed as ReadonlyArray<Group>; cast to GroupView.
+            const groups = file.canvas.groups as ReadonlyArray<GroupView>;
+            expect(groups.length).toBe(1);
+
+            // userBounds must be unchanged after restyle
+            expect(groups[0].face.userBounds).toEqual(bounds);
+        });
+
+    });
+
 });
