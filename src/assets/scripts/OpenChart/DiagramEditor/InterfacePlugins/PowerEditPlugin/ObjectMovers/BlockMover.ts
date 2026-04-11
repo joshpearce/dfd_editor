@@ -66,6 +66,11 @@ export class BlockMover extends ObjectMover {
      * Captures the subject.
      */
     public captureSubject(): void {
+        // Snapshot ancestor group bounds FIRST so the RestoreGroupBounds
+        // command lands at index 0 of the drag stream. Its undo runs
+        // last on reverse playback and authoritatively restores any
+        // auto-grow the drag caused via `calculateLayout` write-back.
+        this.pinAncestorGroupBounds(this.block.parent);
         if (this.block.parent instanceof GroupView) {
             this.currentGroup = this.block.parent;
             this.snapshotCurrentGroupBox();

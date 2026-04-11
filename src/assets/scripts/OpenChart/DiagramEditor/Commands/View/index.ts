@@ -1,6 +1,7 @@
 import {
     ClearHover,
     HoverObject,
+    RestoreGroupBounds,
     RouteLinesThroughBlock,
     MoveObjectsBy,
     MoveObjectsTo,
@@ -8,7 +9,10 @@ import {
     SetTangibility,
     UserSetObjectPosition
 } from "./index.commands";
+import type { GroupBoundsSnapshot } from "./index.commands";
 import type { BlockView, CanvasView, DiagramObjectView, GroupView, LineView, ResizeEdge } from "@OpenChart/DiagramView";
+
+export type { GroupBoundsSnapshot };
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -134,6 +138,22 @@ export function resizeGroupBy(
     group: GroupView, edge: ResizeEdge, dx: number, dy: number
 ): ResizeGroupBy {
     return new ResizeGroupBy(group, edge, dx, dy);
+}
+
+/**
+ * Records a set of group-bounds snapshots so a subsequent undo can
+ * restore them. The returned command is a no-op on execute; its only
+ * effect is on {@link RestoreGroupBounds.undo}. Intended to be emitted
+ * as the first command of a drag stream so its undo runs last.
+ * @param snapshots
+ *  The groups and bounds to restore on undo.
+ * @returns
+ *  A command that represents the action.
+ */
+export function restoreGroupBounds(
+    snapshots: ReadonlyArray<GroupBoundsSnapshot>
+): RestoreGroupBounds {
+    return new RestoreGroupBounds(snapshots);
 }
 
 /**

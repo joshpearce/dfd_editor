@@ -53,6 +53,13 @@ export class GroupMover extends ObjectMover {
      * Captures the subject.
      */
     public captureSubject(): void {
+        // Snapshot ancestor group bounds FIRST so the RestoreGroupBounds
+        // command lands at index 0 of the drag stream. Its undo runs
+        // last on reverse playback and authoritatively restores any
+        // auto-grow the drag caused. The moved group itself is excluded
+        // from the snapshot — its own bounds shift with `moveBy` and
+        // are already reversed by `MoveObjectsBy.undo`.
+        this.pinAncestorGroupBounds(this.group.parent);
         if (this.group.parent instanceof GroupView) {
             this.currentParent = this.group.parent;
             this.snapshotCurrentParentBox();

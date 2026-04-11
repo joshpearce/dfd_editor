@@ -50,7 +50,16 @@ export class LatchMover extends ObjectMover {
     /**
      * Captures the subject.
      */
-    public captureSubject(): void {}
+    public captureSubject(): void {
+        // Walk the leader latch's ancestor chain (latch → line → group
+        // → …). A latch move propagates through `LineView.moveBy →
+        // parent.handleUpdate`, which can grow any containing group via
+        // `calculateLayout`'s write-back — the same undo-invisibility
+        // bug that affects `BlockMover`. Snapshotting here lets
+        // `RestoreGroupBounds.undo` revert the auto-grow as the final
+        // step of the drag's reverse playback.
+        this.pinAncestorGroupBounds(this.leader.parent);
+    }
 
     /**
      * Moves the subject.
