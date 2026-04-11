@@ -24,10 +24,11 @@
  */
 
 import { beforeAll, describe, it, expect } from "vitest";
-import { findDeepestContainingGroup } from "./ViewLocators";
+import { findDeepestContainingGroup, findLowestCommonContainer } from "./ViewLocators";
 import {
     createGroupTestingFactory,
     makeEmptyCanvas,
+    makeBlockView,
     makeGroupWithChildren
 } from "./Faces/Bases/GroupFace.testing";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
@@ -394,6 +395,197 @@ describe("findDeepestContainingGroup", () => {
             expect(result!.instance).toBe(innerB.instance);
         });
 
+    });
+
+});
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  findLowestCommonContainer  /////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+describe("findLowestCommonContainer", () => {
+
+    let factory: DiagramObjectViewFactory;
+    beforeAll(async () => {
+        factory = await createGroupTestingFactory();
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("returns the group when both views are children of the same group", () => {
+        // canvas → G → { blockA, blockB }
+        // LCC(blockA, blockB) must be G
+        const canvas = makeEmptyCanvas(factory);
+        const G = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
+        canvas.addObject(G);
+        G.face.setBounds(0, 0, 400, 400);
+
+        const blockA = makeBlockView(factory);
+        const blockB = makeBlockView(factory);
+        G.addObject(blockA);
+        G.addObject(blockB);
+
+        const result = findLowestCommonContainer(blockA, blockB);
+        expect(result).not.toBeNull();
+        expect(result!.instance).toBe(G.instance);
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("returns the parent when both arguments are the same view", () => {
+        // canvas → G → blockA
+        // LCC(blockA, blockA) must be G (the parent), not blockA itself
+        const canvas = makeEmptyCanvas(factory);
+        const G = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
+        canvas.addObject(G);
+        G.face.setBounds(0, 0, 400, 400);
+
+        const blockA = makeBlockView(factory);
+        G.addObject(blockA);
+
+        const result = findLowestCommonContainer(blockA, blockA);
+        expect(result).not.toBeNull();
+        expect(result!.instance).toBe(G.instance);
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("returns the canvas when one view is in a group and the other is a direct canvas child", () => {
+        // canvas → { G → blockA, blockB }
+        // LCC(blockA, blockB) must be canvas
+        const canvas = makeEmptyCanvas(factory);
+        const G = makeGroupWithChildren(factory, [], [0, 0, 200, 200]);
+        canvas.addObject(G);
+        G.face.setBounds(0, 0, 200, 200);
+
+        const blockA = makeBlockView(factory);
+        G.addObject(blockA);
+
+        const blockB = makeBlockView(factory);
+        canvas.addObject(blockB);
+
+        const result = findLowestCommonContainer(blockA, blockB);
+        expect(result).not.toBeNull();
+        expect(result!.instance).toBe(canvas.instance);
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("returns the outer group when one view is in a nested group and the other is in the outer group", () => {
+        // canvas → G0 → { G1 → blockA, blockB }
+        // LCC(blockA, blockB) must be G0
+        const canvas = makeEmptyCanvas(factory);
+        const G0 = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
+        const G1 = makeGroupWithChildren(factory, [], [50, 50, 200, 200]);
+        canvas.addObject(G0);
+        G0.addObject(G1);
+        G0.face.setBounds(0, 0, 400, 400);
+        G1.face.setBounds(50, 50, 200, 200);
+
+        const blockA = makeBlockView(factory);
+        G1.addObject(blockA);
+
+        const blockB = makeBlockView(factory);
+        G0.addObject(blockB);
+
+        const result = findLowestCommonContainer(blockA, blockB);
+        expect(result).not.toBeNull();
+        expect(result!.instance).toBe(G0.instance);
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("returns the inner group when both views are in a nested group", () => {
+        // canvas → G0 → G1 → { blockA, blockB }
+        // LCC(blockA, blockB) must be G1, not G0 or canvas
+        const canvas = makeEmptyCanvas(factory);
+        const G0 = makeGroupWithChildren(factory, [], [0, 0, 400, 400]);
+        const G1 = makeGroupWithChildren(factory, [], [50, 50, 300, 300]);
+        canvas.addObject(G0);
+        G0.addObject(G1);
+        G0.face.setBounds(0, 0, 400, 400);
+        G1.face.setBounds(50, 50, 300, 300);
+
+        const blockA = makeBlockView(factory);
+        const blockB = makeBlockView(factory);
+        G1.addObject(blockA);
+        G1.addObject(blockB);
+
+        const result = findLowestCommonContainer(blockA, blockB);
+        expect(result).not.toBeNull();
+        expect(result!.instance).toBe(G1.instance);
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("returns the common parent when views are in sibling groups", () => {
+        // canvas → G0 → { G1 → blockA, G2 → blockB }
+        // LCC(blockA, blockB) must be G0
+        const canvas = makeEmptyCanvas(factory);
+        const G0 = makeGroupWithChildren(factory, [], [0, 0, 600, 400]);
+        const G1 = makeGroupWithChildren(factory, [], [0, 0, 200, 400]);
+        const G2 = makeGroupWithChildren(factory, [], [300, 0, 600, 400]);
+        canvas.addObject(G0);
+        G0.addObject(G1);
+        G0.addObject(G2);
+        G0.face.setBounds(0, 0, 600, 400);
+        G1.face.setBounds(0, 0, 200, 400);
+        G2.face.setBounds(300, 0, 600, 400);
+
+        const blockA = makeBlockView(factory);
+        G1.addObject(blockA);
+
+        const blockB = makeBlockView(factory);
+        G2.addObject(blockB);
+
+        const result = findLowestCommonContainer(blockA, blockB);
+        expect(result).not.toBeNull();
+        expect(result!.instance).toBe(G0.instance);
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("returns the canvas when views are in separate top-level groups", () => {
+        // canvas → { G1 → blockA, G2 → blockB }
+        // LCC(blockA, blockB) must be canvas
+        const canvas = makeEmptyCanvas(factory);
+        const G1 = makeGroupWithChildren(factory, [], [0, 0, 200, 200]);
+        const G2 = makeGroupWithChildren(factory, [], [300, 0, 500, 200]);
+        canvas.addObject(G1);
+        canvas.addObject(G2);
+        G1.face.setBounds(0, 0, 200, 200);
+        G2.face.setBounds(300, 0, 500, 200);
+
+        const blockA = makeBlockView(factory);
+        G1.addObject(blockA);
+
+        const blockB = makeBlockView(factory);
+        G2.addObject(blockB);
+
+        const result = findLowestCommonContainer(blockA, blockB);
+        expect(result).not.toBeNull();
+        expect(result!.instance).toBe(canvas.instance);
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("returns null when the two views share no ancestor", () => {
+        // Two entirely separate trees (canvas1, canvas2).
+        // blockA is in canvas1; blockB is in canvas2.
+        // LCC must be null — no shared ancestor exists.
+        const canvas1 = makeEmptyCanvas(factory);
+        const canvas2 = makeEmptyCanvas(factory);
+
+        const blockA = makeBlockView(factory);
+        canvas1.addObject(blockA);
+
+        const blockB = makeBlockView(factory);
+        canvas2.addObject(blockB);
+
+        const result = findLowestCommonContainer(blockA, blockB);
+        expect(result).toBeNull();
     });
 
 });
