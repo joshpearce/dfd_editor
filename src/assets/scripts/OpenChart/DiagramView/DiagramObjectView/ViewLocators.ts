@@ -110,6 +110,45 @@ export function findDeepestContainingGroup(
 }
 
 /**
+ * Returns the lowest (deepest) common container of two views — the innermost
+ * `CanvasView | GroupView` that contains both `a` and `b` in its subtree via
+ * the parent chain.
+ *
+ * For two views whose common ancestor is the canvas root, returns the
+ * `CanvasView`. Returns `null` only when the two views belong to disjoint
+ * trees with no shared ancestor (should not occur in a well-formed diagram).
+ *
+ * Implementation: collects `a`'s parent chain into a Set, then walks `b`'s
+ * parent chain and returns the first element already in the set. O(depth)
+ * memory and time.
+ *
+ * @param a - First view.
+ * @param b - Second view.
+ * @returns
+ *  The lowest common container, or `null` if the two views are in disjoint
+ *  trees.
+ */
+export function findLowestCommonContainer(
+    a: DiagramObjectView,
+    b: DiagramObjectView
+): CanvasView | GroupView | null {
+    const aAncestors = new Set<DiagramObjectView>();
+    let current: DiagramObjectView | null = a.parent;
+    while (current !== null) {
+        aAncestors.add(current);
+        current = current.parent;
+    }
+    current = b.parent;
+    while (current !== null) {
+        if (aAncestors.has(current)) {
+            return current as CanvasView | GroupView;
+        }
+        current = current.parent;
+    }
+    return null;
+}
+
+/**
  * Returns true if `candidate` is a descendant of `ancestor` in the parent
  * chain (i.e. walking `candidate.parent` upward eventually hits `ancestor`).
  */

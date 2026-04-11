@@ -1,9 +1,9 @@
 import { distance } from "@OpenChart/Utilities";
 import { GroupCommand } from "../GroupCommand";
 import { MoveObjectsTo } from "./MoveObjectsTo";
-import { AnchorView, GroupView, Orientation } from "@OpenChart/DiagramView";
+import { AnchorView, findLowestCommonContainer, GroupView, Orientation } from "@OpenChart/DiagramView";
 import { AddObjectToGroup, AttachLatchToAnchor } from "../Model/index.commands";
-import type { BlockView, CanvasView, LatchView, LineView } from "@OpenChart/DiagramView";
+import type { BlockView, CanvasView, DiagramObjectView, LatchView, LineView } from "@OpenChart/DiagramView";
 
 export class RouteLinesThroughBlock extends GroupCommand {
 
@@ -40,7 +40,8 @@ export class RouteLinesThroughBlock extends GroupCommand {
                 this.do(new AttachLatchToAnchor(line.target, nTarget));
                 this.do(new MoveObjectsTo(line.target, nTarget.x, nTarget.y));
                 const clone = line.clone();
-                this.do(new AddObjectToGroup(clone, group));
+                const cloneContainer = findLowestCommonContainer(block, oTarget.parent as DiagramObjectView) ?? group;
+                this.do(new AddObjectToGroup(clone, cloneContainer));
                 this.do(new MoveObjectsTo(clone.source, nSource.x, nSource.y));
                 this.do(new MoveObjectsTo(clone.target, oTarget.x, oTarget.y));
                 this.do(new AttachLatchToAnchor(clone.source, nSource));

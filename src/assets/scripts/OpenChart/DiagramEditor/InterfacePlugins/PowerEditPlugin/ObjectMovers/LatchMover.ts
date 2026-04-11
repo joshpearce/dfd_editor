@@ -1,6 +1,6 @@
 import * as EditorCommands from "../../../Commands";
 import { ObjectMover } from "./ObjectMover";
-import { Alignment, AnchorView } from "@OpenChart/DiagramView";
+import { Alignment, AnchorView, findLowestCommonContainer, LineView } from "@OpenChart/DiagramView";
 import type { SubjectTrack } from "@OpenChart/DiagramInterface";
 import type { PowerEditPlugin } from "../PowerEditPlugin";
 import type { CanvasView, DiagramObjectView, GroupView, LatchView } from "@OpenChart/DiagramView";
@@ -106,6 +106,23 @@ export class LatchMover extends ObjectMover {
         const l = this.latches;
         if (l.length === 1 && !l[0].isLinked()) {
             // this.plugin.requestSuggestions(l[0]);
+        }
+        // TB-4: reparent the line to the LCA of its source and target blocks.
+        // Reparenting happens once at release (not mid-drag) so the stream stays
+        // clean; the final bound state is used, not intermediate hover binds.
+        const line = this.leader.parent as LineView | null;
+        if (!line) { return; }
+        const canvas = this.plugin.editor.file.canvas;
+        const src = line.sourceObject;
+        const tgt = line.targetObject;
+        const target =
+            src && tgt
+                ? (findLowestCommonContainer(src, tgt) ?? canvas)
+                : canvas;
+        if (line.parent !== target) {
+            const { addObjectToGroup, removeObjectFromGroup } = EditorCommands;
+            this.execute(removeObjectFromGroup([line]));
+            this.execute(addObjectToGroup(line, target));
         }
     }
 
