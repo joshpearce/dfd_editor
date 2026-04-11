@@ -33,10 +33,13 @@ services:
       - ./containers/app/home/vscode/.claude:/home/vscode/.claude:cached
       - /Users/josh/.config/devagent/claude-token:/run/secrets/claude-token:ro
       - /Users/josh/.config/devagent/github_token:/run/secrets/github-token:ro
+      - /Users/josh/code/claude-marketplace:/home/vscode/claude-marketplace:cached
       # Named volume for node_modules so native binaries (esbuild, rollup,
       # better-sqlite3, etc.) are Linux-compiled inside the container rather
       # than inheriting the host's macOS builds from the workspace bind mount.
       - node-modules:/workspaces/dfd_editor/node_modules
+      # Host repo path for git worktree resolution
+      - /Users/josh/code/dfd_editor:/Users/josh/code/dfd_editor:ro
     cap_drop:
       - NET_RAW
       - SYS_ADMIN
