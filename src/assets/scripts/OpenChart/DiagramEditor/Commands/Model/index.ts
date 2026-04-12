@@ -3,7 +3,8 @@ import {
     AddObjectToGroup,
     AttachLatchToAnchor,
     DetachLatchFromAnchor,
-    RemoveObjectFromGroup
+    RemoveObjectFromGroup,
+    ReparentObject
 } from "./index.commands";
 import type { Latch, Anchor, DiagramObject, Group } from "@OpenChart/DiagramModel";
 
@@ -93,4 +94,20 @@ export function removeObjectFromGroup(
     objects: DiagramObject[]
 ): RemoveObjectFromGroup {
     return new RemoveObjectFromGroup(objects);
+}
+
+/**
+ * Moves a diagram object from its current parent to a new group without
+ * severing external anchor/latch connections.
+ * @param object
+ *  The object to reparent.
+ * @param toGroup
+ *  The group to move the object into.
+ * @returns
+ *  A command that represents the action.
+ */
+export function reparentObject(
+    object: DiagramObject, toGroup: Group
+): ReparentObject {
+    return new ReparentObject(object, toGroup);
 }

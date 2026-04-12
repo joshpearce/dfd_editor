@@ -437,9 +437,17 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
         if (group.hoveredEdge !== ResizeEdge.None) {
             return new GroupResizeMover(this, execute, group, group.hoveredEdge);
         }
-        // Otherwise the group is being dragged. GroupMover handles both
-        // movement and reparent-on-drop (into or out of nested boundaries).
-        return new GroupMover(this, execute, group);
+        // Collect all focused objects across the entire canvas (mirrors
+        // handleBlock's pattern so dragging from a group with a mixed
+        // selection moves everything, not just the group).
+        let o: DiagramObjectView[] = [...traverse(this.editor.file.canvas, o => o.focused)];
+        o = findImplicitSelection(o) as DiagramObjectView[];
+        // Single-group drag: use GroupMover (live-eject behavior).
+        if (o.length === 1 && o[0] instanceof GroupView) {
+            return new GroupMover(this, execute, group);
+        }
+        // Multi-object drag: use GenericMover.
+        return new GenericMover(this, execute, o);
     }
 
     /**
@@ -460,8 +468,13 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      */
     protected handleSelectEnd(_event: MouseEvent): void {
         this.mover!.releaseSubject();
+        const discard = this.mover!.discardStream;
         this.mover = null;
-        this.editor.endCommandStream(this.stream!);
+        if (discard) {
+            this.editor.discardCommandStream(this.stream!);
+        } else {
+            this.editor.endCommandStream(this.stream!);
+        }
         this.stream = null;
     }
 

@@ -18,6 +18,21 @@ export abstract class ObjectMover {
      */
     protected execute: CommandExecutor;
 
+    /**
+     * When set to `true` by a subclass in `releaseSubject`, the plugin will
+     * discard the command stream instead of committing it. All commands
+     * already executed within the stream are rolled back and the stream is
+     * removed from the undo history entirely.
+     */
+    protected _discardStream: boolean = false;
+
+    /**
+     * Whether the active command stream should be discarded on release.
+     */
+    public get discardStream(): boolean {
+        return this._discardStream;
+    }
+
 
     /**
      * Creates a new {@link ObjectMover}.

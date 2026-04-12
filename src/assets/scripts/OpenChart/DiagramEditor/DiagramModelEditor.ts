@@ -157,6 +157,22 @@ export class DiagramModelEditor<
     }
 
     /**
+     * Discards a command stream, rolling back all commands that were already
+     * executed within it. The stream is deleted without being added to the
+     * undo stack, so the operation leaves no trace in undo history.
+     * @param id
+     *  The stream's identifier.
+     */
+    public discardCommandStream(id: string) {
+        const cmd = this._streams.get(id);
+        if (!cmd) {
+            throw new Error(`Command stream '${id}' does not exist.`);
+        }
+        cmd.undo();
+        this._streams.delete(id);
+    }
+
+    /**
      * Records a command to a command stream.
      * @param id
      *  The stream's identifier.

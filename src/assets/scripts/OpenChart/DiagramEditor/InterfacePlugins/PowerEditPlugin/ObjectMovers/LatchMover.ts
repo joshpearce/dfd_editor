@@ -100,18 +100,36 @@ export class LatchMover extends ObjectMover {
     }
 
     /**
+     * Minimum drag distance (in diagram units) for a new connector to be
+     * committed. A drag shorter than this that leaves the target latch
+     * unlinked is treated as an accidental click and the whole stream is
+     * discarded without adding anything to the undo history.
+     */
+    private static readonly MIN_CONNECTOR_LENGTH = 40;
+
+    /**
      * Releases the subject from movement.
      */
     public releaseSubject(): void {
         const l = this.latches;
+        const line = this.leader.parent as LineView | null;
+        if (!line) { return; }
+        // Discard the stream (and roll back the line creation) when the target
+        // latch is unlinked and the drag was too short to form a meaningful
+        // connector. This prevents an invisible zero-length line from being
+        // committed when the user accidentally clicks a contact point.
         if (l.length === 1 && !l[0].isLinked()) {
+            const dx = l[0].x - line.source.x;
+            const dy = l[0].y - line.source.y;
+            if (Math.hypot(dx, dy) < LatchMover.MIN_CONNECTOR_LENGTH) {
+                this._discardStream = true;
+                return;
+            }
             // this.plugin.requestSuggestions(l[0]);
         }
         // TB-4: reparent the line to the LCA of its source and target blocks.
         // Reparenting happens once at release (not mid-drag) so the stream stays
         // clean; the final bound state is used, not intermediate hover binds.
-        const line = this.leader.parent as LineView | null;
-        if (!line) { return; }
         const canvas = this.plugin.editor.file.canvas;
         const src = line.sourceObject;
         const tgt = line.targetObject;
@@ -120,9 +138,7 @@ export class LatchMover extends ObjectMover {
                 ? (findLowestCommonContainer(src, tgt) ?? canvas)
                 : canvas;
         if (line.parent !== target) {
-            const { addObjectToGroup, removeObjectFromGroup } = EditorCommands;
-            this.execute(removeObjectFromGroup([line]));
-            this.execute(addObjectToGroup(line, target));
+            this.execute(EditorCommands.reparentObject(line, target));
         }
     }
 
