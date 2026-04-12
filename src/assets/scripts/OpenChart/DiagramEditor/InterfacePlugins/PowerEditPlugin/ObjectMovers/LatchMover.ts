@@ -200,7 +200,7 @@ export class LatchMover extends ObjectMover {
         // Nested groups (recurse)
         const groups = group.groups;
         for (let i = groups.length - 1; 0 <= i; i--) {
-            const hit = this.getBlocksAndAnchorsAt(x, y, groups[i]);
+            const hit = this.getBlocksAndAnchorsAt(x, y, groups[i] as GroupView);
             if (hit) {
                 return hit;
             }

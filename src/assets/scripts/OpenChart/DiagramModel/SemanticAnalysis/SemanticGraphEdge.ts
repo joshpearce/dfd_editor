@@ -14,6 +14,14 @@ export class SemanticGraphEdge {
     public props: RootProperty;
 
     /**
+     * Trust-boundary nodes this edge crosses (symmetric difference of
+     * source and target trustBoundaryAncestors). Empty for unbound edges
+     * or edges fully contained within shared ancestry.
+     * Set by SemanticAnalyzer.toGraph.
+     */
+    public crossings: SemanticGraphNode[] = [];
+
+    /**
      * The edge's source node.
      */
     private _source: SemanticGraphNode | null;

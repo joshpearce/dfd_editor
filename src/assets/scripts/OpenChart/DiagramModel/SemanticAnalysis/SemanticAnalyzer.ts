@@ -17,10 +17,12 @@ export class SemanticAnalyzer {
     public static toGraph(canvas: Canvas): GraphExport {
         const nodes: Map<string, SemanticGraphNode> = new Map();
         const edges: Map<string, SemanticGraphEdge> = new Map();
+        const objMap: Map<string, Group | Block> = new Map();
         // Build graph
         for (const obj of traverse(canvas as DiagramObject)) {
             if (obj instanceof Group || obj instanceof Block) {
                 nodes.set(obj.instance, new SemanticGraphNode(obj));
+                objMap.set(obj.instance, obj);
             } else if (obj instanceof Line) {
                 edges.set(obj.instance, new SemanticGraphEdge(obj));
             }
@@ -50,6 +52,29 @@ export class SemanticAnalyzer {
                     }
                 }
             }
+        }
+        // Pass 3 — parent links
+        for (const [instance, obj] of objMap) {
+            const parentObj = obj.parent;
+            if (!parentObj || parentObj === canvas) { continue; }
+            if (!(parentObj instanceof Group)) { continue; }
+            const parentNode = nodes.get(parentObj.instance);
+            if (!parentNode) { continue; }
+            const childNode = nodes.get(instance)!;
+            childNode.parent = parentNode;
+            parentNode.children.push(childNode);
+        }
+        // Pass 4 — crossings
+        for (const [, edge] of edges) {
+            if (!edge.source || !edge.target) { continue; }
+            const sa = edge.source.trustBoundaryAncestors;
+            const ta = edge.target.trustBoundaryAncestors;
+            const taSet = new Set(ta);
+            const saSet = new Set(sa);
+            edge.crossings = [
+                ...sa.filter(n => !taSet.has(n)),
+                ...ta.filter(n => !saSet.has(n))
+            ];
         }
         return { edges, nodes };
     }

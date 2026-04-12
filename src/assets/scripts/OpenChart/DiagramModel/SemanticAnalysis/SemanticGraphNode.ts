@@ -29,6 +29,31 @@ export class SemanticGraphNode {
      */
     public readonly next: Map<string, SemanticGraphEdge[]>;
 
+    /**
+     * The containing group node, or null for canvas-level objects.
+     * Set by SemanticAnalyzer.toGraph.
+     */
+    public parent: SemanticGraphNode | null = null;
+
+    /**
+     * Nodes directly contained by this group node.
+     * Set by SemanticAnalyzer.toGraph; empty for non-group nodes.
+     */
+    public children: SemanticGraphNode[] = [];
+
+    /**
+     * All trust-boundary ancestors, innermost first.
+     */
+    public get trustBoundaryAncestors(): SemanticGraphNode[] {
+        const result: SemanticGraphNode[] = [];
+        let cur: SemanticGraphNode | null = this.parent;
+        while (cur !== null) {
+            if (cur.id === "trust_boundary") { result.push(cur); }
+            cur = cur.parent;
+        }
+        return result;
+    }
+
 
     /**
      * The node's inbound edges.

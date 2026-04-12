@@ -19,6 +19,7 @@ class DfdPublisher implements FilePublisher {
             nodes.push({
                 id: instance,
                 type: node.id,
+                parent: node.parent?.instance ?? null,
                 properties: node.props.toJson()
             });
         }
@@ -27,7 +28,8 @@ class DfdPublisher implements FilePublisher {
             edges.push({
                 id,
                 source: edge.source?.instance ?? null,
-                target: edge.target?.instance ?? null
+                target: edge.target?.instance ?? null,
+                crosses: edge.crossings.map(n => n.instance)
             });
         }
 
