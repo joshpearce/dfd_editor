@@ -3,7 +3,7 @@ import { Crypto, wasHotkeyActive } from "@OpenChart/Utilities";
 import { findImplicitSelection, traverse } from "@OpenChart/DiagramModel";
 import { BlockMover, GenericMover, GroupMover, GroupResizeMover, LatchMover } from "./ObjectMovers";
 import { Cursor, DiagramInterfacePlugin, SubjectTrack } from "@OpenChart/DiagramInterface";
-import { AnchorView, BlockView, CanvasView, findDeepestContainingGroup, GroupView, HandleView, LatchView, LineView, Orientation, ResizeEdge } from "@OpenChart/DiagramView";
+import { AnchorView, BlockView, CanvasView, GroupView, HandleView, LatchView, LineView, Orientation, ResizeEdge } from "@OpenChart/DiagramView";
 import type { CursorMap } from "./CursorMap";
 import type { ObjectMover } from "./ObjectMovers";
 import type { CommandExecutor } from "./CommandExecutor";
@@ -310,8 +310,7 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
             const line = factory.createNewDiagramObject(lineTemplate, LineView);
             // Configure line
             const { addObjectToGroup, attachLatchToAnchor, moveObjectsTo } = EditorCommands;
-            const sourceContainer = findDeepestContainingGroup(canvas, anchor.x, anchor.y) ?? canvas;
-            execute(addObjectToGroup(line, sourceContainer));
+            execute(addObjectToGroup(line, canvas));
             execute(moveObjectsTo([line.source, line.target], anchor.x, anchor.y));
             execute(attachLatchToAnchor(line.source, anchor));
             // Return mover
