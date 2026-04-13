@@ -49,7 +49,6 @@ import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 // Mover types
 import { LatchMover } from "./LatchMover";
 import type { CommandExecutor } from "../CommandExecutor";
-import type { PowerEditPlugin } from "../PowerEditPlugin";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -134,7 +133,7 @@ describe("LatchMover.getBlocksAndAnchorsAt", () => {
         const hitX = anchor.x;
         const hitY = anchor.y;
 
-        const mover = new TestableLatchMover(plugin as unknown as PowerEditPlugin, noopExecute(), []);
+        const mover = new TestableLatchMover(plugin, noopExecute(), []);
         const result = mover.exposeGetBlocksAndAnchorsAt(hitX, hitY, canvas);
 
         // The walker should return an AnchorView belonging to this block.
@@ -142,6 +141,8 @@ describe("LatchMover.getBlocksAndAnchorsAt", () => {
         // the block's anchors since they all coincide at the block's origin.)
         expect(result).toBeInstanceOf(AnchorView);
         expect((result as AnchorView).parent).toBe(block);
+        // Tighter: the returned AnchorView must be one of block's own anchors.
+        expect([...block.anchors.values()].includes(result as AnchorView)).toBe(true);
     });
 
 
@@ -169,12 +170,14 @@ describe("LatchMover.getBlocksAndAnchorsAt", () => {
         const hitX = anchor.x;
         const hitY = anchor.y;
 
-        const mover = new TestableLatchMover(plugin as unknown as PowerEditPlugin, noopExecute(), []);
+        const mover = new TestableLatchMover(plugin, noopExecute(), []);
         const result = mover.exposeGetBlocksAndAnchorsAt(hitX, hitY, canvas);
 
         // The walker must recurse into G and return an AnchorView from the block.
         expect(result).toBeInstanceOf(AnchorView);
         expect((result as AnchorView).parent).toBe(block);
+        // Tighter: the returned AnchorView must be one of block's own anchors.
+        expect([...block.anchors.values()].includes(result as AnchorView)).toBe(true);
     });
 
 
@@ -210,13 +213,15 @@ describe("LatchMover.getBlocksAndAnchorsAt", () => {
         const hitX = anchor.x;
         const hitY = anchor.y;
 
-        const mover = new TestableLatchMover(plugin as unknown as PowerEditPlugin, noopExecute(), []);
+        const mover = new TestableLatchMover(plugin, noopExecute(), []);
         const result = mover.exposeGetBlocksAndAnchorsAt(hitX, hitY, canvas);
 
         // Must find an AnchorView from the nested block through two levels of
         // group recursion. This locks in the §2.3 nested-group walker fix.
         expect(result).toBeInstanceOf(AnchorView);
         expect((result as AnchorView).parent).toBe(block);
+        // Tighter: the returned AnchorView must be one of block's own anchors.
+        expect([...block.anchors.values()].includes(result as AnchorView)).toBe(true);
     });
 
 
@@ -243,7 +248,7 @@ describe("LatchMover.getBlocksAndAnchorsAt", () => {
             ]
         });
 
-        const mover = new TestableLatchMover(plugin as unknown as PowerEditPlugin, noopExecute(), []);
+        const mover = new TestableLatchMover(plugin, noopExecute(), []);
         const result = mover.exposeGetBlocksAndAnchorsAt(-1000, -1000, canvas);
 
         expect(result).toBeUndefined();

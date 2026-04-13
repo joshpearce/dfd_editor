@@ -68,7 +68,7 @@ function genericMoverFor(
     objects: DiagramObjectView[]
 ): MoverBuilder {
     return (execute: CommandExecutor) => new GenericMover(
-        plugin as unknown as PowerEditPlugin,
+        plugin,
         execute,
         objects
     );
@@ -125,7 +125,7 @@ describe("GenericMover", () => {
         // at (600–700, 600) — well inside G [400,400,800,800].
         driveDrag(
             editor,
-            genericMoverFor(plugin as unknown as PowerEditPlugin, [a, b, c]),
+            genericMoverFor(plugin, [a, b, c]),
             [[100, 100], [600, 600]]
         );
 
@@ -178,7 +178,7 @@ describe("GenericMover", () => {
         // Drag G center from (100,100) to inside T at (650,650).
         driveDrag(
             editor,
-            genericMoverFor(plugin as unknown as PowerEditPlugin, [g, a]),
+            genericMoverFor(plugin, [g, a]),
             [[100, 100], [650, 650]],
             spy
         );
@@ -194,6 +194,16 @@ describe("GenericMover", () => {
             cmd => cmd instanceof ReparentObject && (cmd as ReparentObject).toGroup === t
         );
         expect(reparentsToT).toHaveLength(0);
+
+        // Lock-in: G stays at canvas level and its bounds reflect the
+        // groupSnapshots restore pass. releaseSubject calls setBounds([0,0,200,200])
+        // then calculateLayout(), which expands to contain A (now at its dragged
+        // position ~(600,600)). Without the restore pass, G's bounds would be
+        // whatever auto-expanded value the drag left behind. The resulting value
+        // [0,0,620,620] locks in that: (a) setBounds was called with pre-drag
+        // values, and (b) calculateLayout correctly expanded to include A.
+        expect(g.parent).toBeInstanceOf(CanvasView);
+        expect(g.face.userBounds).toEqual([0, 0, 620, 620]);
     });
 
 
@@ -234,7 +244,7 @@ describe("GenericMover", () => {
         // B goes: (600,100) → (900,400) — inside G2 [700,300,900,500].
         driveDrag(
             editor,
-            genericMoverFor(plugin as unknown as PowerEditPlugin, [a, b]),
+            genericMoverFor(plugin, [a, b]),
             [[100, 100], [400, 400]]
         );
 
@@ -268,7 +278,7 @@ describe("GenericMover", () => {
         // Short drag: (100,100) → (110,100) — still inside G [0,0,400,400].
         driveDrag(
             editor,
-            genericMoverFor(plugin as unknown as PowerEditPlugin, [block]),
+            genericMoverFor(plugin, [block]),
             [[100, 100], [110, 100]],
             spy
         );
