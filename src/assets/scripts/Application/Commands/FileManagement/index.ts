@@ -13,6 +13,7 @@ import {
     PublishDiagramFileToDevice,
     RemoveFileFromRecoveryBank,
     SaveDiagramFileToDevice,
+    SaveDiagramFileToServer,
     SaveDiagramImageToDevice,
     SaveSelectionImageToDevice
 } from "./index.commands";
@@ -443,6 +444,26 @@ export function saveSelectionImageToDevice(
     context: ApplicationStore
 ) {
     return new SaveSelectionImageToDevice(context, context.activeEditor);
+}
+
+/**
+ * Saves the active diagram file to the server.
+ * Reads the diagram ID from the `src` query parameter (e.g. `?src=/api/diagrams/<id>`).
+ * Returns a no-op command if no `src` parameter is present.
+ * @param context
+ *  The application context.
+ * @returns
+ *  A command that represents the action.
+ */
+export function saveActiveFileToServer(
+    context: ApplicationStore
+): AppCommand {
+    const src = new URLSearchParams(window.location.search).get("src");
+    if (!src) return new DoNothing();
+    const segments = src.split("/");
+    const id = segments[segments.length - 1];
+    if (!id) return new DoNothing();
+    return new SaveDiagramFileToServer(context.activeEditor, id);
 }
 
 

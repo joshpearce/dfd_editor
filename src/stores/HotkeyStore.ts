@@ -79,6 +79,11 @@ export const useHotkeyStore = defineStore("hotkeyStore", {
                     repeatable: false
                 },
                 {
+                    data: () => AppCommands.saveActiveFileToServer(app),
+                    shortcut: file.save_to_server,
+                    repeatable: false
+                },
+                {
                     data: () => AppCommands.saveDiagramImageToDevice(app),
                     shortcut: file.save_image,
                     repeatable: false

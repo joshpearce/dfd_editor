@@ -17,5 +17,10 @@ export default defineConfig({
       "@OpenChart": fileURLToPath(new URL('./src/assets/scripts/OpenChart/', import.meta.url))
     },
   },
-  base: process.env?.AFB_BASE_URL ?? "/"
+  base: process.env?.AFB_BASE_URL ?? "/",
+  server: {
+    proxy: {
+      "/api": "http://127.0.0.1:5000"
+    }
+  }
 })

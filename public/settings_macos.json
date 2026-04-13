@@ -31,6 +31,7 @@
             "import_file": "",
             "import_stix_file": "",
             "save_file": "Meta+S",
+            "save_to_server": "Meta+Shift+S",
             "save_image": "",
             "save_select_image": "",
             "publish_file": "",

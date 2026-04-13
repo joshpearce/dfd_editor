@@ -3,6 +3,7 @@ export * from "./LoadFile";
 export * from "./RemoveEditorFromRecoveryBank";
 export * from "./RemoveFileFromRecoveryBank";
 export * from "./SaveDiagramFileToDevice";
+export * from "./SaveDiagramFileToServer";
 export * from "./SaveDiagramFileToRecoveryBank";
 export * from "./SaveFileToDevice";
 export * from "./SaveDiagramImageToDevice";

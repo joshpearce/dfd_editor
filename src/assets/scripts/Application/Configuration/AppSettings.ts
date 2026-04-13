@@ -34,6 +34,7 @@ export const BaseAppSettings: AppSettings = {
             import_file: "",
             import_stix_file: "",
             save_file: "",
+            save_to_server: "",
             save_image: "",
             save_select_image: "",
             publish_file: "",
@@ -138,6 +139,7 @@ export type FileHotkeys = {
     import_file: string;
     import_stix_file: string;
     save_file: string;
+    save_to_server: string;
     save_image: string;
     save_select_image: string;
     publish_file: string;
