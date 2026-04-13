@@ -14,20 +14,21 @@
  *   - ObjectMovers/GenericMover.spec.ts (Step 6 TB-13)
  */
 
-import { Crypto } from "@OpenChart/Utilities";
-import { DiagramViewFile } from "@OpenChart/DiagramView";
+// Environment shims (vi.stubGlobal window; see file for rationale on vi.mock).
+import "./PowerEditPlugin.testing.setup";
+
+import { DiagramViewFile, BlockView, CanvasView, GroupView, LatchView, LineView } from "@OpenChart/DiagramView";
 import { DiagramViewEditor } from "../../DiagramViewEditor";
 import { PowerEditPlugin } from "./PowerEditPlugin";
 import { SubjectTrack } from "@OpenChart/DiagramInterface";
-import { BlockView, CanvasView, GroupView } from "@OpenChart/DiagramView";
-import {
-    makeEmptyCanvas
-} from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
+import { BlockMover, GenericMover, GroupMover, LatchMover } from "./ObjectMovers";
+import { makeEmptyCanvas } from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 import type { DiagramObjectView } from "@OpenChart/DiagramView";
 import type { ObjectMover } from "./ObjectMovers";
 import type { CommandExecutor } from "./CommandExecutor";
 import type { SynchronousEditorCommand } from "../../Commands";
+import type { PowerEditPluginSettings } from "./PowerEditPluginSettings";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -57,7 +58,7 @@ export type GroupSpec = {
     blocks?: BlockSpec[];
 };
 
-/** Top-level canvas description for {@link buildCanvas}. */
+/** Top-level canvas description for {@link buildCanvas} and {@link createTestableEditor}. */
 export type CanvasSpec = {
     groups?: GroupSpec[];
     blocks?: BlockSpec[];
@@ -66,11 +67,35 @@ export type CanvasSpec = {
 /** Collects commands emitted during a {@link driveDrag} or direct execute. */
 export type SpyExecutor = {
     commands: SynchronousEditorCommand[];
+    /**
+     * Clears `commands` so the spy can be reused across multiple
+     * {@link driveDrag} calls without constructing a new object each time.
+     *
+     * @example
+     * ```ts
+     * const spy = spyCommandExecutor();
+     * driveDrag(editor, factory, path1, spy);
+     * expect(spy.commands).toHaveLength(1);
+     * spy.reset();
+     * driveDrag(editor, factory, path2, spy);
+     * expect(spy.commands).toHaveLength(1); // fresh recording
+     * ```
+     */
     reset(): void;
 };
 
-/** Factory function that receives a {@link CommandExecutor} and returns a mover. */
-export type MoverFactory = (execute: CommandExecutor) => ObjectMover;
+/**
+ * A function that receives a {@link CommandExecutor} and returns a mover.
+ * Renamed from `MoverFactory` to `MoverBuilder` to avoid confusion with
+ * object-creation factories.
+ */
+export type MoverBuilder = (execute: CommandExecutor) => ObjectMover;
+
+/**
+ * An ordered list of `[x, y]` cursor positions for {@link driveDrag}.
+ * Must contain at least one point.
+ */
+export type CursorPath = [number, number][];
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -92,6 +117,11 @@ const DEFAULT_BLOCK_TEMPLATE = "generic_block";
  * public name so specs can call it directly without triggering the full
  * pointer-event dispatch chain.
  *
+ * Also provides {@link dispatchHandle} and {@link moverFactoryFor} that
+ * replicate the `instanceof` dispatch from `handleSelectStart` (lines 253-264
+ * of PowerEditPlugin.ts) so Steps 3-6 can exercise the production selection
+ * logic without access to the private handler methods.
+ *
  * The `MouseEvent` parameter is typed in the production signature but
  * currently unused (`_event`), so a minimal cast-to-MouseEvent stub suffices.
  */
@@ -106,6 +136,62 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
         return this.smartHover(x, y, {} as MouseEvent);
     }
 
+    /**
+     * Constructs the appropriate {@link ObjectMover} for `obj` using the same
+     * `instanceof` dispatch as `handleSelectStart` in production, without
+     * opening a command stream. The caller provides `execute` (typically from
+     * inside {@link driveDrag}) so stream ownership stays with the caller.
+     *
+     * Supported types: `BlockView`, `GroupView`, `LatchView`, `LineView`.
+     * For `AnchorView` (which creates a line on click) only the latch-creation
+     * path is NOT replicated here — use {@link driveDrag} with a real anchor
+     * event for that scenario.
+     *
+     * @param execute - The command executor for this drag session.
+     * @param obj     - The diagram object to dispatch on.
+     * @param _event  - Optional mouse event stub (currently unused by handlers).
+     * @returns The constructed {@link ObjectMover}.
+     */
+    public dispatchHandle(
+        execute: CommandExecutor,
+        obj: DiagramObjectView,
+        _event?: MouseEvent
+    ): ObjectMover {
+        // Replicate handleSelectStart's instanceof chain (PowerEditPlugin.ts:253-264).
+        if (obj instanceof BlockView) {
+            return new BlockMover(this, execute, obj);
+        } else if (obj instanceof GroupView) {
+            return new GroupMover(this, execute, obj);
+        } else if (obj instanceof LatchView) {
+            // LatchMover requires an array of LatchView; provide a single-element
+            // array for the simple case.
+            return new LatchMover(this, execute, [obj]);
+        } else if (obj instanceof LineView) {
+            return new GenericMover(this, execute, [obj]);
+        } else {
+            return new GenericMover(this, execute, [obj]);
+        }
+    }
+
+    /**
+     * Returns a {@link MoverBuilder} that, when called with an executor,
+     * dispatches `obj` to the correct mover via {@link dispatchHandle}.
+     *
+     * Designed for use with {@link driveDrag}:
+     * ```ts
+     * driveDrag(editor, plugin.moverFactoryFor(block), path);
+     * ```
+     *
+     * @param obj    - The diagram object to dispatch on.
+     * @param event  - Optional mouse event stub.
+     */
+    public moverFactoryFor(
+        obj: DiagramObjectView,
+        event?: MouseEvent
+    ): MoverBuilder {
+        return (execute) => this.dispatchHandle(execute, obj, event);
+    }
+
 }
 
 
@@ -116,35 +202,29 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
 
 /**
  * Creates a {@link DiagramViewEditor} paired with a {@link TestablePowerEditPlugin}
- * whose canvas is pre-populated with the objects in `canvas`.
+ * whose canvas is pre-populated according to `spec`.
  *
- * Canvas wiring note: `DiagramViewFile.canvas` is set in the constructor and
- * is `readonly`, so we create a fresh `DiagramViewFile(factory)` — which
- * makes its own empty canvas — then transfer every top-level object from the
- * caller-supplied `canvas` into `file.canvas` via `addObject`. Because
- * `addObject` calls `removeObject` on the previous parent first, the objects
- * are cleanly re-parented without duplication.
+ * The canvas is built directly into `DiagramViewFile.canvas` so the spec
+ * never needs to transfer objects between standalone canvases: `DiagramViewFile`
+ * constructs its own empty canvas in the constructor; `createTestableEditor`
+ * populates it via `buildCanvas`'s internal helpers before handing it off.
  *
- * @param canvas  - A canvas produced by {@link buildCanvas}.
- * @param factory - The factory that was used to build `canvas`.
+ * @param factory - The factory to use for all object creation.
+ * @param spec    - Optional declarative canvas description. When omitted the
+ *                  canvas starts empty.
+ * @returns `{ editor, plugin, canvas }` — `canvas` is `editor.file.canvas`.
  */
 export function createTestableEditor(
-    canvas: CanvasView,
-    factory: DiagramObjectViewFactory
-): { editor: DiagramViewEditor, plugin: TestablePowerEditPlugin } {
-    // Create a fresh file whose canvas starts empty.
+    factory: DiagramObjectViewFactory,
+    spec?: CanvasSpec
+): { editor: DiagramViewEditor, plugin: TestablePowerEditPlugin, canvas: CanvasView } {
     const file = new DiagramViewFile(factory);
 
-    // Transfer every top-level child from the spec-built canvas into the
-    // file's canvas. Group.addObject calls this.removeObject on itself (the
-    // new parent), not on the child's existing parent, so we must explicitly
-    // remove each object from the standalone canvas first.
-    const topLevelObjects = [...canvas.objects];
-    for (const obj of topLevelObjects) {
-        canvas.removeObject(obj as DiagramObjectView);
-        file.canvas.addObject(obj as DiagramObjectView);
+    // Populate the file's own canvas directly instead of transferring from a
+    // separately-built standalone canvas.
+    if (spec) {
+        buildCanvasInto(factory, spec, file.canvas);
     }
-    // Recalculate the file canvas layout after bulk insertion.
     file.canvas.calculateLayout();
 
     const editor = new DiagramViewEditor(file);
@@ -153,10 +233,10 @@ export function createTestableEditor(
         factory,
         lineTemplate      : "dynamic_line",
         multiselectHotkey : "ctrl"
-    };
+    } satisfies PowerEditPluginSettings;
     const plugin = new TestablePowerEditPlugin(editor, settings);
 
-    return { editor, plugin };
+    return { editor, plugin, canvas: file.canvas };
 }
 
 
@@ -175,6 +255,11 @@ function buildGroupFromSpec(
     const template = spec.template ?? DEFAULT_GROUP_TEMPLATE;
     const group = factory.createNewDiagramObject(template, GroupView);
     group.face.setBounds(...spec.bounds);
+
+    // Wire optional id onto the instance field so findById can locate it.
+    if (spec.id !== undefined) {
+        (group as unknown as { instance: string }).instance = spec.id;
+    }
 
     // Recurse: nested groups first, then blocks.
     for (const childGroupSpec of spec.groups ?? []) {
@@ -200,14 +285,41 @@ function buildBlockFromSpec(
     const template = spec.template ?? DEFAULT_BLOCK_TEMPLATE;
     const block = factory.createNewDiagramObject(template, BlockView);
     block.moveTo(spec.x, spec.y);
+
+    // Wire optional id onto the instance field so findById can locate it.
+    if (spec.id !== undefined) {
+        (block as unknown as { instance: string }).instance = spec.id;
+    }
+
     return block;
 }
 
 /**
- * Builds a {@link CanvasView} from a declarative {@link CanvasSpec}.
+ * Populates an existing `target` canvas with the objects described in `spec`.
+ * Used internally by {@link createTestableEditor} to build directly into a
+ * `DiagramViewFile`'s canvas without a transfer step.
+ */
+function buildCanvasInto(
+    factory: DiagramObjectViewFactory,
+    spec: CanvasSpec,
+    target: CanvasView
+): void {
+    for (const groupSpec of spec.groups ?? []) {
+        const group = buildGroupFromSpec(factory, groupSpec);
+        target.addObject(group);
+    }
+    for (const blockSpec of spec.blocks ?? []) {
+        const block = buildBlockFromSpec(factory, blockSpec);
+        target.addObject(block);
+    }
+}
+
+/**
+ * Builds a standalone {@link CanvasView} from a declarative {@link CanvasSpec}.
  *
- * Uses `makeEmptyCanvas` as the root and `factory.createNewDiagramObject`
- * to mint child objects, mirroring the patterns in `GroupFace.testing.ts`.
+ * Most specs should prefer {@link createTestableEditor} which accepts a
+ * `CanvasSpec` directly. Use `buildCanvas` when you need a canvas independent
+ * of an editor (e.g. asserting canvas structure before wiring it to an editor).
  *
  * @param factory - Factory produced by {@link createGroupTestingFactory}.
  * @param spec    - Declarative description of the canvas contents.
@@ -218,25 +330,48 @@ export function buildCanvas(
     spec: CanvasSpec
 ): CanvasView {
     const canvas = makeEmptyCanvas(factory);
-
-    for (const groupSpec of spec.groups ?? []) {
-        const group = buildGroupFromSpec(factory, groupSpec);
-        canvas.addObject(group);
-    }
-    for (const blockSpec of spec.blocks ?? []) {
-        const block = buildBlockFromSpec(factory, blockSpec);
-        canvas.addObject(block);
-    }
-
+    buildCanvasInto(factory, spec, canvas);
     canvas.calculateLayout();
     return canvas;
 }
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  6. driveDrag  /////////////////////////////////////////////////////////////
+//  6. findById  ///////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+
+/**
+ * Traverses `root` (canvas or group) and returns the first
+ * {@link DiagramObjectView} whose `instance` field equals `id`, or `undefined`
+ * if no match is found.
+ *
+ * The `instance` field is set by {@link buildBlockFromSpec} and
+ * {@link buildGroupFromSpec} when a spec includes an `id` field.
+ */
+export function findById(
+    root: CanvasView | GroupView,
+    id: string
+): DiagramObjectView | undefined {
+    for (const obj of root.objects) {
+        const view = obj as DiagramObjectView;
+        if (view.instance === id) { return view; }
+        if (view instanceof GroupView) {
+            const found = findById(view, id);
+            if (found) { return found; }
+        }
+    }
+    return undefined;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  7. driveDrag  /////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+/** Monotonic counter used for deterministic stream IDs. */
+let _streamCounter = 0;
 
 /**
  * Simulates a complete drag cycle: `captureSubject → moveSubject* → releaseSubject`.
@@ -249,24 +384,24 @@ export function buildCanvas(
  * is called once per subsequent element using the delta from the previous
  * point. If `path.length === 1`, capture and release run with no move steps.
  *
- * @param editor  - The editor whose command stream will be opened/closed.
- * @param factory - Factory that, given an executor, returns an {@link ObjectMover}.
- * @param path    - Ordered cursor positions as `[x, y]` pairs. Must be non-empty.
- * @param spy     - Optional spy; every command passed to the executor is appended
- *                  to `spy.commands` before being routed into the stream.
+ * @param editor   - The editor whose command stream will be opened/closed.
+ * @param factory  - Builder that, given an executor, returns an {@link ObjectMover}.
+ * @param path     - Ordered cursor positions. Must be non-empty.
+ * @param spy      - Optional spy; every command passed to the executor is
+ *                   appended to `spy.commands` before being routed to the stream.
  * @throws If `path` is empty.
  */
 export function driveDrag(
     editor: DiagramViewEditor,
-    factory: MoverFactory,
-    path: [number, number][],
+    factory: MoverBuilder,
+    path: CursorPath,
     spy?: SpyExecutor
 ): void {
     if (path.length === 0) {
         throw new Error("driveDrag: path must have at least one point");
     }
 
-    const streamId = Crypto.randomUUID();
+    const streamId = `drive-drag-stream-${++_streamCounter}`;
     editor.beginCommandStream(streamId);
 
     const execute: CommandExecutor = (cmd: SynchronousEditorCommand) => {
@@ -301,7 +436,7 @@ export function driveDrag(
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  7. spyCommandExecutor  ////////////////////////////////////////////////////
+//  8. spyCommandExecutor  ////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 

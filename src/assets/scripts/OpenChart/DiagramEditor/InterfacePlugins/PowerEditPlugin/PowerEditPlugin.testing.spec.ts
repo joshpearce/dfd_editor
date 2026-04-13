@@ -8,24 +8,14 @@
  * Runs in the default `node` environment (same as all sibling specs).
  * `DiagramViewEditor` creates a `DiagramInterface` which accesses the DOM.
  * The interface module is mocked with a no-op stub so tests remain DOM-free.
+ *
+ * Note: the globalThis.window shim lives in PowerEditPlugin.testing.setup.ts
+ * and is applied automatically when PowerEditPlugin.testing.ts is imported.
+ * The vi.mock() call below must remain in this file — vitest hoists vi.mock()
+ * calls per spec file at compile time and cannot move them to shared modules.
  */
 
 import { describe, it, expect, beforeAll, vi } from "vitest";
-
-// Node env lacks `window`; AutosaveController and ScreenEventMonitor reference
-// it at runtime. Provide a minimal shim before any test code runs.
-if (typeof window === "undefined") {
-    (globalThis as Record<string, unknown>).window = {
-        setTimeout:  (fn: () => void, ms: number) => setTimeout(fn, ms),
-        clearTimeout: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
-        devicePixelRatio: 1,
-        matchMedia: () => ({
-            matches: false,
-            addEventListener: () => undefined,
-            removeEventListener: () => undefined
-        })
-    };
-}
 
 // DiagramInterface accesses document (canvas element) and window (matchMedia)
 // at construction time. Stub the entire class so DiagramViewEditor can be
@@ -50,13 +40,27 @@ import { BlockView } from "@OpenChart/DiagramView";
 import { BlockMover } from "./ObjectMovers";
 import { createGroupTestingFactory } from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 import {
-    buildCanvas,
     createTestableEditor,
     driveDrag
 } from "./PowerEditPlugin.testing";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 import type { DiagramViewEditor } from "../../DiagramViewEditor";
 import type { TestablePowerEditPlugin } from "./PowerEditPlugin.testing";
+import type { CursorPath } from "./PowerEditPlugin.testing";
+
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function driveDragBlock(
+    plugin: TestablePowerEditPlugin,
+    editor: DiagramViewEditor,
+    block: BlockView,
+    path: CursorPath
+): void {
+    driveDrag(editor, (execute) => new BlockMover(plugin, execute, block), path);
+}
 
 
 describe("PowerEditPlugin testing scaffold", () => {
@@ -68,23 +72,31 @@ describe("PowerEditPlugin testing scaffold", () => {
     });
 
     it("hoverAt returns a block at its position", () => {
-        const canvas = buildCanvas(factory, { blocks: [{ x: 0, y: 0 }] });
+        const { plugin, canvas } = createTestableEditor(
+            factory,
+            { blocks: [{ x: 0, y: 0 }] }
+        );
         const block = canvas.blocks[0] as BlockView;
-        const { plugin } = createTestableEditor(canvas, factory);
 
-        // Hover at the block's registered position. getObjectAt on a
-        // DictionaryBlock face may return the block itself or an AnchorView
-        // child; either result proves the scaffold routes to the right object.
+        // Hover at the block's registered position. BlockFace.getObjectAt
+        // may return the block itself or an AnchorView child (if an anchor
+        // sits exactly at that pixel). Either result confirms the scaffold
+        // routes hit-testing to the right object in the tree.
         const hit = plugin.hoverAt(block.x, block.y);
 
-        const hitBlock = hit === block || hit?.parent === block ? block : hit;
-        expect(hitBlock).toBe(block);
+        expect(hit).toBeDefined();
+        expect(hit === block || hit?.parent === block).toBe(true);
+        expect(
+            hit instanceof BlockView || (hit?.parent instanceof BlockView)
+        ).toBe(true);
     });
 
     it("driveDrag moves a block and grows undo stack by 1", () => {
-        const canvas = buildCanvas(factory, { blocks: [{ x: 0, y: 0 }] });
+        const { editor, plugin, canvas } = createTestableEditor(
+            factory,
+            { blocks: [{ x: 0, y: 0 }] }
+        );
         const block = canvas.blocks[0] as BlockView;
-        const { editor, plugin } = createTestableEditor(canvas, factory);
 
         const startX = block.x;
         const startY = block.y;
@@ -99,17 +111,3 @@ describe("PowerEditPlugin testing scaffold", () => {
     });
 
 });
-
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function driveDragBlock(
-    plugin: TestablePowerEditPlugin,
-    editor: DiagramViewEditor,
-    block: BlockView,
-    path: [number, number][]
-): void {
-    driveDrag(editor, (execute) => new BlockMover(plugin, execute, block), path);
-}
