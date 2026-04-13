@@ -1,3 +1,4 @@
+export * from "./BindEditorToServer";
 export * from "./ClearFileRecoveryBank";
 export * from "./LoadFile";
 export * from "./RemoveEditorFromRecoveryBank";

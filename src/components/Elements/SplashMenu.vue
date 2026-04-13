@@ -103,6 +103,68 @@
           </div>
         </div>
       </div>
+      <div class="section open-server-file">
+        <p class="section-title">
+          SERVER DIAGRAMS
+        </p>
+        <div class="server-actions">
+          <div
+            class="button new-server-button"
+            @click="onNewServerFile"
+          >
+            <div class="button-header">
+              <span class="button-icon"><EmptyPageIcon /></span>
+              <p class="button-title">
+                New on Server
+              </p>
+            </div>
+            <p class="button-description">
+              Create a new diagram on the connected server.
+            </p>
+          </div>
+          <div
+            class="button refresh-server-button"
+            @click="onRefreshServerFiles"
+          >
+            <div class="button-header">
+              <span class="button-icon"><FolderIcon /></span>
+              <p class="button-title">
+                Refresh List
+              </p>
+            </div>
+            <p class="button-description">
+              {{ serverError ?? `${serverFiles.length} diagram${serverFiles.length === 1 ? '' : 's'} on server.` }}
+            </p>
+          </div>
+        </div>
+        <ScrollBox
+          v-if="serverFiles.length"
+          class="file-scrollbox server-file-scrollbox"
+        >
+          <div :class="['file-grid', { 'has-scrollbar': 4 < serverFiles.length }]">
+            <div
+              class="file-entry"
+              v-for="f of serverFiles"
+              :key="f.id"
+            >
+              <div
+                class="file"
+                @click="onOpenServerFile(f.id)"
+              >
+                <div class="file-header">
+                  <FullPageIcon class="file-icon" />
+                  <p class="file-title">
+                    {{ f.name }}
+                  </p>
+                </div>
+                <p class="file-date">
+                  {{ formatModified(f.modified) }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </ScrollBox>
+      </div>
       <div
         class="section resources"
         v-if="helpLinks.length"
@@ -141,6 +203,7 @@ import { version } from "@/../package.json";
 import { defineComponent } from 'vue';
 import { useApplicationStore } from "@/stores/ApplicationStore";
 import { AppCommand } from "@/assets/scripts/Application";
+import { listDiagrams, type DiagramSummary } from "@/assets/scripts/api/DfdApiClient";
 // Components
 import LinkIcon from "@/components/Icons/LinkIcon.vue";
 import FolderIcon from "@/components/Icons/FolderIcon.vue";
@@ -159,8 +222,13 @@ export default defineComponent({
       newFile: Configuration.splash.new_file,
       openFile: Configuration.splash.open_file,
       importStix: Configuration.splash.import_stix,
-      helpLinks: Configuration.splash.help_links
+      helpLinks: Configuration.splash.help_links,
+      serverFiles: [] as DiagramSummary[],
+      serverError: null as string | null
     }
+  },
+  mounted() {
+    void this.loadServerFiles();
   },
   computed: {
 
@@ -244,6 +312,61 @@ export default defineComponent({
      */
     onOpenHelp(url: string) {
       this.execute(AppCommands.openHyperlink(url));
+    },
+
+    /**
+     * Fetches the list of diagrams from the server.
+     */
+    async loadServerFiles() {
+      try {
+        this.serverFiles = await listDiagrams();
+        this.serverError = null;
+      } catch (e) {
+        this.serverFiles = [];
+        this.serverError = e instanceof Error ? e.message : "Server unavailable.";
+      }
+    },
+
+    /**
+     * Refresh button handler.
+     */
+    async onRefreshServerFiles() {
+      await this.loadServerFiles();
+    },
+
+    /**
+     * Create a new diagram on the server and open it.
+     */
+    async onNewServerFile() {
+      const ctx = this.application;
+      try {
+        this.execute(await AppCommands.prepareEditorFromNewServerFile(ctx));
+      } catch (e) {
+        this.serverError = e instanceof Error ? e.message : "Failed to create diagram.";
+      }
+    },
+
+    /**
+     * Open a diagram from the server by id.
+     * @param id
+     *  The server diagram id.
+     */
+    async onOpenServerFile(id: string) {
+      const ctx = this.application;
+      try {
+        this.execute(await AppCommands.prepareEditorFromServerFile(ctx, id));
+      } catch (e) {
+        this.serverError = e instanceof Error ? e.message : `Failed to open diagram '${id}'.`;
+      }
+    },
+
+    /**
+     * Render a unix mtime as a locale string.
+     * @param modified
+     *  The mtime in seconds since epoch.
+     */
+    formatModified(modified: number): string {
+      return new Date(modified * 1000).toLocaleString();
     }
 
   },
@@ -451,6 +574,23 @@ export default defineComponent({
 }
 
 .section.open-recovered-file .file-grid.has-scrollbar {
+  padding-right: 10px;
+}
+
+/** === Server Diagrams Section === */
+
+.section.open-server-file .server-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 14px;
+  margin-bottom: 12px;
+}
+
+.section.open-server-file .server-file-scrollbox {
+  max-height: 162px;
+}
+
+.section.open-server-file .file-grid.has-scrollbar {
   padding-right: 10px;
 }
 

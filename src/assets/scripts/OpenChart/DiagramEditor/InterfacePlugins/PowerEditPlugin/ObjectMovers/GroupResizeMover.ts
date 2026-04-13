@@ -54,7 +54,7 @@ export class GroupResizeMover extends ObjectMover {
     public moveSubject(track: SubjectTrack): void {
         const editor = this.plugin.editor;
         const canvas = editor.file.canvas;
-        const delta = track.getDistanceOnGrid(canvas.grid);
+        const delta = track.getDistanceOnGrid(canvas.snapGrid);
         if (delta[0] | delta[1]) {
             const cmd = EditorCommands.resizeGroupBy(
                 this.group, this.edge, delta[0], delta[1]

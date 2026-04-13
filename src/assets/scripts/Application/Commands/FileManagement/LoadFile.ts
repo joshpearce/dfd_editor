@@ -95,6 +95,7 @@ export class LoadFile extends AppCommand {
      */
     public async execute(): Promise<void> {
         this.context.activeEditor = this.editor;
+        this.context.setServerFileId(null);
     }
 
 }

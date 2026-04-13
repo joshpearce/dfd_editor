@@ -181,6 +181,13 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                         disabled: editor.id === PhantomEditor.id
                     },
                     {
+                        text: "Save to Server",
+                        type: MenuType.Action,
+                        data: () => AppCommands.saveActiveFileToServer(app),
+                        shortcut: file.save_to_server,
+                        disabled: editor.id === PhantomEditor.id || !app.serverFileId
+                    },
+                    {
                         text: "Save as Image",
                         type: MenuType.Action,
                         data: () => AppCommands.saveDiagramImageToDevice(app),
@@ -472,7 +479,10 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
             return {
                 id: "create_options",
                 items: [
-                    prepareCreateMenu(templates, id => spawn(editor, id))
+                    prepareCreateMenu(templates, id => {
+                        app.requestNameFocus();
+                        return spawn(editor, id);
+                    })
                 ]
             };
 
@@ -492,7 +502,10 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
             return {
                 id: "create_options",
                 items: [
-                    prepareCreateMenu(templates, id => spawn(editor, id))
+                    prepareCreateMenu(templates, id => {
+                        app.requestNameFocus();
+                        return spawn(editor, id);
+                    })
                 ]
             };
 
@@ -858,7 +871,8 @@ function prepareCreateMenu(
         const item: ContextMenu<CommandEmitter> = {
             text: titleCase(id),
             type: MenuType.Action,
-            data: () => spawn(id)
+            data: () => spawn(id),
+            shortcut: template.shortcut
         };
         section = (menu.sections[1] ?? menu.sections[0]);
         section.items.push(item);

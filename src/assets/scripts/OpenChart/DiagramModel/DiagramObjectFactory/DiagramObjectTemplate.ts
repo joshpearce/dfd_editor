@@ -23,6 +23,12 @@ export type BaseDiagramObjectTemplate<T extends TemplateType> = {
     namespace?: string[];
 
     /**
+     * Optional keyboard shortcut for spawning this template from the create
+     * menu. Same format as other settings.json hotkeys (e.g. "B", "Shift+B").
+     */
+    shortcut?: string;
+
+    /**
      * The object's type.
      */
     type: T;

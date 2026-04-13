@@ -106,7 +106,7 @@ export class BlockMover extends ObjectMover {
         // Get distance
         let delta;
         if (this.alignment === Alignment.Grid) {
-            delta = track.getDistanceOnGrid(canvas.grid);
+            delta = track.getDistanceOnGrid(canvas.snapGrid);
         } else {
             delta = track.getDistance();
         }

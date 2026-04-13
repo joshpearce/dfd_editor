@@ -13,9 +13,14 @@ export abstract class CanvasFace extends DiagramFace {
     declare protected view: CanvasView;
 
     /**
-     * The face's grid.
+     * The face's layout grid (used by renderers).
      */
     public readonly grid: [number, number];
+
+    /**
+     * The drag-snap step (defaults to {@link grid} when not supplied).
+     */
+    public readonly snapGrid: [number, number];
 
     /**
      * The face's scale.
@@ -49,9 +54,10 @@ export abstract class CanvasFace extends DiagramFace {
      * @param scale
      *  The face's scale.
      */
-    constructor(grid: [number, number], scale: number) {
+    constructor(grid: [number, number], scale: number, snapGrid?: [number, number]) {
         super();
         this.grid = grid;
+        this.snapGrid = snapGrid ?? grid;
         this.scale = scale;
     }
 

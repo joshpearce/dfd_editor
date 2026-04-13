@@ -5,6 +5,7 @@
       :units="3"
     >
       <PropertyEditor
+        ref="propertyEditor"
         class="properties-pane"
         :property="selected"
       >
@@ -61,7 +62,26 @@ export default defineComponent({
     }
 
   },
-  components: { 
+  watch: {
+    /**
+     * When a spawn requests focus, find the first editable input/textarea
+     * inside the property editor and focus it. The selection-driven render
+     * happens on the same tick as the request, so we wait one nextTick.
+     */
+    "application.pendingNameFocus"() {
+      void this.$nextTick(() => {
+        const root = (this.$refs.propertyEditor as { $el?: HTMLElement } | undefined)?.$el;
+        const target = root?.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+          "input:not([disabled]), textarea:not([disabled])"
+        );
+        if (target) {
+          target.focus();
+          target.select?.();
+        }
+      });
+    }
+  },
+  components: {
     AccordionBox,
     AccordionPane,
     PropertyEditor,

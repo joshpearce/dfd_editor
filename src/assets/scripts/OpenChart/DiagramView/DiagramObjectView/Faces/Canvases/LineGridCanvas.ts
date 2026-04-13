@@ -25,8 +25,8 @@ export class LineGridCanvas extends CanvasFace {
      * @param scale
      *  The canvas's scale.
      */
-    constructor(style: CanvasStyle, grid: [number, number], scale: number) {
-        super(grid, scale);
+    constructor(style: CanvasStyle, grid: [number, number], scale: number, snapGrid?: [number, number]) {
+        super(grid, scale, snapGrid);
         this.style = style;
         this.gridPattern = this.createGridPattern(
             grid[0] * scale,

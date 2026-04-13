@@ -83,7 +83,7 @@ export class LatchMover extends ObjectMover {
         }
         // Update distance, if necessary
         if (this.alignment === Alignment.Grid) {
-            delta = track.getDistanceOnGrid(canvas.grid);
+            delta = track.getDistanceOnGrid(canvas.snapGrid);
         }
         // Attach latch
         if (target instanceof AnchorView) {

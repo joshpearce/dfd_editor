@@ -245,6 +245,38 @@ export const useHotkeyStore = defineStore("hotkeyStore", {
                     repeatable: false
                 }
             ];
+        },
+
+        /**
+         * Returns the create-template hotkeys, derived from each template's
+         * own `shortcut` field. Templates without a shortcut are skipped.
+         * @returns
+         *  The create hotkeys.
+         */
+        createHotkeys(): Hotkey<CommandEmitter>[] {
+            const app = useApplicationStore();
+            const editor = app.activeEditor;
+            // Suppress create shortcuts whenever the editor has a selection, so
+            // a stray keypress can't spawn an object while the user is acting
+            // on existing ones.
+            const hasSelection = 0 < app.hasSelection;
+            const hotkeys: Hotkey<CommandEmitter>[] = [];
+            for (const template of editor.file.factory.templates.values()) {
+                if (!template.shortcut) {
+                    continue;
+                }
+                const id = template.name;
+                hotkeys.push({
+                    data: () => {
+                        app.requestNameFocus();
+                        return EditorCommands.spawnObjectAtPointer(editor, id);
+                    },
+                    shortcut: template.shortcut,
+                    repeatable: false,
+                    disabled: hasSelection
+                });
+            }
+            return hotkeys;
         }
 
     }

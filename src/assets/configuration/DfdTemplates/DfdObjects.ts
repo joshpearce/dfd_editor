@@ -5,7 +5,8 @@ import type { DiagramObjectTemplate } from "@OpenChart/DiagramModel";
 export const DfdObjects: DiagramObjectTemplate[] = [
     {
         name: "process",
-        namespace: ["dfd", "process"],
+        namespace: ["process"],
+        shortcut: "P",
         type: DiagramObjectType.Block,
         properties: {
             name: {
@@ -45,7 +46,8 @@ export const DfdObjects: DiagramObjectTemplate[] = [
     },
     {
         name: "external_entity",
-        namespace: ["dfd", "external_entity"],
+        namespace: ["external_entity"],
+        shortcut: "E",
         type: DiagramObjectType.Block,
         properties: {
             name: {
@@ -90,7 +92,8 @@ export const DfdObjects: DiagramObjectTemplate[] = [
     },
     {
         name: "data_store",
-        namespace: ["dfd", "data_store"],
+        namespace: ["data_store"],
+        shortcut: "S",
         type: DiagramObjectType.Block,
         properties: {
             name: {
@@ -148,7 +151,8 @@ export const DfdObjects: DiagramObjectTemplate[] = [
     },
     {
         name: "data_flow",
-        namespace: ["dfd", "data_flow"],
+        namespace: ["data_flow"],
+        shortcut: "F",
         type: DiagramObjectType.Line,
         handle_template: "generic_handle",
         latch_template: {
@@ -209,7 +213,8 @@ export const DfdObjects: DiagramObjectTemplate[] = [
     },
     {
         name: "trust_boundary",
-        namespace: ["dfd", "trust_boundary"],
+        namespace: ["trust_boundary"],
+        shortcut: "B",
         type: DiagramObjectType.Group,
         properties: {
             name: {

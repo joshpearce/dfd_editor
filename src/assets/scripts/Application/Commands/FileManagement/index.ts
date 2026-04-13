@@ -5,7 +5,9 @@ import { AppCommand } from "../index.commands";
 import { stripExtension } from "@OpenChart/Utilities";
 import { StixToAttackFlowConverter } from "@/assets/scripts/StixToAttackFlow";
 import { DiagramObjectViewFactory, DiagramViewFile } from "@OpenChart/DiagramView";
+import { createDiagram, getDiagram, saveDiagram } from "@/assets/scripts/api/DfdApiClient";
 import {
+    BindEditorToServer,
     ClearFileRecoveryBank,
     ImportFile,
     LoadFile,
@@ -115,6 +117,22 @@ export async function loadFileFromUrl(
         filename = "Untitled File";
     }
     return loadExistingFile(context, await (await fetch(url)).text(), filename);
+}
+
+/**
+ * Loads a diagram file, from the server, into the application.
+ * @param context
+ *  The application's context.
+ * @param id
+ *  The server-side diagram id.
+ * @returns
+ *  A command that represents the action.
+ */
+export async function loadFileFromServer(
+    context: ApplicationStore, id: string
+): Promise<LoadFile> {
+    const contents = await getDiagram(id);
+    return loadExistingFile(context, contents, id);
 }
 
 /**
@@ -374,6 +392,43 @@ export async function prepareEditorFromStixFileSystem(
 }
 
 /**
+ * Prepares the editor with an existing diagram from the server.
+ * @param context
+ *  The application context.
+ * @param id
+ *  The server-side diagram id.
+ * @returns
+ *  A command that represents the action.
+ */
+export async function prepareEditorFromServerFile(
+    context: ApplicationStore, id: string
+): Promise<PrepareEditorWithFile> {
+    const cmd = new PrepareEditorWithFile(context, await loadFileFromServer(context, id));
+    cmd.add(new BindEditorToServer(context, id));
+    return cmd;
+}
+
+/**
+ * Creates a fresh diagram on the server and prepares the editor with it.
+ * The empty file is built client-side and saved back to the server so the
+ * stored payload is a valid DiagramViewExport, not just the POST scaffold.
+ * @param context
+ *  The application context.
+ * @returns
+ *  A command that represents the action.
+ */
+export async function prepareEditorFromNewServerFile(
+    context: ApplicationStore
+): Promise<PrepareEditorWithFile> {
+    const id = await createDiagram();
+    const loadCmd = await loadNewFile(context);
+    await saveDiagram(id, JSON.stringify(loadCmd.editor.file.toExport(), null, 4));
+    const cmd = new PrepareEditorWithFile(context, loadCmd);
+    cmd.add(new BindEditorToServer(context, id));
+    return cmd;
+}
+
+/**
  * Prepares the editor with an existing file from a remote url.
  * @param context
  *  The application context.
@@ -447,9 +502,9 @@ export function saveSelectionImageToDevice(
 }
 
 /**
- * Saves the active diagram file to the server.
- * Reads the diagram ID from the `src` query parameter (e.g. `?src=/api/diagrams/<id>`).
- * Returns a no-op command if no `src` parameter is present.
+ * Saves the active diagram file to the server using the binding established
+ * when the file was opened or created via the server. Returns a no-op when
+ * the active editor has no server binding.
  * @param context
  *  The application context.
  * @returns
@@ -458,11 +513,10 @@ export function saveSelectionImageToDevice(
 export function saveActiveFileToServer(
     context: ApplicationStore
 ): AppCommand {
-    const src = new URLSearchParams(window.location.search).get("src");
-    if (!src) return new DoNothing();
-    const segments = src.split("/");
-    const id = segments[segments.length - 1];
-    if (!id) return new DoNothing();
+    const id = context.serverFileId;
+    if (!id) {
+        return new DoNothing();
+    }
     return new SaveDiagramFileToServer(context.activeEditor, id);
 }
 

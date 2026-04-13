@@ -92,7 +92,7 @@ export class GroupMover extends ObjectMover {
         const canvas = editor.file.canvas;
         const { addObjectToGroup, moveObjectsBy, removeObjectFromGroup } = EditorCommands;
         const delta = this.group.alignment === Alignment.Grid
-            ? track.getDistanceOnGrid(canvas.grid)
+            ? track.getDistanceOnGrid(canvas.snapGrid)
             : track.getDistance();
         if (delta[0] | delta[1]) {
             this.execute(moveObjectsBy([this.group], delta[0], delta[1]));

@@ -236,6 +236,7 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
         values?: JsonEntries
     ): DiagramObjectView {
         const grid = this.theme.grid;
+        const snapGrid = this.theme.snapGrid;
         const scale = this.theme.scale;
         // Create properties
         const props = this.createRootProperty(template.properties ?? {}, values);
@@ -273,10 +274,10 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                 face = new GroupFace();
                 return new GroupView(template.name, instance, attrs, props, face);
             case FaceType.LineGridCanvas:
-                face = new LineGridCanvas(design.style, grid, scale);
+                face = new LineGridCanvas(design.style, grid, scale, snapGrid);
                 return new CanvasView(template.name, instance, attrs, props, face);
             case FaceType.DotGridCanvas:
-                face = new DotGridCanvas(design.style, grid, scale);
+                face = new DotGridCanvas(design.style, grid, scale, snapGrid);
                 return new CanvasView(template.name, instance, attrs, props, face);
         }
     }
@@ -359,6 +360,7 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
         objects: DiagramObjectView[]
     ): void {
         const grid = this.theme.grid;
+        const snapGrid = this.theme.snapGrid;
         const scale = this.theme.scale;
         // Restyle objects
         for (const object of traversePostfix(objects)) {
@@ -403,11 +405,11 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     object.replaceFace(face);
                     break;
                 case FaceType.LineGridCanvas:
-                    face = new LineGridCanvas(design.style, grid, scale);
+                    face = new LineGridCanvas(design.style, grid, scale, snapGrid);
                     object.replaceFace(face);
                     break;
                 case FaceType.DotGridCanvas:
-                    face = new DotGridCanvas(design.style, grid, scale);
+                    face = new DotGridCanvas(design.style, grid, scale, snapGrid);
                     object.replaceFace(face);
                     break;
             }

@@ -13,9 +13,16 @@ export type DiagramTheme = {
     name: string;
 
     /**
-     * The theme's grid.
+     * The theme's layout grid — used by face renderers (text padding,
+     * anchor offsets, etc.). Should usually stay small (e.g. 5).
      */
     grid: [number, number];
+
+    /**
+     * The drag-snap step. Quantizes drag/resize deltas. When omitted,
+     * falls back to {@link grid} so existing themes behave unchanged.
+     */
+    snapGrid?: [number, number];
 
     /**
      * The theme's interface scale.

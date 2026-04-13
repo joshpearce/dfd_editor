@@ -17,6 +17,22 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/diagrams", methods=["GET"])
+def list_diagrams():
+    summaries = []
+    for path in sorted(DATA_DIR.glob("*.json")):
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        summaries.append({
+            "id": path.stem,
+            "name": data.get("name") or path.stem,
+            "modified": path.stat().st_mtime,
+        })
+    return jsonify(summaries)
+
+
 @app.route("/api/diagrams", methods=["POST"])
 def create_diagram():
     diagram_id = str(uuid.uuid4())

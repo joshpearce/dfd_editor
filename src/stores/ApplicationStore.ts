@@ -45,7 +45,9 @@ export const useApplicationStore = defineStore("applicationStore", {
         activeFinder: new OpenChartFinder<DiagramViewEditor, DiagramObjectView>(),
         settings: BaseAppSettings,
         readOnlyMode: false,
-        recentTimezone: DateTime.local().toFormat("ZZ")
+        recentTimezone: DateTime.local().toFormat("ZZ"),
+        serverFileId: null as string | null,
+        pendingNameFocus: 0
     }),
     getters: {
 
@@ -209,6 +211,25 @@ export const useApplicationStore = defineStore("applicationStore", {
          */
         setStickyTimezone(utc: string) {
             this.recentTimezone = utc;
+        },
+
+        /**
+         * Binds the active editor to a server-side diagram id, or clears the
+         * binding when passed null.
+         * @param id
+         *  The server diagram id, or null to unbind.
+         */
+        setServerFileId(id: string | null) {
+            this.serverFileId = id;
+        },
+
+        /**
+         * Signals that the next single-object selection should focus its
+         * representative property field. Bumps a counter so consecutive
+         * spawns each fire even when the value would otherwise be unchanged.
+         */
+        requestNameFocus() {
+            this.pendingNameFocus++;
         }
 
     }

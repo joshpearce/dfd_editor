@@ -75,7 +75,7 @@ const DfdObjects: DesignMap = {
     },
     trust_boundary: {
         type: FaceType.Group,
-        attributes: 0
+        attributes: Alignment.Grid
     }
 };
 
@@ -83,6 +83,7 @@ export const DarkTheme: DiagramThemeConfiguration = {
     id: "dark_theme",
     name: "Dark Theme",
     grid: [5, 5],
+    snap_grid: [20, 20],
     scale: 2,
     designs: {
         ...BaseObjects,

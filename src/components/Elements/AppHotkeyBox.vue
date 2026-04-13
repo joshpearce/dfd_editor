@@ -39,10 +39,11 @@ export default defineComponent({
         return []
       }
       return [
-        ...this.hotkeys.nativeHotkeys, 
+        ...this.hotkeys.nativeHotkeys,
         ...this.hotkeys.fileHotkeys,
         ...this.hotkeys.editHotKeys,
-        ...this.hotkeys.viewHotkeys
+        ...this.hotkeys.viewHotkeys,
+        ...this.hotkeys.createHotkeys
       ]
     }
 

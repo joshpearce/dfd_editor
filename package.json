@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:flask": "cd server && .venv/bin/flask --app app run --debug",
+    "dev:flask": "cd server && .venv/bin/flask --app app run --debug --port 5050",
     "dev:all": "concurrently --names 'vite,flask' --prefix-colors 'cyan,yellow' 'npm run dev' 'npm run dev:flask'",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",

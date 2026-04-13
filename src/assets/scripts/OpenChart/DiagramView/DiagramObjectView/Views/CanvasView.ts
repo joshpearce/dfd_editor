@@ -207,6 +207,13 @@ export class CanvasView extends Canvas implements ViewObject {
         return this.face.grid;
     }
 
+    /**
+     * The view's drag-snap step.
+     */
+    public get snapGrid(): [number, number] {
+        return this.face.snapGrid;
+    }
+
 
     /**
      * Creates a new {@link CanvasView}.
