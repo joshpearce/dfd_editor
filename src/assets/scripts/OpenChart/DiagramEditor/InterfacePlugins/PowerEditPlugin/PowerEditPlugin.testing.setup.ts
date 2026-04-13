@@ -7,11 +7,17 @@
  * Imported automatically by PowerEditPlugin.testing.ts so every spec that
  * uses the scaffold gets the shims without boilerplate.
  *
- * Note on vi.mock():
- *   vitest hoists vi.mock() calls per spec file at compile time — they cannot
- *   be moved to a shared module and remain hoisted. Each spec file that needs
- *   to stub DiagramInterface must include its own vi.mock() call. This module
- *   only handles the globalThis.window shim, which can safely live here.
+ * Note on vi.mock() (M2):
+ *   vitest hoists vi.mock() above all ES imports at compile time. This means
+ *   identifiers introduced via `import` statements cannot be referenced inside
+ *   the vi.mock() factory — they are undefined at hoist time. Therefore the
+ *   mock factory body CANNOT be moved here and re-imported; each spec file must
+ *   inline its own vi.mock() call with the full factory body.
+ *
+ *   The `diagramInterfaceMockFactory` export below serves as the authoritative
+ *   reference implementation of the stub. When updating the stub, update it
+ *   here; then mirror any changes into the inline copies in each spec file.
+ *   This centralises the intent even though the call-site must stay per-spec.
  */
 
 import { vi } from "vitest";
@@ -29,3 +35,24 @@ vi.stubGlobal("window", {
         removeEventListener: () => undefined
     })
 });
+
+/**
+ * Reference implementation of the DiagramInterface stub used by all PowerEditPlugin
+ * spec files.
+ *
+ * This function cannot be passed directly to vi.mock() from an import because
+ * vitest hoists vi.mock() above ES imports — see the file-level note above.
+ * Each spec inlines an equivalent factory; keep them in sync with this reference.
+ */
+export async function diagramInterfaceMockFactory() {
+    const original = await import("@OpenChart/DiagramInterface");
+    class DiagramInterfaceStub {
+        on() { return this; }
+        off() { return this; }
+        emit() { return this; }
+        render() { /* no-op */ }
+        registerPlugin() { /* no-op */ }
+        deregisterPlugin() { /* no-op */ }
+    }
+    return { ...original, DiagramInterface: DiagramInterfaceStub };
+}

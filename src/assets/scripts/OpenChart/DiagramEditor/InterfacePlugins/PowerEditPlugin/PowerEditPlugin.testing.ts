@@ -118,7 +118,24 @@ const DEFAULT_LINE_TEMPLATE = "dynamic_line";
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  3. TestablePowerEditPlugin  ///////////////////////////////////////////////
+//  3. Internal helpers  ///////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+/**
+ * Assigns `id` to the runtime `instance` field of `view` when `id` is defined.
+ * The cast is necessary because `instance` is a read-only model property;
+ * test fixtures must override it to give objects stable IDs for `findById`.
+ */
+function attachInstanceId(view: DiagramObjectView, id: string | undefined): void {
+    if (id !== undefined) {
+        (view as unknown as { instance: string }).instance = id;
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  4. TestablePowerEditPlugin  ///////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -206,7 +223,7 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  4. createTestableEditor  //////////////////////////////////////////////////
+//  5. createTestableEditor  //////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -241,7 +258,7 @@ export function createTestableEditor(
 
     const settings = {
         factory,
-        lineTemplate      : "dynamic_line",
+        lineTemplate      : DEFAULT_LINE_TEMPLATE,
         multiselectHotkey : "ctrl"
     } satisfies PowerEditPluginSettings;
     const plugin = new TestablePowerEditPlugin(editor, settings);
@@ -251,7 +268,7 @@ export function createTestableEditor(
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  5. buildCanvas  ///////////////////////////////////////////////////////////
+//  6. buildCanvas  ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -267,9 +284,7 @@ function buildGroupFromSpec(
     group.face.setBounds(...spec.bounds);
 
     // Wire optional id onto the instance field so findById can locate it.
-    if (spec.id !== undefined) {
-        (group as unknown as { instance: string }).instance = spec.id;
-    }
+    attachInstanceId(group, spec.id);
 
     // Recurse: nested groups first, then blocks.
     for (const childGroupSpec of spec.groups ?? []) {
@@ -297,9 +312,7 @@ function buildBlockFromSpec(
     block.moveTo(spec.x, spec.y);
 
     // Wire optional id onto the instance field so findById can locate it.
-    if (spec.id !== undefined) {
-        (block as unknown as { instance: string }).instance = spec.id;
-    }
+    attachInstanceId(block, spec.id);
 
     return block;
 }
@@ -316,11 +329,11 @@ function buildLineFromSpec(
     const line = factory.createNewDiagramObject(template, LineView);
     line.source.moveTo(spec.source[0], spec.source[1]);
     line.target.moveTo(spec.target[0], spec.target[1]);
+    // top-level canvas.calculateLayout() recurses into children; this call
+    // ensures the line has valid geometry before being added to the canvas.
     line.calculateLayout();
 
-    if (spec.id !== undefined) {
-        (line as unknown as { instance: string }).instance = spec.id;
-    }
+    attachInstanceId(line, spec.id);
 
     return line;
 }
@@ -372,7 +385,7 @@ export function buildCanvas(
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  6. findById  ///////////////////////////////////////////////////////////////
+//  7. findById  ///////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -401,7 +414,7 @@ export function findById(
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  7. driveDrag  /////////////////////////////////////////////////////////////
+//  8. driveDrag  /////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -471,7 +484,7 @@ export function driveDrag(
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  8. spyCommandExecutor  ////////////////////////////////////////////////////
+//  9. spyCommandExecutor  ////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 

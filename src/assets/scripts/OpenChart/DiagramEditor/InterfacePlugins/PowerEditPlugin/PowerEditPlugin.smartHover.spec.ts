@@ -7,6 +7,10 @@
 
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
+// vitest hoists vi.mock() above all imports at compile time, so imported identifiers
+// cannot be referenced in the factory. The stub body must be inlined here.
+// M2: The DiagramInterfaceStub class is documented in PowerEditPlugin.testing.setup.ts
+// as `diagramInterfaceMockFactory` for reference, but each spec file must inline the call.
 vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
     const original = await importOriginal<typeof import("@OpenChart/DiagramInterface")>();
     class DiagramInterfaceStub {
@@ -23,8 +27,7 @@ vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
 import { BlockView, GroupView, LineView, ResizeEdge } from "@OpenChart/DiagramView";
 import { createGroupTestingFactory } from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 import { createTestableEditor, findById } from "./PowerEditPlugin.testing";
-import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
-import type { DiagramObjectView } from "@OpenChart/DiagramView";
+import type { DiagramObjectView, DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 
 
 // ---------------------------------------------------------------------------
@@ -32,7 +35,13 @@ import type { DiagramObjectView } from "@OpenChart/DiagramView";
 // ---------------------------------------------------------------------------
 
 function expectHitToBe(hit: DiagramObjectView | undefined, target: DiagramObjectView): void {
-    expect(hit === target || hit?.parent === target).toBe(true);
+    expect(hit).toBeDefined();
+    let cursor: DiagramObjectView | null | undefined = hit;
+    while (cursor) {
+        if (cursor === target) { return; }
+        cursor = cursor.parent;
+    }
+    expect(hit).toBe(target); // will fail with readable diff
 }
 
 
