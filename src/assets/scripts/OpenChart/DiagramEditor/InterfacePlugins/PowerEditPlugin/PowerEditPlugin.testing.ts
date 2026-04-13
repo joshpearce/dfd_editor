@@ -136,10 +136,12 @@ export function createTestableEditor(
     const file = new DiagramViewFile(factory);
 
     // Transfer every top-level child from the spec-built canvas into the
-    // file's canvas. addObject removes the object from its old parent
-    // automatically, so the standalone canvas is emptied in the process.
+    // file's canvas. Group.addObject calls this.removeObject on itself (the
+    // new parent), not on the child's existing parent, so we must explicitly
+    // remove each object from the standalone canvas first.
     const topLevelObjects = [...canvas.objects];
     for (const obj of topLevelObjects) {
+        canvas.removeObject(obj as DiagramObjectView);
         file.canvas.addObject(obj as DiagramObjectView);
     }
     // Recalculate the file canvas layout after bulk insertion.
