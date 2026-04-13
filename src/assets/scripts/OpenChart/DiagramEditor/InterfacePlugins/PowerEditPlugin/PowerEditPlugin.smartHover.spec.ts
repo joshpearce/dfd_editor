@@ -5,24 +5,10 @@
  * priority order against nested trust-boundary scenarios (Phase D Step 2).
  */
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 
-// vitest hoists vi.mock() above all imports at compile time, so imported identifiers
-// cannot be referenced in the factory. The stub body must be inlined here.
-// M2: The DiagramInterfaceStub class is documented in PowerEditPlugin.testing.setup.ts
-// as `diagramInterfaceMockFactory` for reference, but each spec file must inline the call.
-vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
-    const original = await importOriginal<typeof import("@OpenChart/DiagramInterface")>();
-    class DiagramInterfaceStub {
-        on() { return this; }
-        off() { return this; }
-        emit() { return this; }
-        render() { /* no-op */ }
-        registerPlugin() { /* no-op */ }
-        deregisterPlugin() { /* no-op */ }
-    }
-    return { ...original, DiagramInterface: DiagramInterfaceStub };
-});
+// @OpenChart/DiagramInterface is stubbed globally in PowerEditPlugin.testing.setup.ts
+// (registered as vitest setupFiles). No inline vi.mock() is required here.
 
 import { BlockView, GroupView, LineView, ResizeEdge } from "@OpenChart/DiagramView";
 import { createGroupTestingFactory } from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";

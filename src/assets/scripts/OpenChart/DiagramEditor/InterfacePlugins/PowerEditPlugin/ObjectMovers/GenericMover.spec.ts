@@ -11,23 +11,10 @@
  * provides both the editor and plugin required by the constructor.
  */
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 
-// DiagramInterface accesses document and window at construction time.
-// Stub the entire class so DiagramViewEditor can be instantiated without a
-// real browser environment.
-vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
-    const original = await importOriginal<typeof import("@OpenChart/DiagramInterface")>();
-    class DiagramInterfaceStub {
-        on() { return this; }
-        off() { return this; }
-        emit() { return this; }
-        render() { /* no-op */ }
-        registerPlugin() { /* no-op */ }
-        deregisterPlugin() { /* no-op */ }
-    }
-    return { ...original, DiagramInterface: DiagramInterfaceStub };
-});
+// @OpenChart/DiagramInterface is stubbed globally in PowerEditPlugin.testing.setup.ts
+// (registered as vitest setupFiles). No inline vi.mock() is required here.
 
 // Scaffold imports
 import { createGroupTestingFactory } from "../../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";

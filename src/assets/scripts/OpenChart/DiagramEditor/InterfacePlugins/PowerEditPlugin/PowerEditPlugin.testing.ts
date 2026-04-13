@@ -126,9 +126,14 @@ const DEFAULT_LINE_TEMPLATE = "dynamic_line";
  * Assigns `id` to the runtime `instance` field of `view` when `id` is defined.
  * The cast is necessary because `instance` is a read-only model property;
  * test fixtures must override it to give objects stable IDs for `findById`.
+ *
+ * TODO(phase-d): Long-term fix is a test-only id setter on DiagramObjectView
+ * (or its base model type) so the cast can be removed entirely.
  */
 function attachInstanceId(view: DiagramObjectView, id: string | undefined): void {
     if (id !== undefined) {
+        // Double-cast required: `instance` is a readonly property on the model
+        // base class. There is no test-only setter yet.
         (view as unknown as { instance: string }).instance = id;
     }
 }
@@ -418,8 +423,19 @@ export function findById(
 ///////////////////////////////////////////////////////////////////////////////
 
 
-/** Monotonic counter used for deterministic stream IDs. */
-let _streamCounter = 0;
+/** Per-editor monotonic counter for deterministic stream IDs. */
+const _streamCounters = new WeakMap<DiagramViewEditor, number>();
+
+/**
+ * Returns a unique stream ID string for the given editor.
+ * Each editor maintains its own counter so stream IDs are deterministic
+ * per-editor and tests running in different editors do not share state.
+ */
+function nextStreamId(editor: DiagramViewEditor): string {
+    const current = _streamCounters.get(editor) ?? 0;
+    _streamCounters.set(editor, current + 1);
+    return `drive-drag-stream-${current + 1}`;
+}
 
 /**
  * Simulates a complete drag cycle: `captureSubject → moveSubject* → releaseSubject`.
@@ -449,7 +465,7 @@ export function driveDrag(
         throw new Error("driveDrag: path must have at least one point");
     }
 
-    const streamId = `drive-drag-stream-${++_streamCounter}`;
+    const streamId = nextStreamId(editor);
     editor.beginCommandStream(streamId);
 
     const execute: CommandExecutor = (cmd: SynchronousEditorCommand) => {
@@ -523,7 +539,7 @@ export function driveDragStepwise<T>(
         throw new Error("driveDragStepwise: path must have at least one point");
     }
 
-    const streamId = `drive-drag-stepwise-stream-${++_streamCounter}`;
+    const streamId = nextStreamId(editor);
     editor.beginCommandStream(streamId);
 
     const execute: CommandExecutor = (cmd: SynchronousEditorCommand) => {

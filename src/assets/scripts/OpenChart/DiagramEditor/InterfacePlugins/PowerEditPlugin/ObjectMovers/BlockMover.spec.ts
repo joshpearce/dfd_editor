@@ -4,27 +4,15 @@
  * TB-13: Integration tests for BlockMover — reparent on drop, mid-drag eject
  * chain, command output, and undo collapsing (Phase D Step 3).
  *
- * All coordinates are multiples of 10 so grid-snapping (blockGrid=[10,10])
- * does not alter expected positions.
+ * All coordinates are multiples of 10 so grid-snapping (canvas.grid=[5,5],
+ * meaning snap increments of 5) does not alter expected positions.
+ * Multiples of 10 are also multiples of 5, so no snap rounding occurs.
  */
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 
-// DiagramInterface accesses document and window at construction time.
-// Stub the entire class so DiagramViewEditor can be instantiated without a
-// real browser environment.
-vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
-    const original = await importOriginal<typeof import("@OpenChart/DiagramInterface")>();
-    class DiagramInterfaceStub {
-        on() { return this; }
-        off() { return this; }
-        emit() { return this; }
-        render() { /* no-op */ }
-        registerPlugin() { /* no-op */ }
-        deregisterPlugin() { /* no-op */ }
-    }
-    return { ...original, DiagramInterface: DiagramInterfaceStub };
-});
+// @OpenChart/DiagramInterface is stubbed globally in PowerEditPlugin.testing.setup.ts
+// (registered as vitest setupFiles). No inline vi.mock() is required here.
 
 // Scaffold imports
 import { createGroupTestingFactory } from "../../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";

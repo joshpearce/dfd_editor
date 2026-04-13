@@ -5,26 +5,13 @@
  * nested target, descendants-come-along, and undo collapsing (Phase D Step 4).
  *
  * All coordinates are multiples of 5 to satisfy the grid-snap setting
- * (blockGrid=[5,5]) used by the test theme.
+ * (canvas.grid=[5,5]) used by the test theme.
  */
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 
-// DiagramInterface accesses document and window at construction time.
-// Stub the entire class so DiagramViewEditor can be instantiated without a
-// real browser environment.
-vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
-    const original = await importOriginal<typeof import("@OpenChart/DiagramInterface")>();
-    class DiagramInterfaceStub {
-        on() { return this; }
-        off() { return this; }
-        emit() { return this; }
-        render() { /* no-op */ }
-        registerPlugin() { /* no-op */ }
-        deregisterPlugin() { /* no-op */ }
-    }
-    return { ...original, DiagramInterface: DiagramInterfaceStub };
-});
+// @OpenChart/DiagramInterface is stubbed globally in PowerEditPlugin.testing.setup.ts
+// (registered as vitest setupFiles). No inline vi.mock() is required here.
 
 // Scaffold imports
 import { createGroupTestingFactory } from "../../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";

@@ -7,34 +7,14 @@
  *
  * Runs in the default `node` environment (same as all sibling specs).
  * `DiagramViewEditor` creates a `DiagramInterface` which accesses the DOM.
- * The interface module is mocked with a no-op stub so tests remain DOM-free.
- *
- * Note: the globalThis.window shim lives in PowerEditPlugin.testing.setup.ts
- * and is applied automatically when PowerEditPlugin.testing.ts is imported.
- * The vi.mock() call below must remain in this file — vitest hoists vi.mock()
- * calls per spec file at compile time and cannot move them to shared modules.
+ * The interface module is stubbed globally via PowerEditPlugin.testing.setup.ts
+ * (vitest setupFiles) so tests remain DOM-free without per-file vi.mock() calls.
  */
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 
-// DiagramInterface accesses document (canvas element) and window (matchMedia)
-// at construction time. Stub the entire class so DiagramViewEditor can be
-// instantiated without a real browser environment.
-vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
-    const original = await importOriginal<typeof import("@OpenChart/DiagramInterface")>();
-    class DiagramInterfaceStub {
-        on() { return this; }
-        off() { return this; }
-        emit() { return this; }
-        render() { /* no-op */ }
-        registerPlugin() { /* no-op */ }
-        deregisterPlugin() { /* no-op */ }
-    }
-    return {
-        ...original,
-        DiagramInterface: DiagramInterfaceStub
-    };
-});
+// @OpenChart/DiagramInterface is stubbed globally in PowerEditPlugin.testing.setup.ts
+// (registered as vitest setupFiles). No inline vi.mock() is required here.
 
 import { BlockView } from "@OpenChart/DiagramView";
 import { BlockMover } from "./ObjectMovers";
