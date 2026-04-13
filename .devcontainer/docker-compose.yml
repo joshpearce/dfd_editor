@@ -39,7 +39,7 @@ services:
       # than inheriting the host's macOS builds from the workspace bind mount.
       - node-modules:/workspaces/dfd_editor/node_modules
       # Host repo path for git worktree resolution
-      - /Users/josh/code/dfd_editor:/Users/josh/code/dfd_editor:ro
+      - /Users/josh/code/dfd_editor/.git:/Users/josh/code/dfd_editor/.git
     cap_drop:
       - NET_RAW
       - SYS_ADMIN
