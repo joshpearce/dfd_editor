@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 .yarn
+.worktrees
 .DS_Store
 dist
 dist-cli
