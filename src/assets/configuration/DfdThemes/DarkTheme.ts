@@ -2,7 +2,9 @@ import { Colors, DarkStyle } from "@OpenChart/ThemeLoader";
 import { Alignment, FaceType, Orientation } from "@OpenChart/DiagramView";
 import type { DiagramThemeConfiguration } from "@OpenChart/ThemeLoader";
 
-const BaseObjects = {
+type DesignMap = DiagramThemeConfiguration["designs"];
+
+const BaseObjects: DesignMap = {
     dynamic_line: {
         type: FaceType.DynamicLine,
         attributes: Alignment.Grid,
@@ -45,9 +47,10 @@ const BaseObjects = {
     }
 };
 
-const DfdObjects = {
+const DfdObjects: DesignMap = {
     dfd: {
         type: FaceType.DotGridCanvas,
+        attributes: Alignment.Grid,
         style: DarkStyle.Canvas()
     },
     process: {
@@ -71,7 +74,8 @@ const DfdObjects = {
         style: DarkStyle.Line()
     },
     trust_boundary: {
-        type: FaceType.Group
+        type: FaceType.Group,
+        attributes: 0
     }
 };
 
@@ -80,8 +84,8 @@ export const DarkTheme: DiagramThemeConfiguration = {
     name: "Dark Theme",
     grid: [5, 5],
     scale: 2,
-    designs: Object.fromEntries([
-        ...Object.entries(BaseObjects),
-        ...Object.entries(DfdObjects)
-    ])
+    designs: {
+        ...BaseObjects,
+        ...DfdObjects
+    }
 };
