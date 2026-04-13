@@ -8,6 +8,10 @@ export default mergeConfig(
     test: {
       environment: 'node',
       root: fileURLToPath(new URL('./', import.meta.url)),
+      exclude: ['**/node_modules/**', '**/.worktrees/**', '**/dist/**'],
+      setupFiles: [
+        'src/assets/scripts/OpenChart/DiagramEditor/InterfacePlugins/PowerEditPlugin/PowerEditPlugin.testing.setup.ts',
+      ],
     },
   }),
 )

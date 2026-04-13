@@ -184,8 +184,12 @@ export class LatchMover extends ObjectMover {
      *  groups. Without the recursion, blocks that live inside a trust
      *  boundary are invisible to a latch drag originating outside it and
      *  the usual anchor-hover affordance never triggers.
+     *
+     * Visibility relaxed from `private` to `protected` in Phase D Step 5
+     * so that the test subclass `TestableLatchMover` can expose it for
+     * unit assertions on the nested-group walker without modifying logic.
      */
-    private getBlocksAndAnchorsAt(
+    protected getBlocksAndAnchorsAt(
         x: number, y: number,
         group: CanvasView | GroupView
     ): DiagramObjectView | undefined {
