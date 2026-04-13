@@ -148,7 +148,7 @@ export class GenericMover extends ObjectMover {
      * hierarchy.
      */
     public releaseSubject(): void {
-        const { addObjectToGroup, removeObjectFromGroup } = EditorCommands;
+        const { reparentObject } = EditorCommands;
         const canvas = this.plugin.editor.file.canvas;
         // Restore every ancestor group's pre-drag bounds before the
         // containment check. During the drag, GroupFace.calculateLayout
@@ -176,13 +176,13 @@ export class GenericMover extends ObjectMover {
             return false;
         };
         // Pre-compute all drop targets BEFORE executing any reparenting.
-        // Each removeObjectFromGroup triggers calculateLayout on the vacated
-        // group, which re-expands the group around its remaining children.
-        // If those remaining children also need to be ejected, their
-        // containment check would incorrectly see the re-expanded bounds and
-        // conclude they are still inside the group. By separating the lookup
-        // pass from the mutation pass we ensure all targets are determined
-        // against consistent (restored pre-drag) bounds.
+        // Each reparent triggers calculateLayout on the vacated group, which
+        // re-expands the group around its remaining children. If those
+        // remaining children also need to be ejected, their containment check
+        // would incorrectly see the re-expanded bounds and conclude they are
+        // still inside the group. By separating the lookup pass from the
+        // mutation pass we ensure all targets are determined against
+        // consistent (restored pre-drag) bounds.
         type Reparent = { obj: DiagramObjectView; target: CanvasView | GroupView };
         const reparents: Reparent[] = [];
         for (const obj of this.objects) {
@@ -201,12 +201,14 @@ export class GenericMover extends ObjectMover {
                 reparents.push({ obj, target });
             }
         }
+        // Use reparentObject (not remove+add) so external latch/anchor links
+        // are preserved when a block crosses a trust boundary — otherwise
+        // attached lines would be detached from the moved block.
         for (const { obj, target } of reparents) {
-            this.execute(removeObjectFromGroup([obj]));
-            this.execute(addObjectToGroup(obj, target));
+            this.execute(reparentObject(obj, target));
         }
         // Re-apply pre-drag bounds to all snapshot groups after reparenting.
-        // Each removeObjectFromGroup triggers calculateLayout which re-expands
+        // Each reparent triggers calculateLayout which re-expands
         // the group around its remaining children. Groups that lost all their
         // selected children end up with _user* stuck at those mid-loop expanded
         // values. Restoring and recalculating gives each group its correct

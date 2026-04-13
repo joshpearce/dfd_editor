@@ -26,7 +26,7 @@ export default [
   },
   {
     name: 'app/files-to-ignore',
-    ignores: ['**/dist/**', '**/dist-cli/**', '**/dist-ssr/**', '**/coverage/**'],
+    ignores: ['**/dist/**', '**/dist-cli/**', '**/dist-ssr/**', '**/coverage/**', '.worktrees/**'],
   },
   {
     name: "app/ctid-typescript-formatting",

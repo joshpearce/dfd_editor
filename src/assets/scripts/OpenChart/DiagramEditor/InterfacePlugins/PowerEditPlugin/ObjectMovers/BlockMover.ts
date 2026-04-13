@@ -1,7 +1,7 @@
 import * as EditorCommands from "../../../Commands";
 import { LineView } from "@OpenChart/DiagramView";
 import { ObjectMover } from "./ObjectMover";
-import { Alignment, BoundingBox, CanvasView, findDeepestContainingGroup, GroupView } from "@OpenChart/DiagramView";
+import { Alignment, BoundingBox, CanvasView, findDeepestContainingGroup, findLowestCommonContainer, GroupView } from "@OpenChart/DiagramView";
 import type { BlockView, DiagramObjectView } from "@OpenChart/DiagramView";
 import type { SubjectTrack } from "@OpenChart/DiagramInterface";
 import type { PowerEditPlugin } from "../PowerEditPlugin";
@@ -102,7 +102,7 @@ export class BlockMover extends ObjectMover {
         const editor = this.plugin.editor;
         const canvas = editor.file.canvas;
         const { moveObjectsBy, userSetObjectPosition,
-                addObjectToGroup, removeObjectFromGroup } = EditorCommands;
+                reparentObject } = EditorCommands;
         // Get distance
         let delta;
         if (this.alignment === Alignment.Grid) {
@@ -136,8 +136,17 @@ export class BlockMover extends ObjectMover {
             const parent = this.currentGroup.parent;
             const newParent: CanvasView | GroupView
                 = parent instanceof GroupView ? parent : canvas;
-            this.execute(removeObjectFromGroup([this.block]));
-            this.execute(addObjectToGroup(this.block, newParent));
+            // Use reparentObject (not remove+add) so external latch
+            // connections survive the eject — otherwise data-flow lines
+            // attached to this block would be unlinked the instant a fast
+            // drag ejects it from a containing trust boundary.
+            this.execute(reparentObject(this.block, newParent));
+            // TB-4b: re-LCA any line connected to this block. Without this,
+            // a line still parented to the just-vacated group stretches to
+            // follow the block, which makes the group's calculateLayout
+            // grow to wrap the line — visually trapping the block inside
+            // the boundary it was supposedly ejected from.
+            this.reparentConnectedLinesToLCA(canvas);
             if (newParent instanceof GroupView) {
                 this.currentGroup = newParent;
                 this.snapshotCurrentGroupBox();
@@ -150,6 +159,31 @@ export class BlockMover extends ObjectMover {
         this.updateOverlap(canvas);
         // Apply delta
         track.applyDelta(delta);
+    }
+
+    /**
+     * Reparents every line connected to this block to the LCA of its source
+     * and target blocks. Called from the mid-drag eject loop so that lines
+     * don't remain in a vacated boundary group and drag its bbox around.
+     */
+    private reparentConnectedLinesToLCA(canvas: CanvasView): void {
+        const { reparentObject } = EditorCommands;
+        const seen = new Set<LineView>();
+        for (const anchor of this.block.anchors.values()) {
+            for (const latch of anchor.latches) {
+                const line = latch.parent;
+                if (!(line instanceof LineView) || seen.has(line)) { continue; }
+                seen.add(line);
+                const src = line.sourceObject;
+                const tgt = line.targetObject;
+                const target = src && tgt
+                    ? (findLowestCommonContainer(src, tgt) ?? canvas)
+                    : canvas;
+                if (line.parent !== target) {
+                    this.execute(reparentObject(line, target));
+                }
+            }
+        }
     }
 
     /**
@@ -202,7 +236,7 @@ export class BlockMover extends ObjectMover {
      */
     public releaseSubject(): void {
         const { routeLinesThroughBlock, selectObject, unselectAllObjects,
-                addObjectToGroup, removeObjectFromGroup } = EditorCommands;
+                reparentObject } = EditorCommands;
         const editor = this.plugin.editor;
         const canvas = editor.file.canvas;
         const block = this.block;
@@ -214,10 +248,12 @@ export class BlockMover extends ObjectMover {
         }
         // Reparent to the deepest group that contains the drop point.
         // Falls through to the canvas when nothing contains it.
+        // Use reparentObject (not remove+add) to preserve external latch
+        // connections — otherwise data-flow lines attached to this block
+        // would be unlinked when the block crosses a trust boundary.
         const target = findDeepestContainingGroup(canvas, block.x, block.y) ?? canvas;
         if (block.parent !== target) {
-            this.execute(removeObjectFromGroup([block]));
-            this.execute(addObjectToGroup(block, target));
+            this.execute(reparentObject(block, target));
         }
     }
 
