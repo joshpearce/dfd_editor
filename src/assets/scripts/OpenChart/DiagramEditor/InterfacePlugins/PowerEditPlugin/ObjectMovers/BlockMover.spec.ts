@@ -26,18 +26,22 @@ vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
     return { ...original, DiagramInterface: DiagramInterfaceStub };
 });
 
-import { BlockView, CanvasView, GroupView } from "@OpenChart/DiagramView";
-import { ReparentObject } from "../../../Commands/Model/ReparentObject";
+// Scaffold imports
 import { createGroupTestingFactory } from "../../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 import {
     createTestableEditor,
     driveDrag,
+    driveDragStepwise,
     findById,
     spyCommandExecutor
 } from "../PowerEditPlugin.testing";
-import { SubjectTrack } from "@OpenChart/DiagramInterface";
+
+// View types
+import { BlockView, CanvasView, GroupView } from "@OpenChart/DiagramView";
+
+// Editor / command types
+import { ReparentObject } from "../../../Commands/Model/ReparentObject";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
-import type { SynchronousEditorCommand } from "../../../Commands";
 
 
 describe("BlockMover", () => {
@@ -82,41 +86,56 @@ describe("BlockMover", () => {
 
 
     // -------------------------------------------------------------------------
-    // 2. Block stays at canvas level when dragged with no containing groups
+    // 2. Auto-expand-reparent lock-in: block dragged outside a group's user
+    //    bounds ends up back inside that group because GroupFace.calculateLayout
+    //    auto-expands the group's live bounds to contain the child's new
+    //    position, and BlockMover.releaseSubject (BlockMover.ts:254) queries
+    //    findDeepestContainingGroup against those *live* expanded bounds
+    //    (GroupFace.ts:400-402). This test locks in that behavior so a future
+    //    refactor that snapshots bounds at capture time will be caught here.
     // -------------------------------------------------------------------------
 
-    it("block at canvas level stays at canvas after drag with no groups in path", () => {
-        // Note on the plan's "drag out of all containers" scenario:
-        // When a block starts inside a group and is dragged far outside it,
-        // BlockMover.moveSubject correctly ejects the block one level at a time
-        // (verified by test 3). However, BlockMover.releaseSubject uses
-        // findDeepestContainingGroup with the *live* group bounding boxes.
-        // Groups auto-expand their bounds when children move (GroupFace
-        // calculateLayout writes back to _userXMin/Max), so a group that
-        // contained the block during the drag has live bounds that include the
-        // block's final position. This causes releaseSubject to re-parent the
-        // block back into the auto-expanded group, even though the mid-drag
-        // eject loop already placed it at canvas level.
+    it("releases back into a group whose bounds auto-expanded during the drag", () => {
+        // Setup: block starts as a structural child of B0 at (200, 200).
+        // B0's original user bounds are [0, 0, 500, 500].
         //
-        // This is an observable behavior discrepancy from the plan's stated
-        // expectation ("After release: A.parent === canvas"). The eject chain
-        // itself is correct; only the release-side reparent is affected.
+        // During the drag to (900, 900):
+        //   1. captureSubject snapshots B0's bbox as [0, 0, 500, 500].
+        //   2. moveSubject moves the block to (900, 900) while it is still a
+        //      child of B0, so GroupFace.calculateLayout writes expanded bounds
+        //      back to B0._userXMin/_userXMax (GroupFace.ts:400-402).
+        //   3. The eject loop detects 900 > 500 (snapshot xMax) and reparents
+        //      the block to canvas; currentGroup becomes null.
+        //   4. releaseSubject calls findDeepestContainingGroup against the
+        //      *live* bounds (BlockMover.ts:254). B0's live bbox now contains
+        //      (900, 900), so the block is reparented back into B0.
         //
-        // This test verifies the simpler correct case: a canvas-level block
-        // that is dragged while no groups are involved stays at canvas level.
+        // This locks in the release-time live-bounds lookup. If a future
+        // refactor snapshots bounds at capture time and uses those for the
+        // release query, the block would end up at canvas level instead — this
+        // test would catch that regression.
         const { editor, plugin, canvas } = createTestableEditor(factory, {
-            blocks: [{ id: "A", x: 200, y: 200 }]
+            groups: [
+                {
+                    id: "B0",
+                    bounds: [0, 0, 500, 500],
+                    blocks: [{ id: "drag", x: 200, y: 200 }]
+                }
+            ]
         });
 
-        const blockA = findById(canvas, "A") as BlockView;
-        expect(blockA).toBeInstanceOf(BlockView);
-        expect(blockA.parent).toBeInstanceOf(CanvasView);
+        const block = findById(canvas, "drag") as BlockView;
+        const b0 = findById(canvas, "B0") as GroupView;
+        expect(block).toBeInstanceOf(BlockView);
+        expect(b0).toBeInstanceOf(GroupView);
+        // Block starts structurally inside B0.
+        expect(block.parent).toBe(b0);
 
-        // Drag to a distant position — no groups exist, so no reparenting.
-        driveDrag(editor, plugin.moverFactoryFor(blockA), [[200, 200], [900, 900]]);
+        driveDrag(editor, plugin.moverFactoryFor(block), [[200, 200], [900, 900]]);
 
-        // Block stays at canvas level.
-        expect(blockA.parent).toBeInstanceOf(CanvasView);
+        // The group auto-expanded to contain (900, 900); release-side lookup
+        // finds B0 as the deepest containing group and reparents back to it.
+        expect(block.parent).toBe(b0);
     });
 
 
@@ -148,51 +167,24 @@ describe("BlockMover", () => {
         expect(b0).toBeInstanceOf(GroupView);
         expect(b1).toBeInstanceOf(GroupView);
 
-        // Replicate driveDrag manually to observe parent after each moveSubject tick.
-        const streamId = "block-mover-eject-stream";
-        editor.beginCommandStream(streamId);
-
-        const execute = (cmd: SynchronousEditorCommand) => {
-            editor.execute(cmd, streamId);
-        };
-
-        const mover = plugin.dispatchHandle(execute, blockA);
-        mover.captureSubject();
-
-        const track = new SubjectTrack();
-        track.reset(200, 200);
-        let prevX = 200;
-        let prevY = 200;
-
+        // Use driveDragStepwise to observe block.parent after each move tick.
+        //
         // Tick 1: (200,200) → (300,300) — still inside B1 (100 ≤ 300 ≤ 400)
-        const path1: [number, number] = [300, 300];
-        track.applyCursorDelta(path1[0] - prevX, path1[1] - prevY);
-        mover.moveSubject(track);
-        prevX = path1[0]; prevY = path1[1];
-        const parentAfterTick1 = blockA.parent;
+        // Tick 2: (300,300) → (80,80)   — outside B1, inside B0
+        // Tick 3: (80,80)   → (900,900) — outside B0 entirely
+        const parents = driveDragStepwise(
+            editor,
+            plugin.moverFactoryFor(blockA),
+            [[200, 200], [300, 300], [80, 80], [900, 900]],
+            () => blockA.parent
+        );
 
-        // Tick 2: (300,300) → (80,80) — outside B1, inside B0
-        const path2: [number, number] = [80, 80];
-        track.applyCursorDelta(path2[0] - prevX, path2[1] - prevY);
-        mover.moveSubject(track);
-        prevX = path2[0]; prevY = path2[1];
-        const parentAfterTick2 = blockA.parent;
-
-        // Tick 3: (80,80) → (900,900) — outside B0
-        const path3: [number, number] = [900, 900];
-        track.applyCursorDelta(path3[0] - prevX, path3[1] - prevY);
-        mover.moveSubject(track);
-        const parentAfterTick3 = blockA.parent;
-
-        mover.releaseSubject();
-        editor.endCommandStream(streamId);
-
-        // After tick 1: block still in B1
-        expect(parentAfterTick1).toBe(b1);
-        // After tick 2: ejected from B1 into B0 (one level)
-        expect(parentAfterTick2).toBe(b0);
-        // After tick 3: ejected from B0 to canvas
-        expect(parentAfterTick3).toBeInstanceOf(CanvasView);
+        // Tick 1: block still in B1
+        expect(parents[0]).toBe(b1);
+        // Tick 2: ejected from B1 into B0 (one level at a time)
+        expect(parents[1]).toBe(b0);
+        // Tick 3: ejected from B0 to canvas
+        expect(parents[2]).toBeInstanceOf(CanvasView);
     });
 
 

@@ -484,7 +484,85 @@ export function driveDrag(
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  9. spyCommandExecutor  ////////////////////////////////////////////////////
+//  9. driveDragStepwise  //////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+/**
+ * Like {@link driveDrag}, but calls `observe(i, path[i])` after each
+ * `moveSubject` call and returns the collected observations.
+ *
+ * - `i` is the 1-based tick index (1 = first move, 2 = second move, …).
+ * - `path[i]` is the cursor position that was just applied.
+ * - The stream is opened before capture and closed (or discarded) after
+ *   release, matching {@link driveDrag} exactly.
+ * - If `spy` is provided, commands are still recorded into `spy.commands`.
+ *
+ * Useful for asserting per-tick intermediate state (e.g. `block.parent` at
+ * every step of a multi-boundary eject chain) without duplicating stream
+ * bookkeeping in the spec.
+ *
+ * @param editor   - The editor whose command stream will be opened/closed.
+ * @param factory  - Builder that, given an executor, returns an {@link ObjectMover}.
+ * @param path     - Ordered cursor positions. Must be non-empty.
+ * @param observe  - Called after each `moveSubject(track)`. Receives the
+ *                   1-based tick index and the cursor position just applied.
+ * @param spy      - Optional spy; every command passed to the executor is
+ *                   appended to `spy.commands` before being routed to the stream.
+ * @returns Array of observations, one per move step (length === path.length − 1).
+ * @throws If `path` is empty.
+ */
+export function driveDragStepwise<T>(
+    editor: DiagramViewEditor,
+    factory: MoverBuilder,
+    path: CursorPath,
+    observe: (tickIndex: number, tickCursor: [number, number]) => T,
+    spy?: SpyExecutor
+): T[] {
+    if (path.length === 0) {
+        throw new Error("driveDragStepwise: path must have at least one point");
+    }
+
+    const streamId = `drive-drag-stepwise-stream-${++_streamCounter}`;
+    editor.beginCommandStream(streamId);
+
+    const execute: CommandExecutor = (cmd: SynchronousEditorCommand) => {
+        spy?.commands.push(cmd);
+        editor.execute(cmd, streamId);
+    };
+
+    const mover = factory(execute);
+    mover.captureSubject();
+
+    let [prevX, prevY] = path[0];
+    const track = new SubjectTrack();
+    track.reset(prevX, prevY);
+
+    const observations: T[] = [];
+
+    for (let i = 1; i < path.length; i++) {
+        const [x, y] = path[i];
+        track.applyCursorDelta(x - prevX, y - prevY);
+        mover.moveSubject(track);
+        prevX = x;
+        prevY = y;
+        observations.push(observe(i, [x, y]));
+    }
+
+    mover.releaseSubject();
+
+    if (mover.discardStream) {
+        editor.discardCommandStream(streamId);
+    } else {
+        editor.endCommandStream(streamId);
+    }
+
+    return observations;
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  10. spyCommandExecutor  ////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
