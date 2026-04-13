@@ -58,10 +58,19 @@ export type GroupSpec = {
     blocks?: BlockSpec[];
 };
 
+/** Describes a canvas-level line to create. */
+export type LineSpec = {
+    id?: string;
+    template?: string;
+    source: [number, number];
+    target: [number, number];
+};
+
 /** Top-level canvas description for {@link buildCanvas} and {@link createTestableEditor}. */
 export type CanvasSpec = {
     groups?: GroupSpec[];
     blocks?: BlockSpec[];
+    lines?: LineSpec[];
 };
 
 /** Collects commands emitted during a {@link driveDrag} or direct execute. */
@@ -105,6 +114,7 @@ export type CursorPath = [number, number][];
 
 const DEFAULT_GROUP_TEMPLATE = "generic_group";
 const DEFAULT_BLOCK_TEMPLATE = "generic_block";
+const DEFAULT_LINE_TEMPLATE = "dynamic_line";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -295,6 +305,27 @@ function buildBlockFromSpec(
 }
 
 /**
+ * Creates a canvas-level {@link LineView} from a {@link LineSpec} and positions
+ * its source and target latches.
+ */
+function buildLineFromSpec(
+    factory: DiagramObjectViewFactory,
+    spec: LineSpec
+): LineView {
+    const template = spec.template ?? DEFAULT_LINE_TEMPLATE;
+    const line = factory.createNewDiagramObject(template, LineView);
+    line.source.moveTo(spec.source[0], spec.source[1]);
+    line.target.moveTo(spec.target[0], spec.target[1]);
+    line.calculateLayout();
+
+    if (spec.id !== undefined) {
+        (line as unknown as { instance: string }).instance = spec.id;
+    }
+
+    return line;
+}
+
+/**
  * Populates an existing `target` canvas with the objects described in `spec`.
  * Used internally by {@link createTestableEditor} to build directly into a
  * `DiagramViewFile`'s canvas without a transfer step.
@@ -311,6 +342,10 @@ function buildCanvasInto(
     for (const blockSpec of spec.blocks ?? []) {
         const block = buildBlockFromSpec(factory, blockSpec);
         target.addObject(block);
+    }
+    for (const lineSpec of spec.lines ?? []) {
+        const line = buildLineFromSpec(factory, lineSpec);
+        target.addObject(line);
     }
 }
 
