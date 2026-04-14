@@ -21,8 +21,15 @@ export class SaveDiagramFileToServer extends AppCommand {
     }
 
     public async execute(): Promise<void> {
-        const json = JSON.stringify(this.editor.file.toExport(), null, 4);
-        await saveDiagram(this.diagramId, json);
+        const file = this.editor.file;
+        const payload = {
+            ...file.toExport(),
+            // Duplicate the canvas's representative name at the top level so
+            // the server's list endpoint can surface a human-readable label
+            // without having to understand the schema.
+            name: file.canvas.properties.toString() || "Untitled Diagram"
+        };
+        await saveDiagram(this.diagramId, JSON.stringify(payload, null, 4));
     }
 
 }

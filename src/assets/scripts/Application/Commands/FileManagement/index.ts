@@ -422,7 +422,12 @@ export async function prepareEditorFromNewServerFile(
 ): Promise<PrepareEditorWithFile> {
     const id = await createDiagram();
     const loadCmd = await loadNewFile(context);
-    await saveDiagram(id, JSON.stringify(loadCmd.editor.file.toExport(), null, 4));
+    const file = loadCmd.editor.file;
+    const payload = {
+        ...file.toExport(),
+        name: file.canvas.properties.toString() || "Untitled Diagram"
+    };
+    await saveDiagram(id, JSON.stringify(payload, null, 4));
     const cmd = new PrepareEditorWithFile(context, loadCmd);
     cmd.add(new BindEditorToServer(context, id));
     return cmd;
