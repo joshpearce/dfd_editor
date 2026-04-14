@@ -17,7 +17,7 @@ const configuration: AppConfiguration = {
     /**
      * The application's icon.
      */
-    application_icon: "",
+    application_icon: "/favicon.png",
 
     /**
      * The application file type's name.
