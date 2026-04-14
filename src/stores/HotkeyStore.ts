@@ -253,6 +253,33 @@ export const useHotkeyStore = defineStore("hotkeyStore", {
          * @returns
          *  The create hotkeys.
          */
+        /**
+         * Returns arrow-key movement hotkeys. Plain arrows nudge the
+         * selection 1px; Shift+arrow moves by the canvas snap-grid step
+         * so alignment to existing grid-phased objects is preserved.
+         * @returns
+         *  The movement hotkeys.
+         */
+        movementHotkeys(): Hotkey<CommandEmitter>[] {
+            const app = useApplicationStore();
+            const editor = app.activeEditor;
+            const selection = app.getSelection;
+            const snap = editor.file.canvas.snapGrid;
+            const disabled = selection.length === 0;
+            const move = (dx: number, dy: number) =>
+                EditorCommands.moveObjectsBy(selection, dx, dy);
+            return [
+                { shortcut: "ArrowLeft",        data: () => move(-1, 0), repeatable: true, disabled },
+                { shortcut: "ArrowRight",       data: () => move(1, 0),  repeatable: true, disabled },
+                { shortcut: "ArrowUp",          data: () => move(0, -1), repeatable: true, disabled },
+                { shortcut: "ArrowDown",        data: () => move(0, 1),  repeatable: true, disabled },
+                { shortcut: "Shift+ArrowLeft",  data: () => move(-snap[0], 0), repeatable: true, disabled },
+                { shortcut: "Shift+ArrowRight", data: () => move(snap[0], 0),  repeatable: true, disabled },
+                { shortcut: "Shift+ArrowUp",    data: () => move(0, -snap[1]), repeatable: true, disabled },
+                { shortcut: "Shift+ArrowDown",  data: () => move(0, snap[1]),  repeatable: true, disabled }
+            ];
+        },
+
         createHotkeys(): Hotkey<CommandEmitter>[] {
             const app = useApplicationStore();
             const editor = app.activeEditor;

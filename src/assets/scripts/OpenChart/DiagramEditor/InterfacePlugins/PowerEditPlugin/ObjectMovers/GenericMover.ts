@@ -41,6 +41,18 @@ export class GenericMover extends ObjectMover {
      */
     private alignment: number;
 
+    /**
+     * The anchor object's top-left at drag-start. All other move targets
+     * move by the same delta, preserving relative positions, while the
+     * anchor's corner lands on a grid multiple.
+     */
+    private initialLeft: number;
+
+    /**
+     * See {@link initialLeft}.
+     */
+    private initialTop: number;
+
 
     /**
      * Creates a new {@link ObjectMover}.
@@ -76,6 +88,8 @@ export class GenericMover extends ObjectMover {
         this.alignment = this.objects.some(
             o => o.alignment === Alignment.Grid
         ) ? Alignment.Grid : Alignment.Free;
+        this.initialLeft = 0;
+        this.initialTop = 0;
     }
 
 
@@ -106,6 +120,12 @@ export class GenericMover extends ObjectMover {
             }
             this.pinAncestorGroupBounds(obj.parent);
         }
+        const anchor = this.moveTargets[0];
+        if (anchor) {
+            const bb = anchor.face.boundingBox;
+            this.initialLeft = bb.xMin;
+            this.initialTop = bb.yMin;
+        }
     }
 
     /**
@@ -120,7 +140,7 @@ export class GenericMover extends ObjectMover {
         // Get distance
         let delta;
         if (this.alignment === Alignment.Grid) {
-            delta = track.getDistanceOnGrid(canvas.snapGrid);
+            delta = track.getPositionOnGrid(this.initialLeft, this.initialTop, canvas.snapGrid);
         } else {
             delta = track.getDistance();
         }

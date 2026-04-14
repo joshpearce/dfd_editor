@@ -27,6 +27,18 @@ export class GroupMover extends ObjectMover {
      */
     private currentParentBox: { xMin: number, yMin: number, xMax: number, yMax: number } | null;
 
+    /**
+     * The group's top-left corner at drag-start — used as the grid-snap
+     * reference so the corner lands on grid multiples regardless of start
+     * offset.
+     */
+    private initialLeft: number;
+
+    /**
+     * See {@link initialLeft}.
+     */
+    private initialTop: number;
+
 
     /**
      * Creates a new {@link GroupMover}.
@@ -46,6 +58,8 @@ export class GroupMover extends ObjectMover {
         this.group = group;
         this.currentParent = null;
         this.currentParentBox = null;
+        this.initialLeft = 0;
+        this.initialTop = 0;
     }
 
 
@@ -64,6 +78,9 @@ export class GroupMover extends ObjectMover {
             this.currentParent = this.group.parent;
             this.snapshotCurrentParentBox();
         }
+        const bb = this.group.face.boundingBox;
+        this.initialLeft = bb.xMin;
+        this.initialTop = bb.yMin;
     }
 
     /**
@@ -92,7 +109,7 @@ export class GroupMover extends ObjectMover {
         const canvas = editor.file.canvas;
         const { addObjectToGroup, moveObjectsBy, removeObjectFromGroup } = EditorCommands;
         const delta = this.group.alignment === Alignment.Grid
-            ? track.getDistanceOnGrid(canvas.snapGrid)
+            ? track.getPositionOnGrid(this.initialLeft, this.initialTop, canvas.snapGrid)
             : track.getDistance();
         if (delta[0] | delta[1]) {
             this.execute(moveObjectsBy([this.group], delta[0], delta[1]));

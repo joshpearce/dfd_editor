@@ -38,6 +38,18 @@ export class BlockMover extends ObjectMover {
      */
     private currentGroupBox: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
 
+    /**
+     * The block's top-left corner at drag-start — used as the grid-snap
+     * reference so the corner lands on grid multiples regardless of where
+     * the block started or where the cursor grabbed it.
+     */
+    private initialLeft: number;
+
+    /**
+     * See {@link initialLeft}.
+     */
+    private initialTop: number;
+
 
     /**
      * Creates a new {@link ObjectMover}.
@@ -59,6 +71,8 @@ export class BlockMover extends ObjectMover {
         this.alignment = block.alignment;
         this.currentGroup = null;
         this.currentGroupBox = null;
+        this.initialLeft = 0;
+        this.initialTop = 0;
     }
 
 
@@ -75,6 +89,9 @@ export class BlockMover extends ObjectMover {
             this.currentGroup = this.block.parent;
             this.snapshotCurrentGroupBox();
         }
+        const bb = this.block.face.boundingBox;
+        this.initialLeft = bb.xMin;
+        this.initialTop = bb.yMin;
     }
 
     /**
@@ -106,7 +123,7 @@ export class BlockMover extends ObjectMover {
         // Get distance
         let delta;
         if (this.alignment === Alignment.Grid) {
-            delta = track.getDistanceOnGrid(canvas.snapGrid);
+            delta = track.getPositionOnGrid(this.initialLeft, this.initialTop, canvas.snapGrid);
         } else {
             delta = track.getDistance();
         }

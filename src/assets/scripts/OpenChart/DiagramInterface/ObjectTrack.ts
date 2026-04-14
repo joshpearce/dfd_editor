@@ -114,6 +114,35 @@ export class SubjectTrack {
     }
 
     /**
+     * Returns the delta that lands a subject reference point on the grid.
+     *
+     * Callers pass the reference point's position at drag-start (typically
+     * the subject's top-left corner). The target is `ref + cumulativeCursor`
+     * rounded to the nearest grid step — so after the returned delta is
+     * applied, the reference point is on a grid multiple regardless of the
+     * drag-start offset.
+     *
+     * @param refX
+     *  The reference point's x at drag-start.
+     * @param refY
+     *  The reference point's y at drag-start.
+     * @param grid
+     *  The grid's step size.
+     * @returns
+     *  The selection's [x, y] delta.
+     */
+    public getPositionOnGrid(
+        refX: number, refY: number, grid: [number, number]
+    ): [number, number] {
+        const targetX = roundNearestMultiple(refX + this.xCursorDelta, grid[0]);
+        const targetY = roundNearestMultiple(refY + this.yCursorDelta, grid[1]);
+        return [
+            targetX - refX - this.xSubjectDelta,
+            targetY - refY - this.ySubjectDelta
+        ];
+    }
+
+    /**
      * Returns how far the selection has moved onto an object.
      * @param obj
      *  The object.
