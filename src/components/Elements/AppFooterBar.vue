@@ -20,6 +20,13 @@
           </Transition>
         </div>
       </Transition>
+      <div
+        :class="['metric', 'server-status', { dirty: isDirtyVsServer }]"
+        v-if="hasServerBinding"
+      >
+        <span class="icon">{{ isDirtyVsServer ? "●" : "✓" }}</span>
+        <span>{{ isDirtyVsServer ? "Unsaved to server" : "Saved to server" }}</span>
+      </div>
     </div>
     <div class="right-align">
       <div
@@ -133,6 +140,20 @@ export default defineComponent({
     hasAutosaveFailed(): boolean {
       const time = this.application.activeEditor.lastAutosave;
       return time !== null && Number.isNaN(time.getTime());
+    },
+
+    /**
+     * Whether the active editor is bound to a server diagram.
+     */
+    hasServerBinding(): boolean {
+      return this.application.serverFileId !== null;
+    },
+
+    /**
+     * Whether the active editor has unsaved changes vs. the last server save.
+     */
+    isDirtyVsServer(): boolean {
+      return this.application.isDirtyVsServer;
     }
 
   },
@@ -217,6 +238,14 @@ export default defineComponent({
 
 .error .icon {
   fill: #ff4d4d;
+}
+
+.server-status {
+  color: #2bd463;
+}
+
+.server-status.dirty {
+  color: #e6d846;
 }
 
 .fade-enter-active,

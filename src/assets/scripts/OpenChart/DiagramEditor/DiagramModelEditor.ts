@@ -70,6 +70,19 @@ export class DiagramModelEditor<
         return this.autosave.lastAutosave;
     }
 
+    /**
+     * Undo-stack depth at the point of the last successful server save, or
+     * `null` if this editor has never been synced to the server.
+     */
+    public lastServerSaveUndoDepth: number | null = null;
+
+    /**
+     * The current depth of the undo stack.
+     */
+    public get undoDepth(): number {
+        return this._undoStack.length;
+    }
+
 
     /**
      * Creates a new {@link DiagramEditor}.

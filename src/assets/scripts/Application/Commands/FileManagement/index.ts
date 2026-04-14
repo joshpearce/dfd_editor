@@ -393,16 +393,45 @@ export async function prepareEditorFromStixFileSystem(
 
 /**
  * Prepares the editor with an existing diagram from the server.
+ *
+ * If a recovery-bank entry exists for this server id and is newer than the
+ * server's `modified` timestamp, prompts the user to restore the local copy
+ * or discard it. When restored, the editor is marked dirty-vs-server so the
+ * user can re-save the local changes.
  * @param context
  *  The application context.
  * @param id
  *  The server-side diagram id.
+ * @param serverModified
+ *  The server's last-modified timestamp (unix seconds). When omitted, the
+ *  newer-local-copy check is skipped.
  * @returns
  *  A command that represents the action.
  */
 export async function prepareEditorFromServerFile(
-    context: ApplicationStore, id: string
+    context: ApplicationStore, id: string, serverModified?: number
 ): Promise<PrepareEditorWithFile> {
+    const recoveryKey = `server:${id}`;
+    const recovery = context.fileRecoveryBank.files.get(recoveryKey);
+    if (
+        recovery
+        && serverModified !== undefined
+        && recovery.date.getTime() > serverModified * 1000
+    ) {
+        const restore = window.confirm(
+            "A newer local copy of this diagram exists "
+            + `(saved ${recovery.date.toLocaleString()}).\n\n`
+            + "OK = Restore the local copy (you'll need to save it).\n"
+            + "Cancel = Discard the local copy and load the server version."
+        );
+        if (restore) {
+            const loadCmd = await loadExistingFile(context, recovery.contents, recovery.name);
+            const cmd = new PrepareEditorWithFile(context, loadCmd);
+            cmd.add(new BindEditorToServer(context, id, true));
+            return cmd;
+        }
+        context.fileRecoveryBank.deleteFile(recoveryKey);
+    }
     const cmd = new PrepareEditorWithFile(context, await loadFileFromServer(context, id));
     cmd.add(new BindEditorToServer(context, id));
     return cmd;

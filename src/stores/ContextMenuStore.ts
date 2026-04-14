@@ -29,7 +29,6 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
             // Sections
             const sections: ContextMenuSection<CommandEmitter>[] = [
                 this.openFileMenu,
-                this.importFileMenu,
                 this.isRecoverFileMenuShown ? this.recoverFileMenu : null,
                 this.saveFileMenu,
                 app.activePublisher ? this.publishFileMenu : null
@@ -54,48 +53,6 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                         type: MenuType.Action,
                         data: () => AppCommands.prepareEditorFromNewFile(app),
                         shortcut: file.new_file
-                    },
-                    {
-                        text: "Open File...",
-                        type: MenuType.Action,
-                        data: () => AppCommands.prepareEditorFromFileSystem(app),
-                        shortcut: file.open_file
-                    },
-                    {
-                        text: "Open STIX File...",
-                        type: MenuType.Action,
-                        data: () => AppCommands.prepareEditorFromStixFileSystem(app),
-                        shortcut: file.open_stix_file
-                    }
-                ]
-            };
-        },
-
-        /**
-         * Returns the 'import file' menu section.
-         * @returns
-         *  The 'import file' menu section.
-         */
-        importFileMenu(): ContextMenuSection<CommandEmitter> {
-            const app = useApplicationStore();
-            const file = app.settings.hotkeys.file;
-            const editor = app.activeEditor;
-            return {
-                id: "open_file_options",
-                items: [
-                    {
-                        text: "Import File...",
-                        type: MenuType.Action,
-                        data: () => AppCommands.importFileFromFilesystem(app, editor),
-                        shortcut: file.import_file,
-                        disabled: editor.id === PhantomEditor.id
-                    },
-                    {
-                        text: "Import STIX File...",
-                        type: MenuType.Action,
-                        data: () => AppCommands.importStixFileFromFilesystem(app, editor),
-                        shortcut: file.import_stix_file,
-                        disabled: editor.id === PhantomEditor.id
                     }
                 ]
             };
@@ -109,12 +66,15 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
         recoverFileMenu(): ContextMenuSection<CommandEmitter> {
             const app = useApplicationStore();
             const files = app.fileRecoveryBank.files;
+            const activeKey = app.serverFileId
+                ? `server:${app.serverFileId}`
+                : `local:${app.activeEditor.id}`;
 
             // Build file list
             const items: ContextMenu<CommandEmitter>[] = [];
             for (const [id, { name, date, contents }] of files) {
                 // Ignore active file
-                if (id === app.activeEditor.id) {
+                if (id === activeKey) {
                     continue;
                 }
                 // Add file
@@ -176,15 +136,8 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                     {
                         text: "Save",
                         type: MenuType.Action,
-                        data: () => AppCommands.saveActiveFileToDevice(app),
-                        shortcut: file.save_file,
-                        disabled: editor.id === PhantomEditor.id
-                    },
-                    {
-                        text: "Save to Server",
-                        type: MenuType.Action,
                         data: () => AppCommands.saveActiveFileToServer(app),
-                        shortcut: file.save_to_server,
+                        shortcut: file.save_file,
                         disabled: editor.id === PhantomEditor.id || !app.serverFileId
                     },
                     {

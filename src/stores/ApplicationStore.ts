@@ -98,6 +98,22 @@ export const useApplicationStore = defineStore("applicationStore", {
             return this.activeEditor.canRedo();
         },
 
+        /**
+         * True if the active editor has unsaved changes relative to the last
+         * successful server save. Always false when the editor is not bound
+         * to a server diagram.
+         */
+        isDirtyVsServer(): boolean {
+            if (this.serverFileId === null) {
+                return false;
+            }
+            const depth = this.activeEditor.lastServerSaveUndoDepth;
+            if (depth === null) {
+                return true;
+            }
+            return this.activeEditor.undoDepth !== depth;
+        },
+
 
         ///////////////////////////////////////////////////////////////////////
         //  4. Application Page Validation  ///////////////////////////////////

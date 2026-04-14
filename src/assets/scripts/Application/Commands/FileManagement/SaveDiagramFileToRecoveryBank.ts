@@ -38,9 +38,15 @@ export class SaveDiagramFileToRecoveryBank extends AppCommand {
         const editor = toRaw(this.editor);
         // Serialize file
         const contents = JSON.stringify(editor.file.toExport());
-        // Store file
+        // Key by server id when bound, so a later "open from server" can
+        // detect a newer local copy. Otherwise fall back to the editor's
+        // instance id (per-session recovery only).
+        const serverId = this.context.serverFileId;
+        const key = serverId
+            ? `server:${serverId}`
+            : `local:${this.editor.id}`;
         this.context.fileRecoveryBank.saveFile(
-            this.editor.id,
+            key,
             this.editor.name,
             contents
         );

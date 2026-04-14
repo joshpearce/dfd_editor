@@ -45,7 +45,6 @@ export const useHotkeyStore = defineStore("hotkeyStore", {
          */
         fileHotkeys(): Hotkey<CommandEmitter>[] {
             const app = useApplicationStore();
-            const editor = app.activeEditor;
             const file = app.settings.hotkeys.file;
             return [
                 {
@@ -54,33 +53,8 @@ export const useHotkeyStore = defineStore("hotkeyStore", {
                     repeatable: false
                 },
                 {
-                    data: () => AppCommands.prepareEditorFromFileSystem(app),
-                    shortcut: file.open_file,
-                    repeatable: false
-                },
-                {
-                    data: () => AppCommands.prepareEditorFromStixFileSystem(app),
-                    shortcut: file.open_stix_file,
-                    repeatable: false
-                },
-                {
-                    data: () => AppCommands.importFileFromFilesystem(app, editor),
-                    shortcut: file.import_file,
-                    repeatable: false
-                },
-                {
-                    data: () => AppCommands.importStixFileFromFilesystem(app, editor),
-                    shortcut: file.import_stix_file,
-                    repeatable: false
-                },
-                {
-                    data: () => AppCommands.saveActiveFileToDevice(app),
-                    shortcut: file.save_file,
-                    repeatable: false
-                },
-                {
                     data: () => AppCommands.saveActiveFileToServer(app),
-                    shortcut: file.save_to_server,
+                    shortcut: file.save_file,
                     repeatable: false
                 },
                 {

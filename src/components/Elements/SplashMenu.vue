@@ -353,8 +353,9 @@ export default defineComponent({
      */
     async onOpenServerFile(id: string) {
       const ctx = this.application;
+      const summary = this.serverFiles.find(f => f.id === id);
       try {
-        this.execute(await AppCommands.prepareEditorFromServerFile(ctx, id));
+        this.execute(await AppCommands.prepareEditorFromServerFile(ctx, id, summary?.modified));
       } catch (e) {
         this.serverError = e instanceof Error ? e.message : `Failed to open diagram '${id}'.`;
       }

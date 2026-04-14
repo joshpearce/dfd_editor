@@ -30,6 +30,7 @@ export class SaveDiagramFileToServer extends AppCommand {
             name: file.canvas.properties.toString() || "Untitled Diagram"
         };
         await saveDiagram(this.diagramId, JSON.stringify(payload, null, 4));
+        this.editor.lastServerSaveUndoDepth = this.editor.undoDepth;
     }
 
 }
