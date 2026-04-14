@@ -243,5 +243,20 @@ export const DfdObjects: DiagramObjectTemplate[] = [
                 }
             }
         }
+    },
+    {
+        name: "container",
+        namespace: ["container"],
+        shortcut: "C",
+        type: DiagramObjectType.Group,
+        properties: {
+            name: {
+                type: PropertyType.String,
+                is_representative: true
+            },
+            description: {
+                type: PropertyType.String
+            }
+        }
     }
 ];

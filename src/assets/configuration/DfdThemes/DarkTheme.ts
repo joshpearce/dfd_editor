@@ -75,7 +75,29 @@ const DfdObjects: DesignMap = {
     },
     trust_boundary: {
         type: FaceType.Group,
-        attributes: Alignment.Grid
+        attributes: Alignment.Grid,
+        style: {
+            strokeColor: "rgba(99, 102, 241, 0.35)",
+            focusedStrokeColor: "rgba(99, 102, 241, 0.9)",
+            focusedFillColor: "rgba(99, 102, 241, 0.08)",
+            labelColor: "rgba(99, 102, 241, 0.55)",
+            focusedLabelColor: "rgba(99, 102, 241, 0.9)",
+            handleColor: "rgba(99, 102, 241, 0.95)",
+            lineDash: [8, 4]
+        }
+    },
+    container: {
+        type: FaceType.Group,
+        attributes: Alignment.Grid,
+        style: {
+            strokeColor: "rgba(156, 163, 175, 0.45)",
+            focusedStrokeColor: "rgba(209, 213, 219, 0.95)",
+            focusedFillColor: "rgba(156, 163, 175, 0.06)",
+            labelColor: "rgba(156, 163, 175, 0.7)",
+            focusedLabelColor: "rgba(229, 231, 235, 0.95)",
+            handleColor: "rgba(209, 213, 219, 0.95)",
+            lineDash: []
+        }
     }
 };
 

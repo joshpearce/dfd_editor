@@ -271,7 +271,7 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                 face = new DynamicLine(design.style, grid);
                 return new LineView(template.name, instance, attrs, props, face);
             case FaceType.Group:
-                face = new GroupFace();
+                face = new GroupFace(design.style);
                 return new GroupView(template.name, instance, attrs, props, face);
             case FaceType.LineGridCanvas:
                 face = new LineGridCanvas(design.style, grid, scale, snapGrid);
@@ -400,10 +400,16 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     face = new DynamicLine(design.style, grid);
                     object.replaceFace(face);
                     break;
-                case FaceType.Group:
-                    face = (object.face as GroupFace).clone();
+                case FaceType.Group: {
+                    // Rebuild with the new design's style, but preserve the
+                    // user-chosen bounds from the old face.
+                    const oldFace = object.face as GroupFace;
+                    const [xMin, yMin, xMax, yMax] = oldFace.userBounds;
+                    face = new GroupFace(design.style);
+                    (face as GroupFace).setBounds(xMin, yMin, xMax, yMax);
                     object.replaceFace(face);
                     break;
+                }
                 case FaceType.LineGridCanvas:
                     face = new LineGridCanvas(design.style, grid, scale, snapGrid);
                     object.replaceFace(face);

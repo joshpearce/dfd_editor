@@ -1,9 +1,23 @@
 import { DiagramFace } from "../DiagramFace";
 import { PositionSetByUser } from "../../ViewAttributes";
 import { findUnlinkedObjectAt } from "../../ViewLocators";
+import type { GroupStyle } from "../Styles/GroupStyle";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
 import type { DiagramObjectView, GroupView } from "../../Views";
+
+/**
+ * Default group styling (the trust-boundary look: dashed indigo).
+ */
+export const DEFAULT_GROUP_STYLE: GroupStyle = {
+    strokeColor: "rgba(99, 102, 241, 0.35)",
+    focusedStrokeColor: "rgba(99, 102, 241, 0.9)",
+    focusedFillColor: "rgba(99, 102, 241, 0.08)",
+    labelColor: "rgba(99, 102, 241, 0.55)",
+    focusedLabelColor: "rgba(99, 102, 241, 0.9)",
+    handleColor: "rgba(99, 102, 241, 0.95)",
+    lineDash: [8, 4]
+};
 
 /**
  * Default half-width of a fresh group (in diagram units).
@@ -84,6 +98,11 @@ export class GroupFace extends DiagramFace {
      */
     public hoveredEdge: ResizeEdge = ResizeEdge.None;
 
+    /**
+     * The face's style.
+     */
+    public readonly style: GroupStyle;
+
 
     /**
      * Whether view's position has been set by the user.
@@ -146,9 +165,12 @@ export class GroupFace extends DiagramFace {
 
     /**
      * Creates a new {@link GroupFace}.
+     * @param style
+     *  Optional style; defaults to the trust-boundary look.
      */
-    constructor() {
+    constructor(style: GroupStyle = DEFAULT_GROUP_STYLE) {
         super();
+        this.style = style;
     }
 
 
@@ -436,15 +458,15 @@ export class GroupFace extends DiagramFace {
         // Draw body
         ctx.save();
         ctx.lineWidth = 2;
-        ctx.setLineDash([8, 4]);
+        ctx.setLineDash(this.style.lineDash);
         if (this.view.focused) {
             // Selected: filled + bright animated border (marching-ants via SelectionAnimation)
-            ctx.fillStyle = "rgba(99, 102, 241, 0.08)";
-            ctx.strokeStyle = "rgba(99, 102, 241, 0.9)";
+            ctx.fillStyle = this.style.focusedFillColor;
+            ctx.strokeStyle = this.style.focusedStrokeColor;
             ctx.fillRect(xMin, yMin, w, h);
         } else {
             // Idle: no fill, faint static border so it doesn't look like a selection
-            ctx.strokeStyle = "rgba(99, 102, 241, 0.35)";
+            ctx.strokeStyle = this.style.strokeColor;
             ctx.lineDashOffset = 0; // Prevent global animation offset from animating idle boundaries
         }
         ctx.strokeRect(xMin, yMin, w, h);
@@ -458,8 +480,8 @@ export class GroupFace extends DiagramFace {
             ctx.save();
             ctx.font = "bold 13px sans-serif";
             ctx.fillStyle = this.view.focused
-                ? "rgba(99, 102, 241, 0.9)"
-                : "rgba(99, 102, 241, 0.55)";
+                ? this.style.focusedLabelColor
+                : this.style.labelColor;
             ctx.fillText(label, xMin + 8, yMin + 18);
             ctx.restore();
         }
@@ -471,7 +493,7 @@ export class GroupFace extends DiagramFace {
             const half = handleSize / 2;
             const xs = [xMin, (xMin + xMax) / 2, xMax];
             const ys = [yMin, (yMin + yMax) / 2, yMax];
-            ctx.fillStyle = "rgba(99, 102, 241, 0.95)";
+            ctx.fillStyle = this.style.handleColor;
             ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
             ctx.lineWidth = 1;
             for (let i = 0; i < 3; i++) {
@@ -525,7 +547,7 @@ export class GroupFace extends DiagramFace {
      *  A clone of the face.
      */
     public clone(): GroupFace {
-        const clone = new GroupFace();
+        const clone = new GroupFace(this.style);
         clone._userXMin = this._userXMin;
         clone._userYMin = this._userYMin;
         clone._userXMax = this._userXMax;

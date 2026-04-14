@@ -4,6 +4,7 @@ import type {
     CanvasStyle,
     DictionaryBlockStyle,
     Enumeration,
+    GroupStyle,
     LineStyle,
     PointStyle,
     TextBlockStyle
@@ -118,7 +119,15 @@ export type PointDesign = BaseFaceDesign<
 /**
  * Group Design
  */
-export type GroupDesign = BaseFaceDesign<FaceType.Group>;
+export type GroupDesign = BaseFaceDesign<FaceType.Group> & {
+
+    /**
+     * The group's style. Optional; omitting it yields the built-in
+     * trust-boundary look (dashed indigo).
+     */
+    style?: GroupStyle;
+
+};
 
 /**
  * Canvas Design
