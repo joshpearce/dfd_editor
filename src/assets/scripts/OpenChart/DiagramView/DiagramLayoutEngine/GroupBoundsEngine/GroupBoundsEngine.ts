@@ -37,7 +37,7 @@ export class GroupBoundsEngine implements DiagramLayoutEngine {
      * @param objects
      *  The objects.
      */
-    public async run(objects: DiagramObjectView[]): Promise<void> {
+    public run(objects: DiagramObjectView[]): void {
         for (const object of traverse(objects)) {
             if (!(object instanceof GroupView)) {
                 continue;

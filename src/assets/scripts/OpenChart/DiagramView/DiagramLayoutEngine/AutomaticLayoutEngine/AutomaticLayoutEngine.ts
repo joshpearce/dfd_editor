@@ -16,7 +16,7 @@ export class AutomaticLayoutEngine implements DiagramLayoutEngine {
      * @param objects
      *  The objects to layout.
      */
-    public async run(objects: DiagramObjectView[]): Promise<void> {
+    public run(objects: DiagramObjectView[]): void {
         if (!objects.length || !objects[0]) { return; }
 
         const nodes = new Set<DiagramObjectView>();

@@ -2,7 +2,7 @@ import { GroupBoundsEngine, ManualLayoutEngine } from "./DiagramLayoutEngine";
 import { Canvas, DiagramModelFile, DiagramObjectSerializer } from "@OpenChart/DiagramModel";
 import type { CameraLocation } from "./CameraLocation";
 import type { DiagramViewExport } from "./DiagramViewExport";
-import type { DiagramLayoutEngine } from "./DiagramLayoutEngine";
+import type { AsyncDiagramLayoutEngine } from "./DiagramLayoutEngine";
 import type { CanvasView, DiagramObjectView } from "./DiagramObjectView";
 import type { DiagramTheme, DiagramObjectViewFactory } from "./DiagramObjectViewFactory";
 
@@ -70,11 +70,11 @@ export class DiagramViewFile extends DiagramModelFile {
     }
 
     /**
-     * Runs the specified layout engine on the file's diagram.
+     * Runs the specified async layout engine on the file's diagram.
      * @param layout
      *  The layout engine to apply.
      */
-    public async runLayout(layout: DiagramLayoutEngine): Promise<void> {
+    public async runLayout(layout: AsyncDiagramLayoutEngine): Promise<void> {
         await layout.run([this.canvas]);
     }
 

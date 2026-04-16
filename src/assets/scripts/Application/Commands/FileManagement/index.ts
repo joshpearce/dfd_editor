@@ -74,6 +74,7 @@ export async function loadExistingFile(
         try {
             await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
         } catch (err) {
+            // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
             console.error("auto-layout failed, continuing without layout:", err);
         }
     }
@@ -242,6 +243,7 @@ export async function importExistingFile(
         try {
             await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
         } catch (err) {
+            // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
             console.error("auto-layout failed, continuing without layout:", err);
         }
     }

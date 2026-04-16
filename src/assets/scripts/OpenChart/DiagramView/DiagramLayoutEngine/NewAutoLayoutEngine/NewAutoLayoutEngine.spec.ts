@@ -7,12 +7,12 @@
  *
  * Key contracts verified:
  *
- * - The engine calls the injected `fetchSvg` with the serialized D2 source
+ * - The engine calls the injected `layoutSource` with the serialized D2 source
  *   and applies the returned SVG coordinates to each matching canvas node
- *   via `moveTo(x, y)`.
+ *   via `moveTo(x + halfW, y + halfH)` (TALA gives top-left; moveTo expects center).
  * - Nodes absent from the TALA SVG are left alone (no moveTo call).
- * - When `fetchSvg` rejects, `run` rejects with the same error.
- * - An empty canvas (no objects) completes without calling `fetchSvg`.
+ * - When `layoutSource` rejects, `run` rejects with the same error.
+ * - An empty canvas (no objects) completes without calling `layoutSource`.
  *
  * pattern: Imperative Shell test — engine has side effects (moveTo calls),
  * so we stub the canvas nodes with moveTo spies.
@@ -45,6 +45,24 @@ function makeTalaSvg(nodes: Array<{ id: string, x: number, y: number }>): string
 
 
 ///////////////////////////////////////////////////////////////////////////////
+//  Face class stubs  //////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+/**
+ * Minimal stub whose `constructor.name` is "DictionaryBlock".
+ * Using a real class means renaming the production face class will surface
+ * this coupling at compile/runtime rather than silently at runtime.
+ */
+class DictionaryBlock {
+    constructor(
+        public readonly width: number,
+        public readonly height: number
+    ) {}
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
 //  Canvas stub helpers  ///////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -54,21 +72,13 @@ function makeTalaSvg(nodes: Array<{ id: string, x: number, y: number }>): string
  * properties that `serializeToD2` needs (width, height, isDefined, toString).
  */
 function makeBlockStub(id: string, label = "", width = 100, height = 50): SerializableBlock & { moveTo: ReturnType<typeof vi.fn> } {
-    const face = Object.create({ constructor: { name: "DictionaryBlock" } }) as {
-        constructor: { name: string };
-        width: number;
-        height: number;
-    };
-    face.width  = width;
-    face.height = height;
-
     return {
         id,
         properties: {
             isDefined: () => label.length > 0,
             toString:  () => label
         },
-        face,
+        face: new DictionaryBlock(width, height),
         moveTo: vi.fn()
     };
 }
@@ -117,7 +127,7 @@ describe("NewAutoLayoutEngine", () => {
 
     describe("run — happy path: two top-level blocks", () => {
 
-        it("calls fetchSvg once with the serialized D2 source", async () => {
+        it("calls layoutSource once with the serialized D2 source", async () => {
             const blockA = makeBlockStub("block-a", "A");
             const blockB = makeBlockStub("block-b", "B");
             const canvas: SerializableCanvas = { blocks: [blockA, blockB], groups: [], lines: [] };
@@ -125,50 +135,52 @@ describe("NewAutoLayoutEngine", () => {
                 { id: "block-a", x: 10, y: 20 },
                 { id: "block-b", x: 200, y: 20 }
             ]);
-            const fetchSvg: LayoutSource = vi.fn().mockResolvedValue(svg);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
 
-            await new NewAutoLayoutEngine(fetchSvg).run(makeObjects(canvas));
+            await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
 
-            expect(fetchSvg).toHaveBeenCalledOnce();
-            const d2Source = (fetchSvg as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+            expect(layoutSource).toHaveBeenCalledOnce();
+            const d2Source = (layoutSource as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
             expect(d2Source).toContain("block-a");
             expect(d2Source).toContain("block-b");
         });
 
-        it("applies TALA coordinates to each block via moveTo", async () => {
-            const blockA = makeBlockStub("block-a");
-            const blockB = makeBlockStub("block-b");
+        it("applies TALA top-left coordinates offset to center via moveTo", async () => {
+            const blockA = makeBlockStub("block-a", "", 100, 50);
+            const blockB = makeBlockStub("block-b", "", 80, 40);
             const canvas: SerializableCanvas = { blocks: [blockA, blockB], groups: [], lines: [] };
             const svg = makeTalaSvg([
                 { id: "block-a", x: 42, y: 84 },
                 { id: "block-b", x: 300, y: 150 }
             ]);
-            const fetchSvg: LayoutSource = vi.fn().mockResolvedValue(svg);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
 
-            await new NewAutoLayoutEngine(fetchSvg).run(makeObjects(canvas));
+            await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
 
-            expect(blockA.moveTo).toHaveBeenCalledWith(42, 84);
-            expect(blockB.moveTo).toHaveBeenCalledWith(300, 150);
+            // TALA top-left + half-dimensions = center passed to moveTo
+            expect(blockA.moveTo).toHaveBeenCalledWith(42 + 50, 84 + 25);   // +50, +25
+            expect(blockB.moveTo).toHaveBeenCalledWith(300 + 40, 150 + 20); // +40, +20
         });
 
     });
 
     describe("run — group with nested block", () => {
 
-        it("applies coordinates to the group and its nested block", async () => {
-            const childBlock = makeBlockStub("child-block");
+        it("applies center-offset coordinates to the group and its nested block", async () => {
+            const childBlock = makeBlockStub("child-block", "", 100, 50);
             const group      = makeGroupStub("my-group", "", [childBlock]);
+            // group bounding box: xMin=0, yMin=0, xMax=200, yMax=100 → halfW=100, halfH=50
             const canvas: SerializableCanvas = { blocks: [], groups: [group], lines: [] };
             const svg = makeTalaSvg([
                 { id: "my-group",    x: 10, y: 20 },
                 { id: "child-block", x: 30, y: 40 }
             ]);
-            const fetchSvg: LayoutSource = vi.fn().mockResolvedValue(svg);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
 
-            await new NewAutoLayoutEngine(fetchSvg).run(makeObjects(canvas));
+            await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
 
-            expect(group.moveTo).toHaveBeenCalledWith(10, 20);
-            expect(childBlock.moveTo).toHaveBeenCalledWith(30, 40);
+            expect(group.moveTo).toHaveBeenCalledWith(10 + 100, 20 + 50);  // +halfW, +halfH
+            expect(childBlock.moveTo).toHaveBeenCalledWith(30 + 50, 40 + 25);
         });
 
     });
@@ -180,26 +192,26 @@ describe("NewAutoLayoutEngine", () => {
             const blockB = makeBlockStub("block-b");   // will be absent from SVG
             const canvas: SerializableCanvas = { blocks: [blockA, blockB], groups: [], lines: [] };
             const svg = makeTalaSvg([{ id: "block-a", x: 10, y: 20 }]);
-            const fetchSvg: LayoutSource = vi.fn().mockResolvedValue(svg);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
 
-            await new NewAutoLayoutEngine(fetchSvg).run(makeObjects(canvas));
+            await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
 
-            expect(blockA.moveTo).toHaveBeenCalledWith(10, 20);
+            expect(blockA.moveTo).toHaveBeenCalledWith(10 + 50, 20 + 25);
             expect(blockB.moveTo).not.toHaveBeenCalled();
         });
 
     });
 
-    describe("run — fetchSvg rejection", () => {
+    describe("run — layoutSource rejection", () => {
 
-        it("rejects with the same error when fetchSvg rejects", async () => {
+        it("rejects with the same error when layoutSource rejects", async () => {
             const block  = makeBlockStub("block-a");
             const canvas: SerializableCanvas = { blocks: [block], groups: [], lines: [] };
             const boom   = new Error("layout backend unavailable");
-            const fetchSvg: LayoutSource = vi.fn().mockRejectedValue(boom);
+            const layoutSource: LayoutSource = vi.fn().mockRejectedValue(boom);
 
             await expect(
-                new NewAutoLayoutEngine(fetchSvg).run(makeObjects(canvas))
+                new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas))
             ).rejects.toThrow("layout backend unavailable");
 
             expect(block.moveTo).not.toHaveBeenCalled();
@@ -209,12 +221,12 @@ describe("NewAutoLayoutEngine", () => {
 
     describe("run — empty canvas", () => {
 
-        it("returns without calling fetchSvg when objects array is empty", async () => {
-            const fetchSvg: LayoutSource = vi.fn();
+        it("returns without calling layoutSource when objects array is empty", async () => {
+            const layoutSource: LayoutSource = vi.fn();
 
-            await new NewAutoLayoutEngine(fetchSvg).run([]);
+            await new NewAutoLayoutEngine(layoutSource).run([]);
 
-            expect(fetchSvg).not.toHaveBeenCalled();
+            expect(layoutSource).not.toHaveBeenCalled();
         });
 
     });
