@@ -1,6 +1,6 @@
 # OpenChart (Diagram Engine — Forked)
 
-Last verified: 2026-04-14
+Last verified: 2026-04-16
 
 ## Purpose
 
@@ -19,7 +19,11 @@ has been abandoned; treat this directory as first-party code.
   system (`DictionaryBlock`, `BranchBlock`, `TextBlock`, `DynamicLine`,
   `DotGridCanvas`/`LineGridCanvas`, `GroupFace`,
   `AnchorPoint`/`LatchPoint`/`HandlePoint`); `DiagramEditor` commands +
-  interface plugins; `AutomaticLayoutEngine`.
+  interface plugins; `AutomaticLayoutEngine` (sync); `NewAutoLayoutEngine`
+  (async, implements `AsyncDiagramLayoutEngine`, takes a `LayoutSource`
+  callback at construction so no HTTP client is imported here);
+  `DiagramLayoutEngine` (sync interface) and `AsyncDiagramLayoutEngine`
+  (async interface).
 - **Guarantees**: Group is a first-class model object (not an overlay)
   that owns children, supports nesting, and persists via the same file
   format as blocks/lines. `GroupBoundsEngine` persists user-set group

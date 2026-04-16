@@ -1,6 +1,6 @@
 # Flask Backend
 
-Last verified: 2026-04-14
+Last verified: 2026-04-16
 
 ## Purpose
 Hosts DFD diagram files for the browser editor: the "API creates diagram,
@@ -20,6 +20,9 @@ persistence surface.)
   - `GET  /api/diagrams/<id>` — raw JSON document; 404 if missing
   - `PUT  /api/diagrams/<id>` — overwrites from `request.get_json()`; returns
     204; 404 if missing
+  - `POST /api/layout` — accepts `{"source": "<d2 text>"}`, shells
+    `d2 --layout=tala` via stdin, returns `{"svg": ...}` on 200 or
+    `{"error": ...}` on 400 (bad input) / 502 (d2 absent or non-zero exit)
 - **Port** — 5050 (set by `npm run dev:flask` in root `package.json`, NOT in
   `app.py`). Flask's own default of 5000 is not used here.
 - **CORS** — locked to `http://localhost:5173` (the Vite dev server). The
@@ -27,7 +30,8 @@ persistence surface.)
   (`vite.config.ts`), so CORS only matters for direct calls.
 - **Guarantees** — each diagram persists as one JSON file under
   `server/data/<id>.json`. Writes are pretty-printed (indent=4). IDs are UUIDs
-  minted server-side on POST.
+  minted server-side on POST. The `/api/layout` route requires `d2` (with the
+  TALA plugin) on `PATH`; its absence returns 502, not a startup failure.
 - **Expects** — PUT bodies must be valid JSON. Payload schema is owned by the
   frontend (`DfdFilePreprocessor` and friends); this server does not validate
   or interpret diagram contents beyond reading an optional top-level `name`.
@@ -62,7 +66,7 @@ persistence surface.)
   those files in the same change.
 
 ## Key Files
-- `app.py` — the entire server (5 routes, ~60 lines)
+- `app.py` — the entire server (6 routes, ~87 lines)
 - `requirements.txt` — pinned floor versions of flask / flask-cors
 - `data/` — persistence directory; auto-created on startup. Contents are
   local-only and should not be committed.
