@@ -7,6 +7,6 @@ export interface DiagramLayoutEngine {
      * @param objects
      *  The objects.
      */
-    run(objects: DiagramObjectView[]): void;
+    run(objects: DiagramObjectView[]): Promise<void>;
 
 }

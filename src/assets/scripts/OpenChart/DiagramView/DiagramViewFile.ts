@@ -74,8 +74,8 @@ export class DiagramViewFile extends DiagramModelFile {
      * @param layout
      *  The layout engine to apply.
      */
-    public runLayout(layout: DiagramLayoutEngine) {
-        layout.run([this.canvas]);
+    public async runLayout(layout: DiagramLayoutEngine): Promise<void> {
+        await layout.run([this.canvas]);
     }
 
     /**

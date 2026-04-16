@@ -5,7 +5,7 @@ import { AppCommand } from "../index.commands";
 import { stripExtension } from "@OpenChart/Utilities";
 import { StixToAttackFlowConverter } from "@/assets/scripts/StixToAttackFlow";
 import { DiagramObjectViewFactory, DiagramViewFile, NewAutoLayoutEngine } from "@OpenChart/DiagramView";
-import { createDiagram, getDiagram, saveDiagram } from "@/assets/scripts/api/DfdApiClient";
+import { createDiagram, getDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
 import {
     BindEditorToServer,
     ClearFileRecoveryBank,
@@ -71,7 +71,11 @@ export async function loadExistingFile(
     const viewFile = new DiagramViewFile(factory, jsonFile);
     // Run layout
     if (!jsonFile.layout) {
-        viewFile.runLayout(new NewAutoLayoutEngine());
+        try {
+            await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
+        } catch (err) {
+            console.error("auto-layout failed, continuing without layout:", err);
+        }
     }
     // Return command
     return new LoadFile(context, viewFile, name);
@@ -235,7 +239,11 @@ export async function importExistingFile(
     const viewFile = new DiagramViewFile(factory, jsonFile);
     // Run layout
     if (!jsonFile.layout) {
-        viewFile.runLayout(new NewAutoLayoutEngine());
+        try {
+            await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
+        } catch (err) {
+            console.error("auto-layout failed, continuing without layout:", err);
+        }
     }
     // Import file
     return new ImportFile(context, editor, viewFile);
