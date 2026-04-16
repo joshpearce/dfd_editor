@@ -32,29 +32,7 @@
  * pattern: Functional Core
  */
 
-import { describe, it, expect, vi } from "vitest";
-
-// D2Bridge imports DictionaryBlock, TextBlock, BranchBlock from the Face
-// hierarchy which contains a circular module-initialization chain that causes
-// `AnchorPoint extends AnchorFace` to see `AnchorFace` as `undefined` at class
-// definition time in vitest's jsdom environment.
-//
-// The bridge only reads `<FaceClass>.name` (the constructor's static `name`
-// property) to build the FACE_NAME_TO_D2_SHAPE lookup.  We stub the entire
-// Blocks barrel with three minimal named classes so the bridge initializes
-// correctly without pulling in the problematic inheritance graph.
-//
-// vi.mock() is hoisted above all `import` statements by vitest, so the stub is
-// in place before D2Bridge's top-level import of "./DiagramObjectView/Faces/Blocks"
-// executes.
-vi.mock(
-    "../../DiagramObjectView/Faces/Blocks",
-    () => ({
-        DictionaryBlock: class DictionaryBlock {},
-        TextBlock:       class TextBlock {},
-        BranchBlock:     class BranchBlock {}
-    })
-);
+import { describe, it, expect } from "vitest";
 
 import {
     serializeToD2,
@@ -335,18 +313,17 @@ describe("serializeToD2", () => {
             expect(output).toContain("\\\"hello\\\"");
         });
 
-        it("escapes an embedded backslash inside a label as \\\\", () => {
-            // The label must also contain a quoting-trigger char (here: a space)
-            // because d2Escape only escapes backslashes when the string is already
-            // being quoted.  Without a quoting trigger the backslash passes through
-            // unquoted and unescaped.
-            const block  = makeBlock("safe-id", "path\\to node", 100, 50);
+        it("escapes a bare backslash in a label as \\\\ (backslash alone triggers quoting)", () => {
+            // A bare backslash is now in QUOTE_PATTERN, so it triggers quoting even
+            // without any other special char.  The result is a quoted string with
+            // the backslash doubled: "path\\to".
+            const block  = makeBlock("safe-id", "path\\to", 100, 50);
             const canvas = makeCanvas([block], [], []);
 
             const output = serializeToD2(canvas);
 
-            // After quoting: "path\\to node" — the backslash is doubled.
-            expect(output).toContain("\\\\to node");
+            // After quoting: "path\\to" — backslash doubled, whole value quoted.
+            expect(output).toContain("\"path\\\\to\"");
         });
 
         it("wraps a label containing a colon in double quotes", () => {
@@ -376,6 +353,17 @@ describe("serializeToD2", () => {
             expect(output).toContain("\"a -> b\"");
         });
 
+        it("wraps an id containing a dot in double quotes (dot is a D2 path separator)", () => {
+            // D2 treats `foo.bar` as a nested-path reference in identifiers.
+            // A dot in the id must force quoting so it is treated as a literal.
+            const block  = makeBlock("foo.bar", "", 100, 50);
+            const canvas = makeCanvas([block], [], []);
+
+            const output = serializeToD2(canvas);
+
+            expect(output).toContain("\"foo.bar\"");
+        });
+
         it("does not quote a plain UUID-style id (no special chars)", () => {
             const id     = "550e8400-e29b-41d4-a716-446655440000";
             const block  = makeBlock(id, "", 100, 50);
@@ -383,8 +371,8 @@ describe("serializeToD2", () => {
 
             const output = serializeToD2(canvas);
 
-            // The id should appear unquoted (immediately followed by `:`)
-            expect(output).toContain(`${id}:`);
+            // The id should appear unquoted (immediately followed by a space then `{`)
+            expect(output).toContain(`${id} {`);
         });
 
     });

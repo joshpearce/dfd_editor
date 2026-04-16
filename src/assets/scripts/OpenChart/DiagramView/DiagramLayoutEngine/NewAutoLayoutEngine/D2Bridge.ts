@@ -1,6 +1,3 @@
-import { DictionaryBlock, TextBlock, BranchBlock } from "../../DiagramObjectView/Faces/Blocks";
-
-
 ///////////////////////////////////////////////////////////////////////////////
 //  Serializable interfaces (test-friendly structural surface)  ///////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -83,10 +80,11 @@ export interface SerializableCanvas {
  * Keyed by `constructor.name` so we avoid the `Function` type.
  * Unknown face types fall back to `rectangle`.
  */
+// Keys are face class names — stable because Vite preserves class names. Revisit in Step 3 if TALA needs shape differentiation.
 const FACE_NAME_TO_D2_SHAPE: Record<string, string> = {
-    [DictionaryBlock.name]: "rectangle",
-    [TextBlock.name]:       "rectangle",
-    [BranchBlock.name]:     "rectangle"
+    DictionaryBlock: "rectangle",
+    TextBlock:       "rectangle",
+    BranchBlock:     "rectangle"
 };
 
 function d2ShapeFor(face: object): string {
@@ -102,8 +100,10 @@ function d2ShapeFor(face: object): string {
 /**
  * Characters that require a D2 string to be quoted.
  * Includes D2 operators written as two-char sequences.
+ * Backslash is included so bare backslashes are always quoted + doubled.
+ * Dot is included because D2 treats `.` as a path separator in identifiers.
  */
-const QUOTE_PATTERN = /[ :{}[\];#"<>]|->/;
+const QUOTE_PATTERN = /[ :{}[\];#"<>\\.]|->/;
 
 /**
  * Returns a D2-safe representation of a string value.
@@ -126,12 +126,13 @@ function d2Escape(value: string): string {
 
 function serializeBlock(block: SerializableBlock, indent: string): string {
     const id     = d2Escape(block.id);
-    const label  = d2Escape(block.properties.isDefined() ? block.properties.toString() : "");
+    const label  = block.properties.isDefined() ? d2Escape(block.properties.toString()) : "";
+    const header = label ? `${indent}${id}: ${label} {` : `${indent}${id} {`;
     const shape  = d2ShapeFor(block.face);
     const width  = Math.round(block.face.width);
     const height = Math.round(block.face.height);
     return [
-        `${indent}${id}: ${label} {`,
+        header,
         `${indent}  shape: ${shape}`,
         `${indent}  width: ${width}`,
         `${indent}  height: ${height}`,
@@ -141,13 +142,14 @@ function serializeBlock(block: SerializableBlock, indent: string): string {
 
 function serializeGroup(group: SerializableGroup, indent: string): string {
     const id     = d2Escape(group.id);
-    const label  = d2Escape(group.properties.isDefined() ? group.properties.toString() : "");
+    const label  = group.properties.isDefined() ? d2Escape(group.properties.toString()) : "";
+    const header = label ? `${indent}${id}: ${label} {` : `${indent}${id} {`;
     const bb     = group.face.boundingBox;
     const width  = Math.round(bb.xMax - bb.xMin);
     const height = Math.round(bb.yMax - bb.yMin);
 
     const lines: string[] = [
-        `${indent}${id}: ${label} {`,
+        header,
         `${indent}  width: ${width}`,
         `${indent}  height: ${height}`
     ];
@@ -268,7 +270,7 @@ export function parseTalaSvg(svg: string): Map<string, { x: number, y: number }>
         const segments = decoded.split(".");
         const nodeId = segments[segments.length - 1];
         if (!nodeId || result.has(nodeId)) {
-            // Already resolved (prefer first occurrence = outermost path).
+            // Already resolved — first occurrence wins (SVG document order).
             continue;
         }
 
