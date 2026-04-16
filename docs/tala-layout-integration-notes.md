@@ -106,6 +106,81 @@ Round-trip one representative diagram from `server/data/` and compare
 the TALA-computed bounds against the editor's expected bounds before
 wiring this into the main flow.
 
+## Calibration (sample round-trip)
+
+Date: 2026-04-16. Tool: d2 0.7.1, d2plugin-tala 0.4.3 (unlicensed — watermarked output).
+
+### Fixture
+
+Two top-level `rectangle` blocks + one top-level group containing one `rectangle`
+child block + one directed edge. Sizes chosen to be representative of typical DFD
+shapes in the Dfd theme:
+
+| node     | kind        | editor w | editor h |
+| -------- | ----------- | -------- | -------- |
+| block-a  | block       | 240      | 120      |
+| block-b  | block       | 200      | 100      |
+| group-g  | group       | 400      | 300      |
+| block-c  | block (child of group-g) | 160 | 80 |
+
+D2 source emitted by `serializeToD2` (mirrored in Python):
+
+```d2
+block-a: "Process A" {
+  shape: rectangle
+  width: 240
+  height: 120
+}
+block-b: "Data Store B" {
+  shape: rectangle
+  width: 200
+  height: 100
+}
+group-g: "Trust Boundary G" {
+  width: 400
+  height: 300
+  block-c: "Process C" {
+    shape: rectangle
+    width: 160
+    height: 80
+  }
+}
+block-a -> block-b
+```
+
+### Measured deltas
+
+All deltas are exactly zero. TALA honors the explicit `width`/`height` values
+emitted for `rectangle` shapes (including groups and nested children).
+
+| node    | editor w/h | TALA-reported w/h | delta_w | delta_h |
+| ------- | ---------- | ----------------- | ------- | ------- |
+| block-a | 240 / 120  | 240.0 / 120.0     | +0.0    | +0.0    |
+| block-b | 200 / 100  | 200.0 / 100.0     | +0.0    | +0.0    |
+| group-g | 400 / 300  | 400.0 / 300.0     | +0.0    | +0.0    |
+| block-c | 160 / 80   | 160.0 / 80.0      | +0.0    | +0.0    |
+
+### Position observations
+
+TALA emits all coordinates in the SVG root frame (absolute, not relative to
+parent group). The child block (`block-c`) at absolute position `(320, 60)` is
+correctly placed inside `group-g` at `(260, 0)` — the 60 px offset from the
+group edge is TALA's layout decision, not a fixed padding constant. No offset
+compensation is needed at parse time; `parseTalaSvg` can use absolute coords
+directly.
+
+### Watermark
+
+The unlicensed watermark rect that D2 injects does not surface as a named node
+in `parseTalaSvg`. The base64-class filter in the parser correctly excludes it.
+
+### Conclusion
+
+No compensation needed. `D2Bridge.ts` does not require changes for `rectangle`
+shapes. The caveat in the notes above about cylinder/class/sql_table shapes
+still applies, but those shape types are not in the current DFD shape mapping.
+If the mapping ever adds a non-`rectangle` shape, re-run this calibration.
+
 ## Font considerations
 
 D2 measures text with Source Sans Pro. The editor uses its own font
