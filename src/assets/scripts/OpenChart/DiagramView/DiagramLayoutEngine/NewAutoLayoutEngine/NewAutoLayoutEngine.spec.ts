@@ -13,6 +13,12 @@
  * - Nodes absent from the TALA SVG are left alone (no moveTo call).
  * - When `layoutSource` rejects, `run` rejects with the same error.
  * - An empty canvas (no objects) completes without calling `layoutSource`.
+ * - I4 — parent-before-descendant invariant: the group's moveTo is called
+ *   before its child's moveTo.
+ *
+ * SVG fixtures encode the TALA-assigned node id as base64 of the **qualified
+ * D2 path** (e.g. `btoa("my-group.child-block")` for a nested block), which
+ * is what `parseTalaSvg` returns and what `collectNodes` uses as the map key.
  *
  * pattern: Imperative Shell test — engine has side effects (moveTo calls),
  * so we stub the canvas nodes with moveTo spies.
@@ -32,8 +38,10 @@ import type { DiagramObjectView } from "../../DiagramObjectView";
 
 /**
  * Builds a minimal TALA-style SVG that contains one node per entry in
- * `nodes`.  Each node id is base64-encoded as the class of an outer <g>,
- * with a nested <g class="shape"><rect x="..." y="..."/></g>.
+ * `nodes`.  The `id` in each entry is the **qualified D2 path** that the
+ * engine expects (e.g. `"my-group.child-block"` for a nested block).
+ * `parseTalaSvg` uses `atob(class)` as the map key directly, so we encode
+ * the qualified path as base64.
  */
 function makeTalaSvg(nodes: Array<{ id: string, x: number, y: number }>): string {
     const groups = nodes.map(({ id, x, y }) => {
@@ -41,24 +49,6 @@ function makeTalaSvg(nodes: Array<{ id: string, x: number, y: number }>): string
         return `<g class="${encoded}"><g class="shape"><rect x="${x}" y="${y}" width="100" height="50"/></g></g>`;
     });
     return `<svg xmlns="http://www.w3.org/2000/svg">${groups.join("")}</svg>`;
-}
-
-
-///////////////////////////////////////////////////////////////////////////////
-//  Face class stubs  //////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-
-/**
- * Minimal stub whose `constructor.name` is "DictionaryBlock".
- * Using a real class means renaming the production face class will surface
- * this coupling at compile/runtime rather than silently at runtime.
- */
-class DictionaryBlock {
-    constructor(
-        public readonly width: number,
-        public readonly height: number
-    ) {}
 }
 
 
@@ -78,7 +68,7 @@ function makeBlockStub(id: string, label = "", width = 100, height = 50): Serial
             isDefined: () => label.length > 0,
             toString:  () => label
         },
-        face: new DictionaryBlock(width, height),
+        face: { width, height },
         moveTo: vi.fn()
     };
 }
@@ -106,6 +96,7 @@ function makeGroupStub(
         },
         blocks: childBlocks,
         groups: childGroups,
+        lines:  [],
         moveTo: vi.fn()
     };
 }
@@ -131,6 +122,7 @@ describe("NewAutoLayoutEngine", () => {
             const blockA = makeBlockStub("block-a", "A");
             const blockB = makeBlockStub("block-b", "B");
             const canvas: SerializableCanvas = { blocks: [blockA, blockB], groups: [], lines: [] };
+            // Top-level nodes: qualified path == leaf id
             const svg = makeTalaSvg([
                 { id: "block-a", x: 10, y: 20 },
                 { id: "block-b", x: 200, y: 20 }
@@ -149,6 +141,7 @@ describe("NewAutoLayoutEngine", () => {
             const blockA = makeBlockStub("block-a", "", 100, 50);
             const blockB = makeBlockStub("block-b", "", 80, 40);
             const canvas: SerializableCanvas = { blocks: [blockA, blockB], groups: [], lines: [] };
+            // Top-level nodes: qualified path == leaf id
             const svg = makeTalaSvg([
                 { id: "block-a", x: 42, y: 84 },
                 { id: "block-b", x: 300, y: 150 }
@@ -171,9 +164,13 @@ describe("NewAutoLayoutEngine", () => {
             const group      = makeGroupStub("my-group", "", [childBlock]);
             // group bounding box: xMin=0, yMin=0, xMax=200, yMax=100 → halfW=100, halfH=50
             const canvas: SerializableCanvas = { blocks: [], groups: [group], lines: [] };
+
+            // The SVG must encode qualified paths:
+            //   - "my-group"              for the group itself
+            //   - "my-group.child-block"  for the nested block
             const svg = makeTalaSvg([
-                { id: "my-group",    x: 10, y: 20 },
-                { id: "child-block", x: 30, y: 40 }
+                { id: "my-group",             x: 10, y: 20 },
+                { id: "my-group.child-block", x: 30, y: 40 }
             ]);
             const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
 
@@ -185,12 +182,45 @@ describe("NewAutoLayoutEngine", () => {
 
     });
 
+    // I4 — parent-before-descendant ordering invariant
+    describe("run — parent-before-descendant call order", () => {
+
+        it("calls moveTo on the group before calling moveTo on its child block", async () => {
+            const callOrder: string[] = [];
+
+            const childBlock = makeBlockStub("child-block", "", 100, 50);
+            const group      = makeGroupStub("my-group", "", [childBlock]);
+
+            // Override the moveTo spies to also record call order.
+            (group.moveTo as ReturnType<typeof vi.fn>).mockImplementation(() => {
+                callOrder.push("group");
+            });
+            (childBlock.moveTo as ReturnType<typeof vi.fn>).mockImplementation(() => {
+                callOrder.push("child");
+            });
+
+            const canvas: SerializableCanvas = { blocks: [], groups: [group], lines: [] };
+            const svg = makeTalaSvg([
+                { id: "my-group",             x: 0, y: 0 },
+                { id: "my-group.child-block", x: 10, y: 10 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
+
+            // Group must be moved before its child.
+            expect(callOrder).toEqual(["group", "child"]);
+        });
+
+    });
+
     describe("run — missing SVG node", () => {
 
         it("does not call moveTo for a node absent from the TALA SVG", async () => {
             const blockA = makeBlockStub("block-a");
             const blockB = makeBlockStub("block-b");   // will be absent from SVG
             const canvas: SerializableCanvas = { blocks: [blockA, blockB], groups: [], lines: [] };
+            // Top-level nodes: qualified path == leaf id
             const svg = makeTalaSvg([{ id: "block-a", x: 10, y: 20 }]);
             const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
 

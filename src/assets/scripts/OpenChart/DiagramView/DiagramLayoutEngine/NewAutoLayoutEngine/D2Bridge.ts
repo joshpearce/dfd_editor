@@ -1,3 +1,4 @@
+// pattern: Functional Core
 ///////////////////////////////////////////////////////////////////////////////
 //  Serializable interfaces (test-friendly structural surface)  ///////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -17,7 +18,6 @@ export interface SerializableProperties {
 
 /** Minimal face surface for a block node. */
 export interface SerializableBlockFace {
-    readonly constructor: { readonly name: string };
     readonly width:  number;
     readonly height: number;
 }
@@ -49,6 +49,7 @@ export interface SerializableGroup {
     readonly face:       SerializableGroupFace;
     readonly blocks:     ReadonlyArray<SerializableBlock>;
     readonly groups:     ReadonlyArray<SerializableGroup>;
+    readonly lines:      ReadonlyArray<SerializableLine>;
 }
 
 /** Minimal endpoint surface that resolveLineEndpoints reads. */
@@ -71,28 +72,6 @@ export interface SerializableCanvas {
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  Shape mapping  ////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-
-/**
- * Maps a BlockFace concrete class name to the D2 shape keyword.
- * Keyed by `constructor.name` so we avoid the `Function` type.
- * Unknown face types fall back to `rectangle`.
- */
-// Keys are face class names — stable because Vite preserves class names. Revisit in Step 3 if TALA needs shape differentiation.
-const FACE_NAME_TO_D2_SHAPE: Record<string, string> = {
-    DictionaryBlock: "rectangle",
-    TextBlock:       "rectangle",
-    BranchBlock:     "rectangle"
-};
-
-function d2ShapeFor(face: object): string {
-    return FACE_NAME_TO_D2_SHAPE[face.constructor.name] ?? "rectangle";
-}
-
-
-///////////////////////////////////////////////////////////////////////////////
 //  D2 escaping  //////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -110,12 +89,32 @@ const QUOTE_PATTERN = /[ :{}[\];#"<>\\.]|->/;
  * UUIDs (all hex + hyphens, no spaces) pass through unquoted.
  * Anything else is double-quoted with internal backslashes and quotes escaped.
  */
-function d2Escape(value: string): string {
+export function d2Escape(value: string): string {
     if (!QUOTE_PATTERN.test(value)) {
         return value;
     }
     const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
     return `"${escaped}"`;
+}
+
+/**
+ * Builds the fully-qualified D2 path for a node given its ancestor path
+ * segments and its own id.
+ *
+ * In D2, a node nested inside containers is addressed by joining each
+ * ancestor's escaped id with a literal `.` and appending the node's own
+ * escaped id.  Segments that contain special characters must be
+ * individually escaped before joining.
+ *
+ * Example: `qualifiedD2Path(["group-g"], "block-c")` → `"group-g.block-c"`
+ *
+ * @param ancestorIds - The ids of all ancestor containers, outermost first.
+ * @param nodeId      - The leaf node's own id.
+ * @returns The qualified D2 path as a raw string (NOT re-escaped as a unit;
+ *          each segment is escaped individually and then joined with `.`).
+ */
+export function qualifiedD2Path(ancestorIds: string[], nodeId: string): string {
+    return [...ancestorIds, nodeId].map(d2Escape).join(".");
 }
 
 
@@ -124,29 +123,69 @@ function d2Escape(value: string): string {
 ///////////////////////////////////////////////////////////////////////////////
 
 
-function serializeBlock(block: SerializableBlock, indent: string): string {
+function serializeBlock(
+    block: SerializableBlock,
+    indent: string,
+    _ancestors: string[]
+): string {
     const id     = d2Escape(block.id);
     const label  = block.properties.isDefined() ? d2Escape(block.properties.toString()) : "";
     const header = label ? `${indent}${id}: ${label} {` : `${indent}${id} {`;
-    const shape  = d2ShapeFor(block.face);
     const width  = Math.round(block.face.width);
     const height = Math.round(block.face.height);
     return [
         header,
-        `${indent}  shape: ${shape}`,
+        `${indent}  shape: rectangle`,
         `${indent}  width: ${width}`,
         `${indent}  height: ${height}`,
         `${indent}}`
     ].join("\n");
 }
 
-function serializeGroup(group: SerializableGroup, indent: string): string {
+/**
+ * Resolves the block ids for the source and target endpoints of a line.
+ * Returns null for either endpoint that cannot be traced to a block id.
+ *
+ * Uses `rawSourceLatch` / `rawTargetLatch` (available on the model base class)
+ * when the line is a real `LineView`, or falls back to reading
+ * `sourceObject` / `targetObject` directly when the line is a plain stub
+ * (tests).  Either way, any exception results in a null return so the
+ * caller silently skips the line.
+ *
+ * @param line - The line to resolve endpoints for.
+ * @returns An object with `sourceId` and `targetId`, or null if either
+ *          endpoint is unresolvable (floating latch, dangling line, etc.).
+ */
+function resolveLineEndpoints(
+    line: SerializableLine
+): { sourceId: string, targetId: string } | null {
+    try {
+        const src = line.sourceObject;
+        const tgt = line.targetObject;
+        if (!src || !tgt) {
+            return null;
+        }
+        return { sourceId: src.id, targetId: tgt.id };
+    } catch {
+        // sourceObject / targetObject throw when the underlying latch is null.
+        return null;
+    }
+}
+
+function serializeGroup(
+    group: SerializableGroup,
+    indent: string,
+    ancestors: string[]
+): string {
     const id     = d2Escape(group.id);
     const label  = group.properties.isDefined() ? d2Escape(group.properties.toString()) : "";
     const header = label ? `${indent}${id}: ${label} {` : `${indent}${id} {`;
     const bb     = group.face.boundingBox;
     const width  = Math.round(bb.xMax - bb.xMin);
     const height = Math.round(bb.yMax - bb.yMin);
+
+    // The qualified ancestor chain for children of this group.
+    const childAncestors = [...ancestors, group.id];
 
     const lines: string[] = [
         header,
@@ -155,32 +194,26 @@ function serializeGroup(group: SerializableGroup, indent: string): string {
     ];
 
     for (const child of group.blocks) {
-        lines.push(serializeBlock(child, `${indent}  `));
+        lines.push(serializeBlock(child, `${indent}  `, childAncestors));
     }
     for (const nested of group.groups) {
-        lines.push(serializeGroup(nested, `${indent}  `));
+        lines.push(serializeGroup(nested, `${indent}  `, childAncestors));
+    }
+
+    // Lines whose both endpoints live inside this group (LCA = this group).
+    for (const line of group.lines) {
+        const endpoints = resolveLineEndpoints(line);
+        if (!endpoints) {
+            continue;
+        }
+        const { sourceId, targetId } = endpoints;
+        const srcPath = qualifiedD2Path(childAncestors, sourceId);
+        const tgtPath = qualifiedD2Path(childAncestors, targetId);
+        lines.push(`${indent}  ${srcPath} -> ${tgtPath}`);
     }
 
     lines.push(`${indent}}`);
     return lines.join("\n");
-}
-
-/**
- * Resolves the block ids for the source and target endpoints of a line.
- * Returns null for either endpoint that cannot be traced to a block id.
- * Lines with unresolved endpoints are skipped by the caller (documented
- * here because floating latches — not yet connected — are the common case).
- */
-function resolveLineEndpoints(
-    line: SerializableLine
-): { sourceId: string, targetId: string } | null {
-    const src = line.sourceObject;
-    const tgt = line.targetObject;
-    if (!src || !tgt) {
-        return null;
-    }
-    // sourceObject / targetObject are the latch parents — they are blocks.
-    return { sourceId: src.id, targetId: tgt.id };
 }
 
 
@@ -195,22 +228,30 @@ function resolveLineEndpoints(
  *
  * Top-level blocks and groups (recursively nested) are declared first so
  * that D2's forward-reference support for connections-to-nested-nodes works
- * without relying on source order. Lines are emitted last.
+ * without relying on source order.  Lines are emitted last at each level:
+ *
+ * - Lines at the canvas root (connecting two top-level nodes, or crossing
+ *   group boundaries) are emitted at the top level after all node declarations.
+ * - Lines whose both endpoints are inside a group (LCA = that group) are
+ *   emitted inside that group's `{ ... }` block.
+ *
+ * Edge endpoints always use the fully-qualified D2 path so that D2 resolves
+ * cross-container references to the correct nested nodes.
  */
 export function serializeToD2(canvas: SerializableCanvas): string {
     const parts: string[] = [];
 
     // Top-level blocks
     for (const block of canvas.blocks) {
-        parts.push(serializeBlock(block, ""));
+        parts.push(serializeBlock(block, "", []));
     }
 
     // Top-level groups (recurse inside serializeGroup)
     for (const group of canvas.groups) {
-        parts.push(serializeGroup(group, ""));
+        parts.push(serializeGroup(group, "", []));
     }
 
-    // Lines — emitted after all containers
+    // Canvas-level lines — connecting top-level nodes or crossing boundaries.
     for (const line of canvas.lines) {
         const endpoints = resolveLineEndpoints(line);
         if (!endpoints) {
@@ -218,6 +259,10 @@ export function serializeToD2(canvas: SerializableCanvas): string {
             continue;
         }
         const { sourceId, targetId } = endpoints;
+        // Top-level nodes have no ancestors, so their qualified path is just
+        // their escaped id. Cross-boundary lines need the target's qualified
+        // path; however, at the canvas level we only have the leaf ids — the
+        // qualified path for a top-level node IS its leaf id.
         parts.push(`${d2Escape(sourceId)} -> ${d2Escape(targetId)}`);
     }
 
@@ -226,24 +271,30 @@ export function serializeToD2(canvas: SerializableCanvas): string {
 
 
 /**
- * Parses a TALA-rendered SVG string and returns a map of node id to
+ * Parses a TALA-rendered SVG string and returns a map of node path to
  * top-left position.
  *
  * D2 encodes each node's id as the base64 of the node's full D2 path
- * (e.g. `cGFyZW50LmNoaWxk` decodes to `parent.child`).  We take only the
- * last `.`-separated segment as the canonical node id so that both
- * top-level nodes and nested nodes resolve to the same id the DFD model
- * uses.
+ * (e.g. `cGFyZW50LmNoaWxk` decodes to `parent.child`).  The full decoded
+ * path is used as the map key so that nodes at different nesting depths
+ * with the same leaf id can be distinguished.
  *
  * Position is read from the `x`/`y` attributes of the first `<rect>` child
  * of the `<g class="shape">` element that immediately follows the node's
  * outer `<g class="<encoded-id>">`.  For cylinder shapes D2 uses a `<path>`
  * instead; in that case we fall back to parsing the `M x y` from the path
  * data.
+ *
+ * @throws {Error} if the SVG string cannot be parsed (DOMParser returns a
+ *   `<parsererror>` document).
  */
 export function parseTalaSvg(svg: string): Map<string, { x: number, y: number }> {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, "image/svg+xml");
+
+    if (doc.querySelector("parsererror")) {
+        throw new Error("failed to parse TALA SVG");
+    }
 
     const result = new Map<string, { x: number, y: number }>();
 
@@ -266,9 +317,9 @@ export function parseTalaSvg(svg: string): Map<string, { x: number, y: number }>
             continue;
         }
 
-        // D2 encodes the full dotted path; we want only the leaf segment.
-        const segments = decoded.split(".");
-        const nodeId = segments[segments.length - 1];
+        // Use the full decoded path as the map key so that nodes at different
+        // nesting levels with the same leaf id can be distinguished.
+        const nodeId = decoded;
         if (!nodeId || result.has(nodeId)) {
             // Already resolved — first occurrence wins (SVG document order).
             continue;

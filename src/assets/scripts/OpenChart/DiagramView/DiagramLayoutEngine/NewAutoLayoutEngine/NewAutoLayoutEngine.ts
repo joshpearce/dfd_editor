@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import { serializeToD2, parseTalaSvg } from "./D2Bridge";
 import type { SerializableBlock, SerializableCanvas, SerializableGroup } from "./D2Bridge";
 import type { DiagramObjectView } from "../../DiagramObjectView";
@@ -12,8 +13,9 @@ import type { AsyncDiagramLayoutEngine } from "../DiagramLayoutEngine";
 export type LayoutSource = (d2Source: string) => Promise<string>;
 
 /**
- * Minimal view surface needed to reposition a node.  BlockView and GroupView
- * both satisfy this interface.
+ * A node from the live canvas that can be repositioned.
+ *
+ * `BlockView` and `GroupView` both satisfy this interface.
  *
  * `halfW` and `halfH` are the half-dimensions of the node, used to convert
  * TALA's top-left coordinates into the center-based coordinate expected by
@@ -27,8 +29,33 @@ interface PositionableNode {
 }
 
 /**
+ * A block or group from the canvas extended with the `moveTo` method.
+ *
+ * The serializable interfaces (`SerializableBlock`, `SerializableGroup`) only
+ * describe the fields that the D2 bridge reads.  The actual `BlockView` and
+ * `GroupView` instances also expose `moveTo`.  This interface captures that
+ * without using an unsafe intersection cast.
+ */
+interface PositionableBlock extends SerializableBlock {
+    moveTo(x: number, y: number): void;
+}
+
+interface PositionableGroupMixin extends SerializableGroup {
+    moveTo(x: number, y: number): void;
+    readonly blocks: ReadonlyArray<PositionableBlock>;
+    readonly groups: ReadonlyArray<PositionableGroup>;
+}
+
+// Recursive alias — must be declared as an interface to allow self-reference.
+type PositionableGroup = PositionableGroupMixin;
+
+/**
  * Collects all blocks and groups from the canvas (top-level and recursively
- * nested) into a flat map keyed by schema id.
+ * nested) into a flat map keyed by **qualified D2 path**.
+ *
+ * The qualified path matches exactly what `serializeToD2` emits for edge
+ * endpoints (e.g. `group-g.block-c` for a block nested one level deep).
+ * This keeps the serialize → SVG → parse → apply id round-trip consistent.
  *
  * Traversal order is depth-first: each group is inserted into the map before
  * its descendants.  This parent-before-descendant ordering is an invariant
@@ -42,8 +69,8 @@ interface PositionableNode {
 function collectNodes(canvas: SerializableCanvas): Map<string, PositionableNode> {
     const result = new Map<string, PositionableNode>();
 
-    function visitBlock(block: SerializableBlock & { moveTo(x: number, y: number): void }): void {
-        result.set(block.id, {
+    function visitBlock(block: PositionableBlock, qualifiedPath: string): void {
+        result.set(qualifiedPath, {
             id:    block.id,
             halfW: block.face.width  / 2,
             halfH: block.face.height / 2,
@@ -51,27 +78,29 @@ function collectNodes(canvas: SerializableCanvas): Map<string, PositionableNode>
         });
     }
 
-    function visitGroup(group: SerializableGroup & { moveTo(x: number, y: number): void }): void {
+    function visitGroup(group: PositionableGroup, qualifiedPath: string): void {
         const bb = group.face.boundingBox;
-        result.set(group.id, {
+        result.set(qualifiedPath, {
             id:    group.id,
             halfW: (bb.xMax - bb.xMin) / 2,
             halfH: (bb.yMax - bb.yMin) / 2,
             moveTo: (x, y) => group.moveTo(x, y)
         });
         for (const child of group.blocks) {
-            visitBlock(child as SerializableBlock & { moveTo(x: number, y: number): void });
+            const childPath = `${qualifiedPath}.${child.id}`;
+            visitBlock(child, childPath);
         }
         for (const nested of group.groups) {
-            visitGroup(nested as SerializableGroup & { moveTo(x: number, y: number): void });
+            const nestedPath = `${qualifiedPath}.${nested.id}`;
+            visitGroup(nested, nestedPath);
         }
     }
 
     for (const block of canvas.blocks) {
-        visitBlock(block as SerializableBlock & { moveTo(x: number, y: number): void });
+        visitBlock(block as PositionableBlock, block.id);
     }
     for (const group of canvas.groups) {
-        visitGroup(group as SerializableGroup & { moveTo(x: number, y: number): void });
+        visitGroup(group as PositionableGroup, group.id);
     }
 
     return result;
@@ -107,12 +136,29 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
      * children (DFS).  Do not reorder without preserving this invariant.
      *
      * @param objects
-     *  The canvas root is expected at `objects[0]`.
+     *  The canvas root is expected at `objects[0]`.  If `objects` is empty
+     *  or `objects[0]` is not a canvas-shaped object, `run` returns without
+     *  calling `layoutSource`.
      */
     public async run(objects: DiagramObjectView[]): Promise<void> {
-        const canvas = objects[0] as unknown as SerializableCanvas;
-        if (!canvas) {
+        if (objects.length === 0) {
             return;
+        }
+
+        const first = objects[0];
+        // The concrete CanvasView is in the OpenChart module; we cannot import
+        // it here without creating a circular reference.  We guard by checking
+        // that the object has the minimal canvas surface we need.
+        const canvas = first as unknown as SerializableCanvas;
+        if (
+            !canvas ||
+            !Array.isArray((canvas as { blocks?: unknown }).blocks) ||
+            !Array.isArray((canvas as { groups?: unknown }).groups) ||
+            !Array.isArray((canvas as { lines?: unknown }).lines)
+        ) {
+            throw new Error(
+                "NewAutoLayoutEngine: objects[0] is not a canvas — expected SerializableCanvas surface"
+            );
         }
 
         // 1. Serialize to D2
@@ -121,20 +167,20 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
         // 2. Fetch TALA SVG (throws on failure — caller wraps in try/catch)
         const svg = await this.layoutSource(source);
 
-        // 3. Parse SVG → id → {x, y}  (top-left coordinates)
+        // 3. Parse SVG → qualified-path → {x, y}  (top-left coordinates)
         const coords = parseTalaSvg(svg);
 
-        // 4. Build id → node map from the live canvas
+        // 4. Build qualified-path → node map from the live canvas
         const nodes = collectNodes(canvas);
 
         // 5. Apply positions — convert TALA top-left to center before moveTo
         let warnedMissing = false;
-        for (const [id, node] of nodes) {
-            const pos = coords.get(id);
+        for (const [qualifiedPath, node] of nodes) {
+            const pos = coords.get(qualifiedPath);
             if (pos === undefined) {
                 if (!warnedMissing) {
                     console.warn(
-                        `NewAutoLayoutEngine: one or more canvas nodes were not found in the TALA SVG (first missing id: "${id}"). Those nodes will keep their current positions.`
+                        `NewAutoLayoutEngine: one or more canvas nodes were not found in the TALA SVG (first missing qualified path: "${qualifiedPath}"). Those nodes will keep their current positions.`
                     );
                     warnedMissing = true;
                 }

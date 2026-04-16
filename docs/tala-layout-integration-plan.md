@@ -182,3 +182,28 @@ Manual procedure (a small helper in `tools/` is optional):
   participates only on the coord-less path, as intended.
 - `docs/tala-layout-integration-notes.md` updated if Step 3 uncovered
   a new calibration gotcha worth recording.
+
+## Implementation note (2026-04-16)
+
+Step 4 of this plan called for converting `DiagramLayoutEngine.run` to
+return `Promise<void>` and updating all implementations.  During execution
+we found that two call sites in `DiagramViewFile` use the layout engine
+from a synchronous constructor and a synchronous `clone` helper; making
+the shared `DiagramLayoutEngine` interface async would leave floating
+promises at those sites with no safe `await` point.
+
+The chosen approach was to add a **parallel** interface instead of mutating
+the existing one:
+
+- `DiagramLayoutEngine` (sync) — unchanged; `AutomaticLayoutEngine`,
+  `ManualLayoutEngine`, and `GroupBoundsEngine` still satisfy it.
+- `AsyncDiagramLayoutEngine` (async, new) — `NewAutoLayoutEngine`
+  implements this interface and returns `Promise<void>` from `run`.
+
+Call sites that need async layout (the coord-less load/import paths in
+`Application/Commands/FileManagement/index.ts`) hold an
+`AsyncDiagramLayoutEngine` reference and `await` the promise.  The sync
+`DiagramViewFile` constructor path continues to use `DiagramLayoutEngine`.
+
+This keeps the sync call sites unchanged and avoids the footgun of
+silently-unawaited promises in constructors.
