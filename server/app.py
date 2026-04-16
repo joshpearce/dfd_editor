@@ -50,6 +50,15 @@ def get_diagram(diagram_id):
     return Response(path.read_text(), mimetype="application/json")
 
 
+@app.route("/api/diagrams/<diagram_id>", methods=["PUT"])
+def update_diagram(diagram_id):
+    path = DATA_DIR / f"{diagram_id}.json"
+    if not path.exists():
+        return jsonify({"error": "not found"}), 404
+    path.write_text(json.dumps(request.get_json(), indent=4))
+    return "", 204
+
+
 @app.route("/api/layout", methods=["POST"])
 def layout():
     body = request.get_json(silent=True)
@@ -74,14 +83,5 @@ def layout():
         return jsonify({"error": "d2 binary not found on PATH"}), 502
     if result.returncode == 0:
         return jsonify({"svg": result.stdout})
-    error_msg = result.stderr or "d2 exited with non-zero status"
+    error_msg = result.stderr.strip() or "d2 exited with non-zero status"
     return jsonify({"error": error_msg}), 502
-
-
-@app.route("/api/diagrams/<diagram_id>", methods=["PUT"])
-def update_diagram(diagram_id):
-    path = DATA_DIR / f"{diagram_id}.json"
-    if not path.exists():
-        return jsonify({"error": "not found"}), 404
-    path.write_text(json.dumps(request.get_json(), indent=4))
-    return "", 204
