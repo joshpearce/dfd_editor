@@ -1,8 +1,76 @@
 import { DictionaryBlock, TextBlock, BranchBlock } from "../../DiagramObjectView/Faces/Blocks";
-import type { CanvasView } from "../../DiagramObjectView/Views/CanvasView";
-import type { BlockView } from "../../DiagramObjectView/Views/BlockView";
-import type { GroupView } from "../../DiagramObjectView/Views/GroupView";
-import type { LineView } from "../../DiagramObjectView/Views/LineView";
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  Serializable interfaces (test-friendly structural surface)  ///////////////
+///////////////////////////////////////////////////////////////////////////////
+//
+//  These interfaces describe only the fields that D2Bridge actually reads.
+//  They are exported so spec files can build typed stubs without importing the
+//  full View class hierarchy (which has a circular-init chain that breaks the
+//  jsdom test environment).  The public `serializeToD2` signature still accepts
+//  the concrete `CanvasView` type — these interfaces are a subset of it.
+
+
+/** Minimal property surface that serializeToD2 reads. */
+export interface SerializableProperties {
+    isDefined(): boolean;
+    toString(): string;
+}
+
+/** Minimal face surface for a block node. */
+export interface SerializableBlockFace {
+    readonly constructor: { readonly name: string };
+    readonly width:  number;
+    readonly height: number;
+}
+
+/** Minimal block surface that serializeToD2 reads. */
+export interface SerializableBlock {
+    readonly id:         string;
+    readonly properties: SerializableProperties;
+    readonly face:       SerializableBlockFace;
+}
+
+/** Minimal bounding-box surface for a group face. */
+export interface SerializableBoundingBox {
+    readonly xMin: number;
+    readonly yMin: number;
+    readonly xMax: number;
+    readonly yMax: number;
+}
+
+/** Minimal face surface for a group node. */
+export interface SerializableGroupFace {
+    readonly boundingBox: SerializableBoundingBox;
+}
+
+/** Minimal group surface that serializeToD2 reads (recursive). */
+export interface SerializableGroup {
+    readonly id:         string;
+    readonly properties: SerializableProperties;
+    readonly face:       SerializableGroupFace;
+    readonly blocks:     ReadonlyArray<SerializableBlock>;
+    readonly groups:     ReadonlyArray<SerializableGroup>;
+}
+
+/** Minimal endpoint surface that resolveLineEndpoints reads. */
+export interface SerializableEndpoint {
+    readonly id: string;
+}
+
+/** Minimal line surface that serializeToD2 reads. */
+export interface SerializableLine {
+    readonly sourceObject: SerializableEndpoint | null;
+    readonly targetObject: SerializableEndpoint | null;
+}
+
+/** Minimal canvas surface that serializeToD2 reads. */
+export interface SerializableCanvas {
+    readonly blocks: ReadonlyArray<SerializableBlock>;
+    readonly groups: ReadonlyArray<SerializableGroup>;
+    readonly lines:  ReadonlyArray<SerializableLine>;
+}
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -56,7 +124,7 @@ function d2Escape(value: string): string {
 ///////////////////////////////////////////////////////////////////////////////
 
 
-function serializeBlock(block: BlockView, indent: string): string {
+function serializeBlock(block: SerializableBlock, indent: string): string {
     const id     = d2Escape(block.id);
     const label  = d2Escape(block.properties.isDefined() ? block.properties.toString() : "");
     const shape  = d2ShapeFor(block.face);
@@ -71,7 +139,7 @@ function serializeBlock(block: BlockView, indent: string): string {
     ].join("\n");
 }
 
-function serializeGroup(group: GroupView, indent: string): string {
+function serializeGroup(group: SerializableGroup, indent: string): string {
     const id     = d2Escape(group.id);
     const label  = d2Escape(group.properties.isDefined() ? group.properties.toString() : "");
     const bb     = group.face.boundingBox;
@@ -85,10 +153,10 @@ function serializeGroup(group: GroupView, indent: string): string {
     ];
 
     for (const child of group.blocks) {
-        lines.push(serializeBlock(child as BlockView, `${indent}  `));
+        lines.push(serializeBlock(child, `${indent}  `));
     }
     for (const nested of group.groups) {
-        lines.push(serializeGroup(nested as GroupView, `${indent}  `));
+        lines.push(serializeGroup(nested, `${indent}  `));
     }
 
     lines.push(`${indent}}`);
@@ -102,7 +170,7 @@ function serializeGroup(group: GroupView, indent: string): string {
  * here because floating latches — not yet connected — are the common case).
  */
 function resolveLineEndpoints(
-    line: LineView
+    line: SerializableLine
 ): { sourceId: string, targetId: string } | null {
     const src = line.sourceObject;
     const tgt = line.targetObject;
@@ -120,29 +188,29 @@ function resolveLineEndpoints(
 
 
 /**
- * Walks a {@link CanvasView} and emits a D2 source string suitable for
- * piping through `d2 --layout=tala`.
+ * Walks a {@link CanvasView} (or any {@link SerializableCanvas}) and emits a
+ * D2 source string suitable for piping through `d2 --layout=tala`.
  *
  * Top-level blocks and groups (recursively nested) are declared first so
  * that D2's forward-reference support for connections-to-nested-nodes works
  * without relying on source order. Lines are emitted last.
  */
-export function serializeToD2(canvas: CanvasView): string {
+export function serializeToD2(canvas: SerializableCanvas): string {
     const parts: string[] = [];
 
     // Top-level blocks
     for (const block of canvas.blocks) {
-        parts.push(serializeBlock(block as BlockView, ""));
+        parts.push(serializeBlock(block, ""));
     }
 
     // Top-level groups (recurse inside serializeGroup)
     for (const group of canvas.groups) {
-        parts.push(serializeGroup(group as GroupView, ""));
+        parts.push(serializeGroup(group, ""));
     }
 
     // Lines — emitted after all containers
     for (const line of canvas.lines) {
-        const endpoints = resolveLineEndpoints(line as LineView);
+        const endpoints = resolveLineEndpoints(line);
         if (!endpoints) {
             // Floating latch or dangling line — skip silently.
             continue;
