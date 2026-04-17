@@ -149,18 +149,20 @@ function serializeBlock(
 }
 
 /**
- * Resolves the block ids for the source and target endpoints of a line.
- * Returns null for either endpoint that cannot be traced to a block id.
+ * Resolves the source/target instance identifiers for a line.
+ * Returns null for either endpoint that cannot be traced to an instance.
  *
- * Uses `rawSourceLatch` / `rawTargetLatch` (available on the model base class)
- * when the line is a real `LineView`, or falls back to reading
- * `sourceObject` / `targetObject` directly when the line is a plain stub
- * (tests).  Either way, any exception results in a null return so the
- * caller silently skips the line.
+ * Reads `line.sourceObject` / `line.targetObject` directly.  On a real
+ * `LineView` those getters throw when the underlying latch has no
+ * attached endpoint ("No source/target latch assigned"); the try/catch
+ * here turns that throw into a null return so the caller silently
+ * skips the line.  Test stubs pass through the same path because they
+ * set the properties as plain fields.
  *
  * @param line - The line to resolve endpoints for.
- * @returns An object with `sourceId` and `targetId`, or null if either
- *          endpoint is unresolvable (floating latch, dangling line, etc.).
+ * @returns An object with `sourceInstance` and `targetInstance`, or null
+ *          if either endpoint is unresolvable (floating latch, dangling
+ *          line, etc.).
  */
 function resolveLineEndpoints(
     line: SerializableLine
@@ -235,10 +237,17 @@ function serializeGroup(
  * - Lines at the canvas root (connecting two top-level nodes, or crossing
  *   group boundaries) are emitted at the top level after all node declarations.
  * - Lines whose both endpoints are inside a group (LCA = that group) are
- *   emitted inside that group's `{ ... }` block.
+ *   emitted inside that group's `{ ... }` block, using the qualified D2
+ *   path relative to that group.
  *
- * Edge endpoints always use the fully-qualified D2 path so that D2 resolves
- * cross-container references to the correct nested nodes.
+ * Cross-boundary edges at the canvas root (source and target live in
+ * different groups) currently emit the raw leaf `instance` for each
+ * endpoint, NOT a qualified container.leaf path.  D2 resolves those by
+ * unique-leaf search, which works as long as leaf instances are unique
+ * across the canvas (they are — `instance` is a UUID).  This is out of
+ * scope for the boundary-overlap fix and is pinned by the
+ * `C2 — cross-group edge qualified paths (currently broken)` spec in
+ * `D2Bridge.spec.ts`.
  */
 export function serializeToD2(canvas: SerializableCanvas): string {
     const parts: string[] = [];
@@ -275,22 +284,27 @@ export function serializeToD2(canvas: SerializableCanvas): string {
 /**
  * A node's placement as reported by TALA.
  *
- * `x` / `y` are the top-left coordinate of the node in TALA's coordinate
- * space.  `width` / `height` are the node's rendered size.  For containers
- * (groups) this is TALA's auto-computed size from the container's contents,
- * which is the only place that size is available — we don't send explicit
- * group dimensions into D2 (see `serializeGroup`).
+ * Discriminated by the presence of `width` / `height` — either BOTH are
+ * present (the `<rect>` path) or NEITHER is present (the rect-less path,
+ * e.g. a cylinder emitted as `<path>`).  Half-populated placements are
+ * not representable; parsers must produce one of the two shapes.  Using
+ * a discriminated union rather than two independently-optional fields
+ * lets the type system reject accidental partial populations at the
+ * engine's consumer callsites (placeBlock / placeGroup).
  *
- * Size is optional because D2 emits a `<path>` (not a `<rect>`) for cylinder
- * shapes; the path's bounding rect is non-trivial to extract, so we fall
- * back to reading only the top-left coordinate.
+ * `x` / `y` are the top-left coordinate of the node in TALA's coordinate
+ * space.  `width` / `height`, when present, are the node's rendered size.
+ * For containers (groups) this is TALA's auto-computed size from the
+ * container's contents, which is the only place that size is available —
+ * we don't send explicit group dimensions into D2 (see `serializeGroup`).
+ *
+ * The rect-less branch exists because D2 emits a `<path>` (not a `<rect>`)
+ * for cylinder shapes; the path's bounding rect is non-trivial to extract,
+ * so we fall back to reading only the top-left coordinate.
  */
-export interface TalaPlacement {
-    readonly x:       number;
-    readonly y:       number;
-    readonly width?:  number;
-    readonly height?: number;
-}
+export type TalaPlacement =
+    | { readonly x: number, readonly y: number, readonly width: number, readonly height: number }
+    | { readonly x: number, readonly y: number, readonly width?: undefined, readonly height?: undefined };
 
 /**
  * Parses a TALA-rendered SVG string and returns a map of node path to
@@ -308,7 +322,10 @@ export interface TalaPlacement {
  * to parsing the `M x y` from the path data and omit the size.
  *
  * @throws {Error} if the SVG string cannot be parsed (DOMParser returns a
- *   `<parsererror>` document).
+ *   `<parsererror>` document).  `NewAutoLayoutEngine.run` propagates this
+ *   throw rather than recovering — there is no partial-result mode, and
+ *   the call-site's outer `try`/`catch` in `src/assets/scripts/Application/`
+ *   is expected to surface the failure as a user-visible error.
  */
 export function parseTalaSvg(svg: string): Map<string, TalaPlacement> {
     const parser = new DOMParser();

@@ -18,8 +18,12 @@
  *   - Edge qualified paths (C2): edge endpoints inside groups use the
  *     fully-qualified D2 path (e.g. `group-g.block-c`); top-level endpoints
  *     use the plain leaf id.
- *   - Cross-group line: a line from a top-level block to a nested block
- *     emits `block-a -> group-g.block-c` at the canvas root.
+ *   - Cross-group line (currently broken): a line from a top-level block to
+ *     a nested block emits the RAW leaf id (`block-a -> block-c`) at the
+ *     canvas root, NOT the qualified `group-g.block-c`.  The "C2 —
+ *     cross-group edge qualified paths (currently broken)" test pins this
+ *     status quo; see the comment in `serializeToD2` for the full
+ *     explanation and the plan for a proper fix.
  *   - Edge-id resolution: connected line emits `sourceId -> targetId`;
  *     a line with a missing endpoint is silently skipped.
  *   - Label/ID escaping: spaces, double quotes, and D2 reserved chars
@@ -47,6 +51,7 @@ import {
     serializeToD2,
     parseTalaSvg,
     qualifiedD2Path,
+    d2Escape,
     type SerializableBlock,
     type SerializableGroup,
     type SerializableLine,
@@ -257,8 +262,10 @@ describe("serializeToD2", () => {
             // The inner block still carries width/height. Only the group must not.
             // Split on the group's opening brace and closing brace to isolate the
             // group-level lines (direct properties of the group), excluding nested
-            // block declarations.
-            const groupHeader = "g1: G1 {";
+            // block declarations.  Rebuild the header via `d2Escape` so this test
+            // stays in sync with escape-rule changes (e.g. if unconditionally
+            // quoting labels ever becomes the policy).
+            const groupHeader = `${d2Escape("g1")}: ${d2Escape("G1")} {`;
             const headerIdx   = output.indexOf(groupHeader);
             expect(headerIdx).toBeGreaterThanOrEqual(0);
 
@@ -374,8 +381,15 @@ describe("serializeToD2", () => {
 
             const output = serializeToD2(canvas);
 
-            expect(output).toContain("uuid-aws: \"AWS Private Subnet\"");
-            expect(output).toContain("uuid-internet: Internet");
+            // Rebuild both headers via `d2Escape` so these assertions stay in
+            // sync with escape-rule changes (e.g. if unconditionally quoting
+            // labels ever becomes the policy).
+            expect(output).toContain(
+                `${d2Escape("uuid-aws")}: ${d2Escape("AWS Private Subnet")}`
+            );
+            expect(output).toContain(
+                `${d2Escape("uuid-internet")}: ${d2Escape("Internet")}`
+            );
         });
 
         it("uses the instance uuid (not the template id) in the qualified path for nested edges", () => {
@@ -401,9 +415,17 @@ describe("serializeToD2", () => {
 
     // -------------------------------------------------------------------------
 
-    describe("C2 — cross-group edge qualified paths", () => {
+    describe("C2 — cross-group edge qualified paths (currently broken)", () => {
 
-        it("emits a cross-boundary line as top-level-block -> qualified-nested-block", () => {
+        // NOTE: the name says "currently broken" because this test pins the
+        // status quo — not the correct behavior.  See the block comment in
+        // `serializeToD2` for the full explanation: the canvas-level line
+        // emits the raw endpoint uuids, which causes D2 to fabricate a
+        // top-level stub rather than connect to the pre-declared nested
+        // block.  A future fix should (a) emit the qualified path for the
+        // nested endpoint and (b) rewrite these assertions (not flip them
+        // from red to green — the shape of the expected output changes).
+        it("emits a cross-boundary line using the raw leaf id instead of the qualified nested path", () => {
             // top-level block-a → nested group-g.block-c
             const blockA = makeBlock("block-a", "A", 100, 50);
             const blockC = makeBlock("block-c", "C", 80, 40);
@@ -419,12 +441,16 @@ describe("serializeToD2", () => {
 
             const output = serializeToD2(canvas);
 
-            // The canvas-level line should use the leaf id for block-a (top-level)
-            // and the leaf id for block-c (also top-level from the canvas line
-            // perspective — the canvas only knows the endpoint ids).
-            // Note: canvas-level lines have no ancestor context for nested nodes;
-            // they emit the raw ids as provided by resolveLineEndpoints.
+            // The canvas-level line uses the raw leaf id `block-c` — NOT the
+            // qualified path `group-g.block-c`.  That's the broken bit: D2
+            // will fabricate a spurious top-level stub for `block-c` rather
+            // than connect to the pre-declared nested block.
             expect(output).toContain("block-a -> block-c");
+            // Explicit negative assertion pinning the known-bad state: the
+            // qualified path is NOT present in the output.  When the fix
+            // lands this assertion will fail loudly, forcing the test to be
+            // updated alongside the fix.
+            expect(output).not.toContain("block-a -> group-g.block-c");
         });
 
     });
