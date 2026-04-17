@@ -721,14 +721,15 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
      *  SVG string.  Injected to keep the engine layer free of HTTP concerns.
      * @param anchorStrategy
      *  Controls how line endpoints are rebound after block / group placement.
-     *  Defaults to `"tala"`.  Pass `"geometric"` for the simpler center-to-
-     *  center cardinal rebind, or `"none"` to skip all rebinding (preserves
-     *  the pre-fix behavior where latches stay on their factory-default
-     *  anchor sides).
+     *  Defaults to `"geometric"` (center-to-center cardinal rebind), which
+     *  always produces connections that exit perpendicular to the face they
+     *  attach to.  Pass `"tala"` to use TALA SVG edge-endpoint data instead
+     *  (may produce face-parallel connections when TALA routes U-shapes), or
+     *  `"none"` to skip all rebinding.
      */
     constructor(
         private readonly layoutSource:   LayoutSource,
-        private readonly anchorStrategy: AnchorStrategy = "tala"
+        private readonly anchorStrategy: AnchorStrategy = "geometric"
     ) {}
 
     /**

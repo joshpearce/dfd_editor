@@ -1001,9 +1001,10 @@ describe("NewAutoLayoutEngine", () => {
             expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
         });
 
-        it("default strategy 'tala' with no TALA connections falls back to geometric rebind", async () => {
-            // SVG has node placements but no <g class="connection"> elements →
-            // edges is empty → rebindLinesTala falls back to geometric for each line.
+        it("default strategy 'geometric' rebinds to faces perpendicular to inter-block direction", async () => {
+            // Default strategy is "geometric": picks the face whose outward
+            // normal points toward the other block, ensuring connectors exit
+            // perpendicular to the face they attach to.
             const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
             const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
@@ -1011,7 +1012,6 @@ describe("NewAutoLayoutEngine", () => {
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
 
             const line   = makeLineStub(srcLatch, tgtLatch);
-            // Use the geometric canvas helper since these stubs are from the geometric block.
             const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             const svg = makeTalaSvg([
@@ -1022,7 +1022,7 @@ describe("NewAutoLayoutEngine", () => {
 
             await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
 
-            // Geometric fallback: src is left of tgt → src gets D0 (right), tgt gets D180 (left).
+            // src is left of tgt → src gets D0 (right), tgt gets D180 (left).
             expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D0), true);
             expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
         });
