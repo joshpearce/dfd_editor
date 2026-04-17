@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { serializeToD2, parseTalaSvg } from "./D2Bridge";
-import type { SerializableBlock, SerializableCanvas, SerializableGroup, TalaPlacement } from "./D2Bridge";
+import type { SerializableBlock, SerializableCanvas, SerializableGroup, TalaEdge, TalaPlacement } from "./D2Bridge";
 import { pickCardinalAnchor, rebindLatchToAnchor } from "./AnchorRebind";
 import type { CardinalBlockSurface, LinkableAnchor, Point, RebindableLatch } from "./AnchorRebind";
 import type { DiagramObjectView } from "../../DiagramObjectView";
@@ -33,9 +33,13 @@ export type LayoutSource = (d2Source: string) => Promise<string>;
  *                   endpoint block that faces toward the opposite block,
  *                   computed purely from bounding-box centers.  See Step 2
  *                   of `docs/auto-layout-connector-anchoring-plan.md`.
- * - `"tala"`      — (Step 4) uses TALA's own SVG connection-point data to
- *                   determine exact anchor positions.  Not yet implemented;
- *                   falls through to a no-op until Step 4 lands.
+ * - `"tala"`      — uses TALA's own SVG connection-point data to determine
+ *                   exact anchor positions.  For each line, finds the TALA
+ *                   edge whose start/end is nearest the source/target block
+ *                   perimeter and picks anchors from those endpoints.  Falls
+ *                   back to `"geometric"` per-line when no plausible TALA
+ *                   edge is found (empty edge list, or best match exceeds one
+ *                   block half-dimension away).
  */
 export type AnchorStrategy = "none" | "geometric" | "tala";
 
@@ -592,6 +596,99 @@ function rebindLinesGeometric(lines: ReadonlyArray<RebindableLineSurface>): void
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////
+//  TALA-guided rebind pass  ///////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Returns the Euclidean distance from point `p` to the nearest point on the
+ * boundary of the bounding box.  Returns 0 if `p` is inside the box.
+ *
+ * Used by {@link rebindLinesTala} to score how well a TALA edge endpoint
+ * aligns with a block's perimeter when selecting the best matching edge.
+ */
+function pointToBoxDistance(
+    p: Point,
+    box: { xMin: number, yMin: number, xMax: number, yMax: number }
+): number {
+    const clampedX = Math.max(box.xMin, Math.min(box.xMax, p.x));
+    const clampedY = Math.max(box.yMin, Math.min(box.yMax, p.y));
+    const dx = p.x - clampedX;
+    const dy = p.y - clampedY;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Rebinds every line's latches using TALA's own edge-endpoint data.
+ *
+ * For each line:
+ * 1. Resolve source-block and target-block (same `latch.anchor.parent` walk
+ *    as the geometric pass).
+ * 2. Scan `edges` to find the one whose `start` is nearest the source-block
+ *    perimeter AND `end` nearest the target-block perimeter (minimum combined
+ *    distance).
+ * 3. If the best match has `start` within one source half-dimension of the
+ *    source perimeter AND `end` within one target half-dimension of the target
+ *    perimeter, call `pickCardinalAnchor` with those TALA points and rebind.
+ * 4. Otherwise fall back to geometric: rebind using the center-to-center
+ *    direction (same logic as {@link rebindLinesGeometric}).
+ *
+ * Lines with unresolved endpoints are skipped silently.
+ */
+function rebindLinesTala(
+    lines: ReadonlyArray<RebindableLineSurface>,
+    edges: TalaEdge[]
+): void {
+    for (const line of lines) {
+        const srcBlock = resolveEndpointBlock(line.source);
+        const tgtBlock = resolveEndpointBlock(line.target);
+        if (!srcBlock || !tgtBlock) {
+            continue;
+        }
+
+        const srcBox = srcBlock.face.boundingBox;
+        const tgtBox = tgtBlock.face.boundingBox;
+
+        // Plausibility thresholds: one half-dimension of each block.
+        const srcThreshold = Math.max(
+            (srcBox.xMax - srcBox.xMin) / 2,
+            (srcBox.yMax - srcBox.yMin) / 2
+        );
+        const tgtThreshold = Math.max(
+            (tgtBox.xMax - tgtBox.xMin) / 2,
+            (tgtBox.yMax - tgtBox.yMin) / 2
+        );
+
+        // Nearest-neighbor edge search.
+        let bestEdge: TalaEdge | null = null;
+        let bestDStart = Infinity;
+        let bestDEnd   = Infinity;
+
+        for (const edge of edges) {
+            const dStart = pointToBoxDistance(edge.start, srcBox);
+            const dEnd   = pointToBoxDistance(edge.end,   tgtBox);
+            if (dStart + dEnd < bestDStart + bestDEnd) {
+                bestEdge  = edge;
+                bestDStart = dStart;
+                bestDEnd   = dEnd;
+            }
+        }
+
+        if (bestEdge !== null && bestDStart <= srcThreshold && bestDEnd <= tgtThreshold) {
+            // Use TALA edge endpoints to pick anchors.
+            const srcPos = pickCardinalAnchor(srcBlock, bestEdge.start);
+            const tgtPos = pickCardinalAnchor(tgtBlock, bestEdge.end);
+            const newSrcAnchor = srcBlock.anchors.get(srcPos);
+            const newTgtAnchor = tgtBlock.anchors.get(tgtPos);
+            if (newSrcAnchor) { rebindLatchToAnchor(line.source, newSrcAnchor); }
+            if (newTgtAnchor) { rebindLatchToAnchor(line.target, newTgtAnchor); }
+        } else {
+            // Fallback: geometric center-to-center rebind for this line.
+            rebindLinesGeometric([line]);
+        }
+    }
+}
+
 export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
 
     /**
@@ -602,10 +699,10 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
      *  SVG string.  Injected to keep the engine layer free of HTTP concerns.
      * @param anchorStrategy
      *  Controls how line endpoints are rebound after block / group placement.
-     *  Defaults to `"tala"` (which is a no-op until Step 4 of
-     *  `docs/auto-layout-connector-anchoring-plan.md` lands).  Pass
-     *  `"geometric"` to activate the center-to-center cardinal rebind pass
-     *  implemented in Step 2.  Pass `"none"` to skip all rebinding.
+     *  Defaults to `"tala"`.  Pass `"geometric"` for the simpler center-to-
+     *  center cardinal rebind, or `"none"` to skip all rebinding (preserves
+     *  the pre-fix behavior where latches stay on their factory-default
+     *  anchor sides).
      */
     constructor(
         private readonly layoutSource:   LayoutSource,
@@ -667,8 +764,8 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
         const svg = await this.layoutSource(source);
 
         // 3. Parse SVG → qualified-path → {x, y}  (top-left coordinates)
-        //    _edges reserved for Step 4 (TALA anchor strategy).
-        const { nodes: coords } = parseTalaSvg(svg);
+        //    edges is used by the "tala" anchor strategy (Pass 6 below).
+        const { nodes: coords, edges } = parseTalaSvg(svg);
 
         // 4. Build qualified-path lists from the live canvas, already
         //    partitioned by kind.
@@ -701,15 +798,18 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
             console.warn(warning);
         }
 
-        // 6. Rebind line endpoints (geometric strategy).  The unplaced-node
-        //    warning fires in Pass 5 (above) intentionally: placement diagnostics
-        //    must be visible regardless of whether the rebind pass succeeds, and
-        //    any future rebind exceptions must not suppress placement warnings.
+        // 6. Rebind line endpoints.  The unplaced-node warning fires in Pass 5
+        //    (above) intentionally: placement diagnostics must be visible
+        //    regardless of whether the rebind pass succeeds, and any rebind
+        //    exceptions must not suppress placement warnings.
         if (this.anchorStrategy === "geometric") {
             const lines = collectLines(canvas);
             rebindLinesGeometric(lines);
+        } else if (this.anchorStrategy === "tala") {
+            const lines = collectLines(canvas);
+            rebindLinesTala(lines, edges);
         }
-        // TALA strategy wired in Step 4 of the plan.
+        // "none" strategy → no rebinding; latches stay on factory-default sides.
     }
 
 }

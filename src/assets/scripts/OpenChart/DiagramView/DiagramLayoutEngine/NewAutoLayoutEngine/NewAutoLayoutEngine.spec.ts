@@ -1029,7 +1029,9 @@ describe("NewAutoLayoutEngine", () => {
             expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
         });
 
-        it("default strategy 'tala' is a no-op for rebinding (wiring check)", async () => {
+        it("default strategy 'tala' with no TALA connections falls back to geometric rebind", async () => {
+            // SVG has node placements but no <g class="connection"> elements →
+            // edges is empty → rebindLinesTala falls back to geometric for each line.
             const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
             const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
@@ -1037,6 +1039,7 @@ describe("NewAutoLayoutEngine", () => {
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
 
             const line   = makeLineStub(srcLatch, tgtLatch);
+            // Use the geometric canvas helper since these stubs are from the geometric block.
             const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             const svg = makeTalaSvg([
@@ -1045,12 +1048,11 @@ describe("NewAutoLayoutEngine", () => {
             ]);
             const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
 
-            // No second argument → default "tala" strategy.
             await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
 
-            // "tala" is not yet wired (Step 4); no rebinding should happen.
-            expect(srcLatch.link).not.toHaveBeenCalled();
-            expect(tgtLatch.link).not.toHaveBeenCalled();
+            // Geometric fallback: src is left of tgt → src gets D0 (right), tgt gets D180 (left).
+            expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D0), true);
+            expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
         });
 
         it("explicit strategy 'none' is a no-op for rebinding", async () => {
@@ -1067,6 +1069,233 @@ describe("NewAutoLayoutEngine", () => {
                 { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
                 { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
             ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "none").run(makeObjects(canvas));
+
+            expect(srcLatch.link).not.toHaveBeenCalled();
+            expect(tgtLatch.link).not.toHaveBeenCalled();
+        });
+
+    });
+
+    describe("run — tala anchor strategy", () => {
+
+        ///////////////////////////////////////////////////////////////////////////
+        //  SVG helper with connection elements  ///////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////
+
+        /**
+         * Extends {@link makeTalaSvg} with `<g class="connection">` elements so
+         * the TALA edge-endpoint parser finds real connection paths.
+         */
+        function makeTalaSvgWithConnections(
+            nodes:       Array<{ id: string, x: number, y: number, width?: number, height?: number }>,
+            connections: Array<{ d: string }>
+        ): string {
+            const nodeGroups = nodes.map(({ id, x, y, width = 100, height = 50 }) => {
+                const encoded = btoa(id);
+                return `<g class="${encoded}"><g class="shape"><rect x="${x}" y="${y}" width="${width}" height="${height}"/></g></g>`;
+            });
+            const connGroups = connections.map(({ d }) =>
+                `<g class="connection"><path d="${d}"/></g>`
+            );
+            return `<svg xmlns="http://www.w3.org/2000/svg">${[...nodeGroups, ...connGroups].join("")}</svg>`;
+        }
+
+        ///////////////////////////////////////////////////////////////////////////
+        //  Stub types and factories (mirrors the geometric describe block)  //////
+        ///////////////////////////////////////////////////////////////////////////
+
+        interface TAnchorStub {
+            parent: TBlockStub | null;
+            link:   ReturnType<typeof vi.fn>;
+        }
+        interface TLatchStub {
+            anchor: TAnchorStub | null;
+            link:   ReturnType<typeof vi.fn>;
+        }
+        interface TBlockStub {
+            instance:   string;
+            properties: { isDefined: () => boolean, toString: () => string };
+            face: {
+                width: number, height: number;
+                boundingBox: { xMin: number, xMax: number, yMin: number, yMax: number };
+            };
+            moveTo:  ReturnType<typeof vi.fn>;
+            anchors: Map<AnchorPosition, TAnchorStub>;
+        }
+
+        function makeTAnchorStub(): TAnchorStub {
+            return { parent: null, link: vi.fn() };
+        }
+        function makeTLatchStub(anchor: TAnchorStub | null): TLatchStub {
+            const latch: TLatchStub = {
+                anchor,
+                link: vi.fn((newAnchor: TAnchorStub) => { latch.anchor = newAnchor; })
+            };
+            return latch;
+        }
+        function makeTBlockWithAnchors(instance: string, x: number, y: number, w: number, h: number): TBlockStub {
+            const anchors = new Map<AnchorPosition, TAnchorStub>();
+            const block: TBlockStub = {
+                instance,
+                properties: { isDefined: () => false, toString: () => "" },
+                face: {
+                    width: w, height: h,
+                    boundingBox: { xMin: x - w / 2, xMax: x + w / 2, yMin: y - h / 2, yMax: y + h / 2 }
+                },
+                moveTo: vi.fn((cx: number, cy: number) => {
+                    block.face.boundingBox.xMin = cx - w / 2;
+                    block.face.boundingBox.xMax = cx + w / 2;
+                    block.face.boundingBox.yMin = cy - h / 2;
+                    block.face.boundingBox.yMax = cy + h / 2;
+                }),
+                anchors
+            };
+            for (const pos of [AnchorPosition.D0, AnchorPosition.D90, AnchorPosition.D180, AnchorPosition.D270]) {
+                const anchor = makeTAnchorStub();
+                anchor.parent = block;
+                anchors.set(pos, anchor);
+            }
+            return block;
+        }
+        function makeTLineStub(srcLatch: TLatchStub | null, tgtLatch: TLatchStub | null) {
+            return {
+                get source() {
+                    if (srcLatch === null) { throw new Error("no source latch"); }
+                    return srcLatch;
+                },
+                get target() {
+                    if (tgtLatch === null) { throw new Error("no target latch"); }
+                    return tgtLatch;
+                }
+            };
+        }
+        function makeTCanvas(
+            blocks: TBlockStub[],
+            lines:  ReturnType<typeof makeTLineStub>[]
+        ): SerializableCanvas {
+            return {
+                blocks: blocks as unknown as SerializableBlock[],
+                groups: [],
+                lines:  lines  as unknown as SerializableCanvas["lines"]
+            };
+        }
+
+        ///////////////////////////////////////////////////////////////////////////
+        //  Tests  /////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////
+
+        it("tala edge whose start/end are on block perimeters → picks TALA-derived anchors (different from geometric)", async () => {
+            // src-block center (100, 100), tgt-block center (400, 100) — side-by-side.
+            //
+            // Geometric would pick: src → D0 (right), tgt → D180 (left).
+            //
+            // TALA connection: start at top of src-block (100, 75), end at top of
+            // tgt-block (400, 75).  From the center of each block:
+            //   src: dx=0, dy=75−100=−25  → D90 (top)
+            //   tgt: dx=0, dy=75−100=−25  → D90 (top)
+            // So TALA strategy picks D90/D90, which differs from geometric D0/D180.
+            const srcBlock = makeTBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeTBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeTLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeTLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
+
+            const line   = makeTLineStub(srcLatch, tgtLatch);
+            const canvas = makeTCanvas([srcBlock, tgtBlock], [line]);
+
+            // TALA connection has start at (100, 75) on the top edge of src-block
+            // and end at (400, 75) on the top edge of tgt-block.
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 100 75 L 400 75" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            // TALA-derived anchor: both endpoints are on the TOP face → D90.
+            expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D90), true);
+            expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D90), true);
+        });
+
+        it("tala with right-to-left connection: src D0 (right), tgt D180 (left)", async () => {
+            // Classic case: connection exits the right side of src, enters the left side of tgt.
+            const srcBlock = makeTBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeTBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeTLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeTLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+
+            const line   = makeTLineStub(srcLatch, tgtLatch);
+            const canvas = makeTCanvas([srcBlock, tgtBlock], [line]);
+
+            // Connection: start (150, 100) on right edge of src-block, end (350, 100) on left edge of tgt-block.
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 150 100 L 350 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D0),   true);
+            expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
+        });
+
+        it("tala connection far from blocks (distance > threshold) → falls back to geometric", async () => {
+            // src center (100, 100), tgt center (400, 100) — threshold = max(50, 25) = 50.
+            // Connection start (100, 900) is 775 units below src-block → dStart >> threshold.
+            const srcBlock = makeTBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeTBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeTLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeTLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+
+            const line   = makeTLineStub(srcLatch, tgtLatch);
+            const canvas = makeTCanvas([srcBlock, tgtBlock], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 100 900 L 400 900" }]   // both points far below either block
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            // Geometric fallback: src left of tgt → D0 / D180.
+            expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D0),   true);
+            expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
+        });
+
+        it("explicit 'none' strategy → no rebinding regardless of connections in SVG", async () => {
+            const srcBlock = makeTBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeTBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeTLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeTLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+
+            const line   = makeTLineStub(srcLatch, tgtLatch);
+            const canvas = makeTCanvas([srcBlock, tgtBlock], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 150 100 L 350 100" }]
+            );
             const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
 
             await new NewAutoLayoutEngine(layoutSource, "none").run(makeObjects(canvas));
