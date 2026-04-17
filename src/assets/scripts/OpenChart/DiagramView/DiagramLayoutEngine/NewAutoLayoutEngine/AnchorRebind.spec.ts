@@ -81,8 +81,15 @@ const BLOCK = makeBlock(100, 100, 40, 20);
 /**
  * Builds a minimal LinkableAnchor stub (satisfies the structural type).
  */
-function makeAnchor(): LinkableAnchor {
-    return { link: vi.fn() };
+function makeAnchor(x: number = 0, y: number = 0): LinkableAnchor {
+    return { x, y, link: vi.fn() };
+}
+
+/**
+ * Builds a minimal RebindableLatch stub (satisfies the structural type).
+ */
+function makeLatch(anchor: LinkableAnchor | null): RebindableLatch {
+    return { anchor, link: vi.fn(), moveTo: vi.fn() };
 }
 
 
@@ -292,13 +299,9 @@ describe("pickCardinalAnchor", () => {
 describe("rebindLatchToAnchor", () => {
 
     it("calls link(newAnchor, true) exactly once when the latch is bound to a different anchor", () => {
-        const oldAnchor: LinkableAnchor = makeAnchor();
-        const newAnchor: LinkableAnchor = makeAnchor();
-
-        const latch: RebindableLatch = {
-            anchor: oldAnchor,
-            link: vi.fn()
-        };
+        const oldAnchor = makeAnchor();
+        const newAnchor = makeAnchor();
+        const latch = makeLatch(oldAnchor);
 
         rebindLatchToAnchor(latch, newAnchor);
 
@@ -306,29 +309,31 @@ describe("rebindLatchToAnchor", () => {
     });
 
     it("does NOT call link when the latch is already bound to newAnchor", () => {
-        const anchor: LinkableAnchor = makeAnchor();
-
-        const latch: RebindableLatch = {
-            anchor,
-            link: vi.fn()
-        };
+        const anchor = makeAnchor();
+        const latch = makeLatch(anchor);
 
         rebindLatchToAnchor(latch, anchor);
 
         expect(latch.link).not.toHaveBeenCalled();
+        expect(latch.moveTo).not.toHaveBeenCalled();
     });
 
     it("calls link(newAnchor, true) once when latch.anchor starts as null", () => {
-        const newAnchor: LinkableAnchor = makeAnchor();
-
-        const latch: RebindableLatch = {
-            anchor: null,
-            link: vi.fn()
-        };
+        const newAnchor = makeAnchor();
+        const latch = makeLatch(null);
 
         rebindLatchToAnchor(latch, newAnchor);
 
         expect(latch.link).toHaveBeenCalledExactlyOnceWith(newAnchor, true);
+    });
+
+    it("snaps the latch's view position to the new anchor's (x, y) after linking", () => {
+        const newAnchor = makeAnchor(42, 99);
+        const latch = makeLatch(makeAnchor(0, 0));
+
+        rebindLatchToAnchor(latch, newAnchor);
+
+        expect(latch.moveTo).toHaveBeenCalledExactlyOnceWith(42, 99);
     });
 
 });

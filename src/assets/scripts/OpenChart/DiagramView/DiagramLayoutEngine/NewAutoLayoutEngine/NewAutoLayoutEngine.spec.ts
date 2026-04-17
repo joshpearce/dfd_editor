@@ -143,6 +143,8 @@ describe("NewAutoLayoutEngine", () => {
      */
     interface AnchorStub {
         parent: BlockStubWithAnchors | null;
+        x:      number;
+        y:      number;
         link:   ReturnType<typeof vi.fn>;
     }
 
@@ -150,6 +152,7 @@ describe("NewAutoLayoutEngine", () => {
     interface LatchStub {
         anchor: AnchorStub | null;
         link:   ReturnType<typeof vi.fn>;
+        moveTo: ReturnType<typeof vi.fn>;
     }
 
     /**
@@ -169,7 +172,7 @@ describe("NewAutoLayoutEngine", () => {
     }
 
     function makeAnchorStub(): AnchorStub {
-        return { parent: null, link: vi.fn() };
+        return { parent: null, x: 0, y: 0, link: vi.fn() };
     }
 
     function makeLatchStub(anchor: AnchorStub | null): LatchStub {
@@ -177,7 +180,8 @@ describe("NewAutoLayoutEngine", () => {
             anchor,
             link: vi.fn((newAnchor: AnchorStub, _update?: boolean) => {
                 latch.anchor = newAnchor;
-            })
+            }),
+            moveTo: vi.fn()
         };
         return latch;
     }
@@ -907,7 +911,7 @@ describe("NewAutoLayoutEngine", () => {
 
             // Build a latch whose anchor exists but whose parent is null
             // (canvas-level anchor, not a block anchor).
-            const canvasLevelAnchor: AnchorStub = { parent: null, link: vi.fn() };
+            const canvasLevelAnchor: AnchorStub = { parent: null, x: 0, y: 0, link: vi.fn() };
             const srcLatch = makeLatchStub(canvasLevelAnchor);
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
 

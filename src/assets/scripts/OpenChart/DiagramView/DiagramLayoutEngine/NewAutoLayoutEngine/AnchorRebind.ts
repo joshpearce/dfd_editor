@@ -32,12 +32,15 @@ export interface CardinalBlockSurface {
 
 /**
  * Minimal structural type for an anchor object that can be the target of
- * {@link rebindLatchToAnchor}. Requires only the `link` method that
- * `AnchorView` exposes — deliberate: `AnchorView` itself is NOT imported
- * here (deliberate decoupling) to keep this module free of view-layer
- * dependencies.
+ * {@link rebindLatchToAnchor}. Requires the `link` method and a readable
+ * (x, y) position — the position is used to move the rebound latch to
+ * the anchor's location (anchors do not automatically drag newly-linked
+ * latches to their position, only latches linked *before* the anchor
+ * moves).  `AnchorView` itself is NOT imported here (deliberate decoupling).
  */
 export interface LinkableAnchor {
+    readonly x: number;
+    readonly y: number;
     link(latch: RebindableLatch, update?: boolean): void;
 }
 
@@ -45,10 +48,14 @@ export interface LinkableAnchor {
  * Minimal structural type for a latch that can be rebound to a different
  * anchor via {@link rebindLatchToAnchor}. `LatchView` is NOT imported here
  * (deliberate decoupling) — only the structural contract is captured.
+ * `moveTo` is required so the rebind pass can snap the latch's view face
+ * to the new anchor's position (the model-level `link` does not move the
+ * view).
  */
 export interface RebindableLatch {
     readonly anchor: LinkableAnchor | null;
     link(anchor: LinkableAnchor, update?: boolean): void;
+    moveTo(x: number, y: number): void;
 }
 
 /**
@@ -144,4 +151,10 @@ export function rebindLatchToAnchor(
         return;
     }
     latch.link(newAnchor, true);
+    // `link` only updates the model association; anchors drag linked
+    // latches on `moveBy`, but do NOT snap a newly-linked latch to
+    // their own position.  Without this move, the line keeps rendering
+    // from the old anchor's coordinates — which looks like the rebind
+    // did nothing.
+    latch.moveTo(newAnchor.x, newAnchor.y);
 }
