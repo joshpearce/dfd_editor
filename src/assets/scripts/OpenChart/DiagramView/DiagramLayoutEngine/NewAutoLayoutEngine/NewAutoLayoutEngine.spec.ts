@@ -789,6 +789,27 @@ describe("NewAutoLayoutEngine", () => {
         }
 
         ///////////////////////////////////////////////////////////////////////////
+        //  Canvas assembly helper (L3)  //////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////
+
+        /**
+         * Assembles a `SerializableCanvas` from pre-built geometric stubs without
+         * repeating the `as unknown as SerializableCanvas["lines"]` cast at each
+         * call site.  Only used inside this describe block.
+         */
+        function makeGeometricCanvas(
+            blocks: BlockStubWithAnchors[],
+            groups: GroupStub[],
+            lines:  ReturnType<typeof makeLineStub>[]
+        ): SerializableCanvas {
+            return {
+                blocks: blocks as unknown as SerializableBlock[],
+                groups: groups as unknown as SerializableGroup[],
+                lines:  lines  as unknown as SerializableCanvas["lines"]
+            };
+        }
+
+        ///////////////////////////////////////////////////////////////////////////
         //  Tests  /////////////////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////////////////
 
@@ -802,12 +823,8 @@ describe("NewAutoLayoutEngine", () => {
             const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
 
-            const line = makeLineStub(srcLatch, tgtLatch);
-            const canvas: SerializableCanvas = {
-                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
-                groups: [],
-                lines:  [line] as unknown as SerializableCanvas["lines"]
-            };
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             // TALA places src at top-left (50, 75) with w=100, h=50 → center (100, 100).
             // TALA places tgt at top-left (350, 75) with w=100, h=50 → center (400, 100).
@@ -834,12 +851,8 @@ describe("NewAutoLayoutEngine", () => {
             const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
 
-            const line = makeLineStub(srcLatch, tgtLatch);
-            const canvas: SerializableCanvas = {
-                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
-                groups: [],
-                lines:  [line] as unknown as SerializableCanvas["lines"]
-            };
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             // TALA places src at top-left (50, 75) → center (100, 100).
             // TALA places tgt at top-left (50, 375) → center (100, 400).
@@ -864,12 +877,8 @@ describe("NewAutoLayoutEngine", () => {
             const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
 
-            const line = makeLineStub(srcLatch, tgtLatch);
-            const canvas: SerializableCanvas = {
-                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
-                groups: [],
-                lines:  [line] as unknown as SerializableCanvas["lines"]
-            };
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             const svg = makeTalaSvg([
                 { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
@@ -892,12 +901,8 @@ describe("NewAutoLayoutEngine", () => {
             // Null source latch → line.source getter throws → asRebindableLine returns null.
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
 
-            const line = makeLineStub(null, tgtLatch);
-            const canvas: SerializableCanvas = {
-                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
-                groups: [],
-                lines:  [line] as unknown as SerializableCanvas["lines"]
-            };
+            const line   = makeLineStub(null, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             const svg = makeTalaSvg([
                 { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
@@ -921,6 +926,109 @@ describe("NewAutoLayoutEngine", () => {
             }
         });
 
+        // [M4] A latch whose anchor property is non-null but whose anchor.parent
+        // is null (e.g. a latch attached to a canvas-level anchor rather than a
+        // block anchor) must be skipped silently — no link call, no error.
+        it("latch with non-null anchor but null anchor.parent is skipped silently", async () => {
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            // Build a latch whose anchor exists but whose parent is null
+            // (canvas-level anchor, not a block anchor).
+            const canvasLevelAnchor: AnchorStub = { parent: null, link: vi.fn() };
+            const srcLatch = makeLatchStub(canvasLevelAnchor);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
+
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvg([
+                { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            // Must not throw.
+            await expect(
+                new NewAutoLayoutEngine(layoutSource, "geometric").run(makeObjects(canvas))
+            ).resolves.toBeUndefined();
+
+            // Neither latch must be rebound — the source endpoint block could
+            // not be resolved so the entire line is skipped.
+            expect(srcLatch.link).not.toHaveBeenCalled();
+            expect(tgtLatch.link).not.toHaveBeenCalled();
+        });
+
+        // [H1]+[M3] Line nested inside a group between two child blocks.
+        // Verifies that:
+        //   (a) collectLines descends into groups and finds the nested line;
+        //   (b) the rebind pass reads post-TALA block centers (moveTo updates
+        //       face.boundingBox, so the rebind sees the post-layout positions);
+        //   (c) both block placement pass and group placement pass still run;
+        //   (d) source latch is rebound to the cardinal anchor facing the target,
+        //       and target latch to the anchor facing the source.
+        it("nested line inside a group: rebinds using post-TALA block centers, both placement passes run", async () => {
+            // Two sibling blocks inside a group.  Pre-TALA they share the same
+            // center (0, 0) so the rebind would be a no-op if it used pre-layout
+            // positions — the test relies on moveTo updating face.boundingBox.
+            //
+            // Post-TALA:
+            //   src-block → center (100, 100) — TALA top-left (50, 75) w=100 h=50
+            //   tgt-block → center (400, 100) — TALA top-left (350, 75) w=100 h=50
+            // Expected rebind: src D0 (right) → tgt, tgt D180 (left) → src.
+            const srcBlock = makeBlockWithAnchors("src-block", 0, 0, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 0, 0, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+            const nestedLine = makeLineStub(srcLatch, tgtLatch);
+
+            // Build a group stub whose `lines` array contains the nested line.
+            // The cast is required because GroupStub.lines is typed as
+            // SerializableLine[] (the D2-bridge read surface), while the
+            // runtime guard in collectLines only needs the source/target getters.
+            const group: GroupStub = {
+                instance:   "my-group",
+                properties: { isDefined: () => false, toString: () => "" },
+                face: {
+                    boundingBox: { xMin: 0, yMin: 0, xMax: 500, yMax: 200 },
+                    setBounds:   vi.fn()
+                },
+                blocks: [srcBlock, tgtBlock] as unknown as ReturnType<typeof makeBlockStub>[],
+                groups: [],
+                lines:  [nestedLine] as unknown as GroupStub["lines"],
+                moveTo: vi.fn()
+            };
+
+            const canvas = makeGeometricCanvas([], [group], []);
+
+            // TALA SVG encodes the nested blocks as qualified paths "my-group.src-block"
+            // and "my-group.tgt-block", mirroring what collectNodes emits.
+            const svg = makeTalaSvg([
+                { id: "my-group",             x:   0, y:   0, width: 500, height: 200 },
+                { id: "my-group.src-block",   x:  50, y:  75, width: 100, height:  50 },
+                { id: "my-group.tgt-block",   x: 350, y:  75, width: 100, height:  50 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "geometric").run(makeObjects(canvas));
+
+            // --- block placement pass ran ---
+            // src-block: TALA top-left (50, 75) + half-dims (50, 25) → center (100, 100).
+            expect(srcBlock.moveTo).toHaveBeenCalledWith(100, 100);
+            // tgt-block: TALA top-left (350, 75) + half-dims (50, 25) → center (400, 100).
+            expect(tgtBlock.moveTo).toHaveBeenCalledWith(400, 100);
+
+            // --- group placement pass ran ---
+            expect(group.face.setBounds).toHaveBeenCalledWith(0, 0, 500, 200);
+
+            // --- nested line rebind used post-TALA centers ---
+            // src center (100, 100) is to the left of tgt center (400, 100) → D0 (right).
+            expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D0), true);
+            // tgt center (400, 100) is to the right of src center (100, 100) → D180 (left).
+            expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
+        });
+
         it("default strategy 'tala' is a no-op for rebinding (wiring check)", async () => {
             const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
             const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
@@ -928,12 +1036,8 @@ describe("NewAutoLayoutEngine", () => {
             const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
 
-            const line = makeLineStub(srcLatch, tgtLatch);
-            const canvas: SerializableCanvas = {
-                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
-                groups: [],
-                lines:  [line] as unknown as SerializableCanvas["lines"]
-            };
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             const svg = makeTalaSvg([
                 { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
@@ -956,12 +1060,8 @@ describe("NewAutoLayoutEngine", () => {
             const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
 
-            const line = makeLineStub(srcLatch, tgtLatch);
-            const canvas: SerializableCanvas = {
-                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
-                groups: [],
-                lines:  [line] as unknown as SerializableCanvas["lines"]
-            };
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             const svg = makeTalaSvg([
                 { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },

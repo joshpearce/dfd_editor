@@ -54,6 +54,7 @@ export type AnchorStrategy = "none" | "geometric" | "tala";
  * without importing the concrete `BlockView`.
  */
 interface BlockWithAnchors extends CardinalBlockSurface {
+    /** Map key is the string value of an `AnchorPosition` enum member (e.g. `"0"`, `"90"`, `"180"`, `"270"`). */
     readonly anchors: ReadonlyMap<string, LinkableAnchor>;
 }
 
@@ -90,14 +91,6 @@ interface RebindableLineSurface {
 }
 
 /**
- * A line from the live canvas paired with its diagnostic qualified path.
- */
-interface LineEntry {
-    readonly qualifiedPath: string;
-    readonly line: RebindableLineSurface;
-}
-
-/**
  * Runtime-narrows a raw line object to a {@link RebindableLineSurface}.
  *
  * The `source` / `target` getters on a real `LineView` throw when the
@@ -106,17 +99,12 @@ interface LineEntry {
  * silently — consistent with `serializeToD2`'s existing behavior for
  * lines with unresolved endpoints.
  *
- * @param line          - The raw line object from the canvas.
- * @param qualifiedPath - Diagnostic path used in no log output here (the
- *                        caller skips silently), but kept for future
- *                        debug instrumentation without changing the
- *                        signature.
+ * @param line - The raw line object from the canvas.
  * @returns The narrowed surface, or `null` if either endpoint cannot be
  *          resolved.
  */
 function asRebindableLine(
-    line: unknown,
-    _qualifiedPath: string
+    line: unknown
 ): RebindableLineSurface | null {
     try {
         const l = line as RebindableLineSurface;
@@ -514,39 +502,31 @@ function formatSkippedWarning(unplaced: UnplacedPaths): string | null {
  * silently — consistent with `serializeToD2`'s existing behavior.
  *
  * @param canvas - The live canvas to collect lines from.
- * @returns An ordered list of {@link LineEntry} values ready for the rebind
- *          pass.  The qualified path is diagnostic-only and is not required to
- *          match `serializeToD2`'s output (lines are not emitted by their own
- *          ids in D2).
+ * @returns An ordered list of {@link RebindableLineSurface} values ready for
+ *          the rebind pass.
  */
-function collectLines(canvas: SerializableCanvas): ReadonlyArray<LineEntry> {
-    const result: LineEntry[] = [];
+function collectLines(canvas: SerializableCanvas): ReadonlyArray<RebindableLineSurface> {
+    const result: RebindableLineSurface[] = [];
 
-    function visitLines(
-        lines: ReadonlyArray<unknown>,
-        containerPath: string
-    ): void {
-        for (let i = 0; i < lines.length; i++) {
-            const qualifiedPath = containerPath
-                ? `${containerPath}.line[${i}]`
-                : `line[${i}]`;
-            const narrowed = asRebindableLine(lines[i], qualifiedPath);
+    function visitLines(lines: ReadonlyArray<unknown>): void {
+        for (const line of lines) {
+            const narrowed = asRebindableLine(line);
             if (narrowed !== null) {
-                result.push({ qualifiedPath, line: narrowed });
+                result.push(narrowed);
             }
         }
     }
 
-    function visitGroup(group: SerializableGroup, groupPath: string): void {
-        visitLines(group.lines as ReadonlyArray<unknown>, groupPath);
+    function visitGroup(group: SerializableGroup): void {
+        visitLines(group.lines as ReadonlyArray<unknown>);
         for (const nested of group.groups) {
-            visitGroup(nested, `${groupPath}.${nested.instance}`);
+            visitGroup(nested);
         }
     }
 
-    visitLines(canvas.lines as ReadonlyArray<unknown>, "");
+    visitLines(canvas.lines as ReadonlyArray<unknown>);
     for (const group of canvas.groups) {
-        visitGroup(group, group.instance);
+        visitGroup(group);
     }
 
     return result;
@@ -590,8 +570,8 @@ function centerOf(block: BlockWithAnchors): Point {
  * extends `string`, so `block.anchors.get(srcPos)` works directly without
  * importing `AnchorPosition` here.
  */
-function rebindLinesGeometric(lines: ReadonlyArray<LineEntry>): void {
-    for (const { line } of lines) {
+function rebindLinesGeometric(lines: ReadonlyArray<RebindableLineSurface>): void {
+    for (const line of lines) {
         const srcBlock = resolveEndpointBlock(line.source);
         const tgtBlock = resolveEndpointBlock(line.target);
         if (!srcBlock || !tgtBlock) {
@@ -720,7 +700,10 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
             console.warn(warning);
         }
 
-        // 6. Rebind line endpoints (geometric strategy).
+        // 6. Rebind line endpoints (geometric strategy).  The unplaced-node
+        //    warning fires in Pass 5 (above) intentionally: placement diagnostics
+        //    must be visible regardless of whether the rebind pass succeeds, and
+        //    any future rebind exceptions must not suppress placement warnings.
         if (this.anchorStrategy === "geometric") {
             const lines = collectLines(canvas);
             rebindLinesGeometric(lines);
