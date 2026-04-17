@@ -72,10 +72,15 @@ function makeProperties(label: string): { isDefined(): boolean, toString(): stri
 
 /**
  * Builds a minimal SerializableBlock stub for the serializer.
+ *
+ * @param instance
+ *  The unique D2 node identifier — in production this is the model's
+ *  `instance` uuid, not the template `id`.  Tests pass human-readable
+ *  strings here for legibility.
  */
-function makeBlock(id: string, label: string, width: number, height: number): SerializableBlock {
+function makeBlock(instance: string, label: string, width: number, height: number): SerializableBlock {
     return {
-        id,
+        instance,
         properties: makeProperties(label),
         face: { width, height }
     };
@@ -87,7 +92,7 @@ function makeBlock(id: string, label: string, width: number, height: number): Se
  * `lines` are lines whose LCA is this group (both endpoints inside).
  */
 function makeGroup(
-    id: string,
+    instance: string,
     label: string,
     bb: { xMin: number, yMin: number, xMax: number, yMax: number },
     blocks: SerializableBlock[] = [],
@@ -95,7 +100,7 @@ function makeGroup(
     lines:  SerializableLine[]  = []
 ): SerializableGroup {
     return {
-        id,
+        instance,
         properties: makeProperties(label),
         face: { boundingBox: { ...bb } },
         blocks,
@@ -109,8 +114,8 @@ function makeGroup(
  * Pass `null` for sourceObject or targetObject to simulate a floating latch.
  */
 function makeLine(
-    sourceObject: { id: string } | null,
-    targetObject: { id: string } | null
+    sourceObject: { instance: string } | null,
+    targetObject: { instance: string } | null
 ): SerializableLine {
     return { sourceObject, targetObject };
 }
@@ -348,6 +353,54 @@ describe("serializeToD2", () => {
 
     // -------------------------------------------------------------------------
 
+    describe("instance-based node identity — sibling groups do not collide", () => {
+
+        // Regression: pre-fix, production view objects exposed the template id
+        // on `.id` (e.g. two trust-boundary siblings both named `trust_boundary`).
+        // D2 merged redeclarations of the same identifier into one node, which
+        // collapsed sibling containers into a single overlapping shape.
+        it("emits distinct D2 declarations for each unique instance even when labels differ", () => {
+            const aws      = makeGroup(
+                "uuid-aws",
+                "AWS Private Subnet",
+                { xMin: 0, yMin: 0, xMax: 100, yMax: 100 }
+            );
+            const internet = makeGroup(
+                "uuid-internet",
+                "Internet",
+                { xMin: 0, yMin: 0, xMax: 100, yMax: 100 }
+            );
+            const canvas   = makeCanvas([], [aws, internet], []);
+
+            const output = serializeToD2(canvas);
+
+            expect(output).toContain("uuid-aws: \"AWS Private Subnet\"");
+            expect(output).toContain("uuid-internet: Internet");
+        });
+
+        it("uses the instance uuid (not the template id) in the qualified path for nested edges", () => {
+            const blockA = makeBlock("uuid-block-a", "A", 100, 50);
+            const blockB = makeBlock("uuid-block-b", "B", 100, 50);
+            const line   = makeLine(blockA, blockB);
+            const group  = makeGroup(
+                "uuid-group",
+                "G",
+                { xMin: 0, yMin: 0, xMax: 400, yMax: 300 },
+                [blockA, blockB],
+                [],
+                [line]
+            );
+            const canvas = makeCanvas([], [group], []);
+
+            const output = serializeToD2(canvas);
+
+            expect(output).toContain("uuid-group.uuid-block-a -> uuid-group.uuid-block-b");
+        });
+
+    });
+
+    // -------------------------------------------------------------------------
+
     describe("C2 — cross-group edge qualified paths", () => {
 
         it("emits a cross-boundary line as top-level-block -> qualified-nested-block", () => {
@@ -430,10 +483,10 @@ describe("serializeToD2", () => {
         it("skips a line that throws when accessing endpoints (I1 — null-safe resolution)", () => {
             // Simulate a LineView where sourceObject getter throws (null latch).
             const throwingLine: SerializableLine = {
-                get sourceObject(): { id: string } | null {
+                get sourceObject(): { instance: string } | null {
                     throw new Error("No source latch assigned.");
                 },
-                targetObject: { id: "tgt-id" }
+                targetObject: { instance: "tgt-id" }
             };
             const tgt    = makeBlock("tgt-id", "", 100, 50);
             const canvas = makeCanvas([tgt], [], [throwingLine]);
@@ -580,8 +633,9 @@ describe("parseTalaSvg", () => {
 
             expect(result.size).toBe(2);
 
-            expect(result.get("alpha")).toEqual({ x: 10,  y: 20  });
-            expect(result.get("beta")).toEqual({ x: 100, y: 200 });
+            // buildSvg uses width=50, height=30 for every rect.
+            expect(result.get("alpha")).toEqual({ x: 10,  y: 20,  width: 50, height: 30 });
+            expect(result.get("beta")).toEqual({ x: 100, y: 200, width: 50, height: 30 });
         });
 
     });
@@ -597,7 +651,7 @@ describe("parseTalaSvg", () => {
             const result = parseTalaSvg(svg);
 
             // Should use the FULL path "parent.child" as key, not just the leaf.
-            expect(result.get("parent.child")).toEqual({ x: 50, y: 80 });
+            expect(result.get("parent.child")).toEqual({ x: 50, y: 80, width: 50, height: 30 });
             // The leaf alone must NOT be present as a separate key.
             expect(result.has("child")).toBe(false);
         });
@@ -607,7 +661,7 @@ describe("parseTalaSvg", () => {
 
             const result = parseTalaSvg(svg);
 
-            expect(result.get("a.b.c")).toEqual({ x: 7, y: 13 });
+            expect(result.get("a.b.c")).toEqual({ x: 7, y: 13, width: 50, height: 30 });
             expect(result.has("c")).toBe(false);
             expect(result.has("b.c")).toBe(false);
         });
@@ -679,7 +733,7 @@ describe("parseTalaSvg", () => {
             const result = parseTalaSvg(svg);
 
             expect(result.size).toBe(1);
-            expect(result.get("good-node")).toEqual({ x: 42, y: 17 });
+            expect(result.get("good-node")).toEqual({ x: 42, y: 17, width: 50, height: 30 });
         });
 
     });

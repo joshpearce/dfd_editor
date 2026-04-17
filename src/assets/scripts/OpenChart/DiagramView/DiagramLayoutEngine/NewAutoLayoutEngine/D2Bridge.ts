@@ -8,6 +8,12 @@
 //  full View class hierarchy (which has a circular-init chain that breaks the
 //  jsdom test environment).  The public `serializeToD2` signature still accepts
 //  the concrete `CanvasView` type — these interfaces are a subset of it.
+//
+//  Node identity in the D2 output uses `instance` (the globally-unique UUID)
+//  rather than `id` (the template id, e.g. "trust_boundary").  Two sibling
+//  groups built from the same template share the same `id`, so using `id`
+//  here would cause D2 to merge them into a single node — see
+//  docs/auto-layout-boundary-overlap-plan.md.
 
 
 /** Minimal property surface that serializeToD2 reads. */
@@ -24,7 +30,7 @@ export interface SerializableBlockFace {
 
 /** Minimal block surface that serializeToD2 reads. */
 export interface SerializableBlock {
-    readonly id:         string;
+    readonly instance:   string;
     readonly properties: SerializableProperties;
     readonly face:       SerializableBlockFace;
 }
@@ -44,7 +50,7 @@ export interface SerializableGroupFace {
 
 /** Minimal group surface that serializeToD2 reads (recursive). */
 export interface SerializableGroup {
-    readonly id:         string;
+    readonly instance:   string;
     readonly properties: SerializableProperties;
     readonly face:       SerializableGroupFace;
     readonly blocks:     ReadonlyArray<SerializableBlock>;
@@ -54,7 +60,7 @@ export interface SerializableGroup {
 
 /** Minimal endpoint surface that resolveLineEndpoints reads. */
 export interface SerializableEndpoint {
-    readonly id: string;
+    readonly instance: string;
 }
 
 /** Minimal line surface that serializeToD2 reads. */
@@ -128,7 +134,7 @@ function serializeBlock(
     indent: string,
     _ancestors: string[]
 ): string {
-    const id     = d2Escape(block.id);
+    const id     = d2Escape(block.instance);
     const label  = block.properties.isDefined() ? d2Escape(block.properties.toString()) : "";
     const header = label ? `${indent}${id}: ${label} {` : `${indent}${id} {`;
     const width  = Math.round(block.face.width);
@@ -158,14 +164,14 @@ function serializeBlock(
  */
 function resolveLineEndpoints(
     line: SerializableLine
-): { sourceId: string, targetId: string } | null {
+): { sourceInstance: string, targetInstance: string } | null {
     try {
         const src = line.sourceObject;
         const tgt = line.targetObject;
         if (!src || !tgt) {
             return null;
         }
-        return { sourceId: src.id, targetId: tgt.id };
+        return { sourceInstance: src.instance, targetInstance: tgt.instance };
     } catch {
         // sourceObject / targetObject throw when the underlying latch is null.
         return null;
@@ -177,12 +183,12 @@ function serializeGroup(
     indent: string,
     ancestors: string[]
 ): string {
-    const id     = d2Escape(group.id);
+    const id     = d2Escape(group.instance);
     const label  = group.properties.isDefined() ? d2Escape(group.properties.toString()) : "";
     const header = label ? `${indent}${id}: ${label} {` : `${indent}${id} {`;
 
     // The qualified ancestor chain for children of this group.
-    const childAncestors = [...ancestors, group.id];
+    const childAncestors = [...ancestors, group.instance];
 
     // TALA auto-sizes containers from their contents; emitting explicit
     // width/height from a pre-layout boundingBox (all zeros) would collapse
@@ -202,9 +208,9 @@ function serializeGroup(
         if (!endpoints) {
             continue;
         }
-        const { sourceId, targetId } = endpoints;
-        const srcPath = qualifiedD2Path(childAncestors, sourceId);
-        const tgtPath = qualifiedD2Path(childAncestors, targetId);
+        const { sourceInstance, targetInstance } = endpoints;
+        const srcPath = qualifiedD2Path(childAncestors, sourceInstance);
+        const tgtPath = qualifiedD2Path(childAncestors, targetInstance);
         lines.push(`${indent}  ${srcPath} -> ${tgtPath}`);
     }
 
@@ -254,12 +260,12 @@ export function serializeToD2(canvas: SerializableCanvas): string {
             // Floating latch or dangling line — skip silently.
             continue;
         }
-        const { sourceId, targetId } = endpoints;
+        const { sourceInstance, targetInstance } = endpoints;
         // Top-level nodes have no ancestors, so their qualified path is just
-        // their escaped id. Cross-boundary lines need the target's qualified
-        // path; however, at the canvas level we only have the leaf ids — the
-        // qualified path for a top-level node IS its leaf id.
-        parts.push(`${d2Escape(sourceId)} -> ${d2Escape(targetId)}`);
+        // their escaped instance.  Cross-boundary lines need the target's
+        // qualified path; at the canvas level we only have the leaf instance,
+        // which IS the qualified path for a top-level node.
+        parts.push(`${d2Escape(sourceInstance)} -> ${d2Escape(targetInstance)}`);
     }
 
     return parts.join("\n");
@@ -267,24 +273,44 @@ export function serializeToD2(canvas: SerializableCanvas): string {
 
 
 /**
+ * A node's placement as reported by TALA.
+ *
+ * `x` / `y` are the top-left coordinate of the node in TALA's coordinate
+ * space.  `width` / `height` are the node's rendered size.  For containers
+ * (groups) this is TALA's auto-computed size from the container's contents,
+ * which is the only place that size is available — we don't send explicit
+ * group dimensions into D2 (see `serializeGroup`).
+ *
+ * Size is optional because D2 emits a `<path>` (not a `<rect>`) for cylinder
+ * shapes; the path's bounding rect is non-trivial to extract, so we fall
+ * back to reading only the top-left coordinate.
+ */
+export interface TalaPlacement {
+    readonly x:       number;
+    readonly y:       number;
+    readonly width?:  number;
+    readonly height?: number;
+}
+
+/**
  * Parses a TALA-rendered SVG string and returns a map of node path to
- * top-left position.
+ * its {@link TalaPlacement}.
  *
  * D2 encodes each node's id as the base64 of the node's full D2 path
  * (e.g. `cGFyZW50LmNoaWxk` decodes to `parent.child`).  The full decoded
  * path is used as the map key so that nodes at different nesting depths
  * with the same leaf id can be distinguished.
  *
- * Position is read from the `x`/`y` attributes of the first `<rect>` child
- * of the `<g class="shape">` element that immediately follows the node's
- * outer `<g class="<encoded-id>">`.  For cylinder shapes D2 uses a `<path>`
- * instead; in that case we fall back to parsing the `M x y` from the path
- * data.
+ * Position and size are read from the `x`/`y`/`width`/`height` attributes
+ * of the first `<rect>` child of the `<g class="shape">` element that
+ * immediately follows the node's outer `<g class="<encoded-id>">`.  For
+ * cylinder shapes D2 uses a `<path>` instead; in that case we fall back
+ * to parsing the `M x y` from the path data and omit the size.
  *
  * @throws {Error} if the SVG string cannot be parsed (DOMParser returns a
  *   `<parsererror>` document).
  */
-export function parseTalaSvg(svg: string): Map<string, { x: number, y: number }> {
+export function parseTalaSvg(svg: string): Map<string, TalaPlacement> {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, "image/svg+xml");
 
@@ -292,7 +318,7 @@ export function parseTalaSvg(svg: string): Map<string, { x: number, y: number }>
         throw new Error("failed to parse TALA SVG");
     }
 
-    const result = new Map<string, { x: number, y: number }>();
+    const result = new Map<string, TalaPlacement>();
 
     // Collect all <g> elements whose class decodes to a recognisable node id.
     const allGroups = doc.querySelectorAll("g[class]");
@@ -332,7 +358,12 @@ export function parseTalaSvg(svg: string): Map<string, { x: number, y: number }>
             const x = parseFloat(rect.getAttribute("x") ?? "NaN");
             const y = parseFloat(rect.getAttribute("y") ?? "NaN");
             if (!isNaN(x) && !isNaN(y)) {
-                result.set(nodeId, { x, y });
+                const width  = parseFloat(rect.getAttribute("width")  ?? "NaN");
+                const height = parseFloat(rect.getAttribute("height") ?? "NaN");
+                const placement: TalaPlacement = !isNaN(width) && !isNaN(height)
+                    ? { x, y, width, height }
+                    : { x, y };
+                result.set(nodeId, placement);
             }
             continue;
         }
