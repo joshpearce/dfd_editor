@@ -1,6 +1,8 @@
 // pattern: Imperative Shell
 import { serializeToD2, parseTalaSvg } from "./D2Bridge";
 import type { SerializableBlock, SerializableCanvas, SerializableGroup, TalaPlacement } from "./D2Bridge";
+import { pickCardinalAnchor, rebindLatchToAnchor } from "./AnchorRebind";
+import type { CardinalBlockSurface, LinkableAnchor, Point, RebindableLatch } from "./AnchorRebind";
 import type { DiagramObjectView } from "../../DiagramObjectView";
 import type { AsyncDiagramLayoutEngine } from "../DiagramLayoutEngine";
 
@@ -20,6 +22,116 @@ const MAX_MISSING_DISPLAYED = 10;
  * boundary: the engine layer must stay framework-agnostic and HTTP-free).
  */
 export type LayoutSource = (d2Source: string) => Promise<string>;
+
+/**
+ * Controls how the engine rebinds line endpoints (latches to anchors) after
+ * blocks and groups have been placed.
+ *
+ * - `"none"`      — no rebinding is performed; latches remain on whatever
+ *                   anchor they were attached to before layout.
+ * - `"geometric"` — each latch is rebound to the cardinal anchor of its
+ *                   endpoint block that faces toward the opposite block,
+ *                   computed purely from bounding-box centers.  See Step 2
+ *                   of `docs/auto-layout-connector-anchoring-plan.md`.
+ * - `"tala"`      — (Step 4) uses TALA's own SVG connection-point data to
+ *                   determine exact anchor positions.  Not yet implemented;
+ *                   falls through to a no-op until Step 4 lands.
+ */
+export type AnchorStrategy = "none" | "geometric" | "tala";
+
+///////////////////////////////////////////////////////////////////////////////
+//  Engine-local structural types for line rebinding  /////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * A block that exposes both the bounding-box surface needed by
+ * {@link pickCardinalAnchor} and a map of cardinal anchors that can be
+ * targeted by {@link rebindLatchToAnchor}.
+ *
+ * Mirrors the `asPositionable*` pattern: the serializable interfaces
+ * (`SerializableBlock`, etc.) only describe the D2-bridge read surface.
+ * This interface captures the additional surface the rebind pass needs
+ * without importing the concrete `BlockView`.
+ */
+interface BlockWithAnchors extends CardinalBlockSurface {
+    readonly anchors: ReadonlyMap<string, LinkableAnchor>;
+}
+
+/**
+ * An anchor that knows which {@link BlockWithAnchors} it belongs to.
+ * Satisfies {@link LinkableAnchor} structurally so it can be passed to
+ * {@link rebindLatchToAnchor} directly.
+ */
+interface AnchorWithParent extends LinkableAnchor {
+    readonly parent: BlockWithAnchors | null;
+}
+
+/**
+ * A latch whose `anchor` field is narrowed to {@link AnchorWithParent} so the
+ * rebind pass can walk `latch.anchor.parent` to resolve the endpoint block
+ * without a separate lookup.
+ */
+interface RebindableLatchWithAnchor extends RebindableLatch {
+    readonly anchor: AnchorWithParent | null;
+}
+
+/**
+ * The source and target latches of a line, each typed as
+ * {@link RebindableLatchWithAnchor} so the rebind pass can resolve both
+ * endpoint blocks and rebind both ends in one sweep.
+ *
+ * Getters on a real `LineView` throw when the underlying latch has no
+ * attached endpoint; the runtime guard {@link asRebindableLine} catches
+ * that and returns `null` so malformed lines are skipped silently.
+ */
+interface RebindableLineSurface {
+    readonly source: RebindableLatchWithAnchor;
+    readonly target: RebindableLatchWithAnchor;
+}
+
+/**
+ * A line from the live canvas paired with its diagnostic qualified path.
+ */
+interface LineEntry {
+    readonly qualifiedPath: string;
+    readonly line: RebindableLineSurface;
+}
+
+/**
+ * Runtime-narrows a raw line object to a {@link RebindableLineSurface}.
+ *
+ * The `source` / `target` getters on a real `LineView` throw when the
+ * underlying latch has no attached endpoint.  A try/catch on each getter
+ * turns that throw into a `null` return so the caller skips the line
+ * silently — consistent with `serializeToD2`'s existing behavior for
+ * lines with unresolved endpoints.
+ *
+ * @param line          - The raw line object from the canvas.
+ * @param qualifiedPath - Diagnostic path used in no log output here (the
+ *                        caller skips silently), but kept for future
+ *                        debug instrumentation without changing the
+ *                        signature.
+ * @returns The narrowed surface, or `null` if either endpoint cannot be
+ *          resolved.
+ */
+function asRebindableLine(
+    line: unknown,
+    _qualifiedPath: string
+): RebindableLineSurface | null {
+    try {
+        const l = line as RebindableLineSurface;
+        // Access both getters — real LineView throws when the latch is null.
+        const src = l.source;
+        const tgt = l.target;
+        if (!src || !tgt) {
+            return null;
+        }
+        return l;
+    } catch {
+        // source / target threw — floating latch or dangling line.
+        return null;
+    }
+}
 
 /**
  * Outcome of applying a single TALA placement to a positionable node.
@@ -390,15 +502,135 @@ function formatSkippedWarning(unplaced: UnplacedPaths): string | null {
     );
 }
 
+///////////////////////////////////////////////////////////////////////////////
+//  Line collection  ///////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Collects all lines from the canvas (top-level and recursively inside groups)
+ * that pass the {@link asRebindableLine} runtime guard.
+ *
+ * Lines with unresolved endpoints (null latch or throwing getter) are skipped
+ * silently — consistent with `serializeToD2`'s existing behavior.
+ *
+ * @param canvas - The live canvas to collect lines from.
+ * @returns An ordered list of {@link LineEntry} values ready for the rebind
+ *          pass.  The qualified path is diagnostic-only and is not required to
+ *          match `serializeToD2`'s output (lines are not emitted by their own
+ *          ids in D2).
+ */
+function collectLines(canvas: SerializableCanvas): ReadonlyArray<LineEntry> {
+    const result: LineEntry[] = [];
+
+    function visitLines(
+        lines: ReadonlyArray<unknown>,
+        containerPath: string
+    ): void {
+        for (let i = 0; i < lines.length; i++) {
+            const qualifiedPath = containerPath
+                ? `${containerPath}.line[${i}]`
+                : `line[${i}]`;
+            const narrowed = asRebindableLine(lines[i], qualifiedPath);
+            if (narrowed !== null) {
+                result.push({ qualifiedPath, line: narrowed });
+            }
+        }
+    }
+
+    function visitGroup(group: SerializableGroup, groupPath: string): void {
+        visitLines(group.lines as ReadonlyArray<unknown>, groupPath);
+        for (const nested of group.groups) {
+            visitGroup(nested, `${groupPath}.${nested.instance}`);
+        }
+    }
+
+    visitLines(canvas.lines as ReadonlyArray<unknown>, "");
+    for (const group of canvas.groups) {
+        visitGroup(group, group.instance);
+    }
+
+    return result;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//  Geometric rebind pass  /////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Resolves the endpoint block for a latch by walking `latch.anchor.parent`.
+ *
+ * Returns `null` when the latch has no attached anchor, or the anchor has no
+ * parent block — which can happen for latches attached to a canvas anchor
+ * rather than a block anchor, or for floating latches not yet connected.
+ */
+function resolveEndpointBlock(latch: RebindableLatchWithAnchor): BlockWithAnchors | null {
+    return latch.anchor?.parent ?? null;
+}
+
+/**
+ * Returns the center point of a block's bounding box.
+ */
+function centerOf(block: BlockWithAnchors): Point {
+    const { xMin, xMax, yMin, yMax } = block.face.boundingBox;
+    return { x: (xMin + xMax) / 2, y: (yMin + yMax) / 2 };
+}
+
+/**
+ * Rebinds every line's source and target latches to the cardinal anchor of
+ * their respective endpoint blocks that geometrically faces toward the
+ * opposite block.
+ *
+ * Uses {@link pickCardinalAnchor} (center-to-center direction) and
+ * {@link rebindLatchToAnchor} (detach + reattach).  Lines whose endpoint
+ * blocks cannot be resolved (floating latch, canvas-level anchor, etc.) are
+ * skipped silently.
+ *
+ * The anchor map is keyed by `AnchorPosition` string values (`"0"`, `"90"`,
+ * `"180"`, `"270"`).  `pickCardinalAnchor` returns an `AnchorPosition`, which
+ * extends `string`, so `block.anchors.get(srcPos)` works directly without
+ * importing `AnchorPosition` here.
+ */
+function rebindLinesGeometric(lines: ReadonlyArray<LineEntry>): void {
+    for (const { line } of lines) {
+        const srcBlock = resolveEndpointBlock(line.source);
+        const tgtBlock = resolveEndpointBlock(line.target);
+        if (!srcBlock || !tgtBlock) {
+            continue;
+        }
+        const srcCenter = centerOf(srcBlock);
+        const tgtCenter = centerOf(tgtBlock);
+        const srcPos = pickCardinalAnchor(srcBlock, tgtCenter);
+        const tgtPos = pickCardinalAnchor(tgtBlock, srcCenter);
+        const newSrcAnchor = srcBlock.anchors.get(srcPos);
+        const newTgtAnchor = tgtBlock.anchors.get(tgtPos);
+        if (newSrcAnchor) {
+            rebindLatchToAnchor(line.source, newSrcAnchor);
+        }
+        if (newTgtAnchor) {
+            rebindLatchToAnchor(line.target, newTgtAnchor);
+        }
+    }
+}
+
 export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
 
     /**
      * Creates a new {@link NewAutoLayoutEngine}.
+     *
      * @param layoutSource
      *  A provider that accepts a D2 source string and returns the TALA-rendered
      *  SVG string.  Injected to keep the engine layer free of HTTP concerns.
+     * @param anchorStrategy
+     *  Controls how line endpoints are rebound after block / group placement.
+     *  Defaults to `"tala"` (which is a no-op until Step 4 of
+     *  `docs/auto-layout-connector-anchoring-plan.md` lands).  Pass
+     *  `"geometric"` to activate the center-to-center cardinal rebind pass
+     *  implemented in Step 2.  Pass `"none"` to skip all rebinding.
      */
-    constructor(private readonly layoutSource: LayoutSource) {}
+    constructor(
+        private readonly layoutSource:   LayoutSource,
+        private readonly anchorStrategy: AnchorStrategy = "tala"
+    ) {}
 
     /**
      * Runs the TALA layout engine on the canvas root.
@@ -487,6 +719,13 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
         if (warning !== null) {
             console.warn(warning);
         }
+
+        // 6. Rebind line endpoints (geometric strategy).
+        if (this.anchorStrategy === "geometric") {
+            const lines = collectLines(canvas);
+            rebindLinesGeometric(lines);
+        }
+        // TALA strategy wired in Step 4 of the plan.
     }
 
 }

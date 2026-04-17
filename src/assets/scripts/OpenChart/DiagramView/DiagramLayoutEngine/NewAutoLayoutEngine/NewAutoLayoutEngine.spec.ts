@@ -29,6 +29,7 @@ import { NewAutoLayoutEngine } from "./NewAutoLayoutEngine";
 import type { LayoutSource } from "./NewAutoLayoutEngine";
 import type { SerializableCanvas, SerializableBlock, SerializableGroup } from "./D2Bridge";
 import type { DiagramObjectView } from "../../DiagramObjectView";
+import { AnchorPosition } from "../../DiagramObjectView/Faces/Blocks/AnchorPosition";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -648,6 +649,330 @@ describe("NewAutoLayoutEngine", () => {
             await new NewAutoLayoutEngine(layoutSource).run([]);
 
             expect(layoutSource).not.toHaveBeenCalled();
+        });
+
+    });
+
+    describe("run — geometric anchor strategy", () => {
+
+        ///////////////////////////////////////////////////////////////////////////
+        //  Structural types for the geometric-rebind stubs  //////////////////////
+        ///////////////////////////////////////////////////////////////////////////
+
+        /**
+         * Minimal anchor shape: a `parent` pointing back to a `BlockStubWithAnchors`
+         * and a `link` spy.  Declared as an interface to break the mutual recursion
+         * with `BlockStubWithAnchors` — TypeScript resolves forward-declared
+         * interfaces but not forward-inferred return types.
+         */
+        interface AnchorStub {
+            parent: BlockStubWithAnchors | null;
+            link:   ReturnType<typeof vi.fn>;
+        }
+
+        /**
+         * Minimal latch shape: a mutable `anchor` (updated by the `link` spy) and
+         * the `link` spy itself.
+         */
+        interface LatchStub {
+            anchor: AnchorStub | null;
+            link:   ReturnType<typeof vi.fn>;
+        }
+
+        /**
+         * Block shape visible to the geometric rebind pass: `face.boundingBox`
+         * (mutable so `moveTo` can update it), `anchors` map, and a `moveTo` spy.
+         */
+        interface BlockStubWithAnchors {
+            instance:   string;
+            properties: { isDefined: () => boolean; toString: () => string };
+            face: {
+                width:  number;
+                height: number;
+                boundingBox: { xMin: number; xMax: number; yMin: number; yMax: number };
+            };
+            moveTo:  ReturnType<typeof vi.fn>;
+            anchors: Map<AnchorPosition, AnchorStub>;
+        }
+
+        ///////////////////////////////////////////////////////////////////////////
+        //  Stub factories  ////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////
+
+        /**
+         * Creates an anchor stub whose `parent` is set after construction to avoid
+         * the circular-initializer problem.  Callers must assign `anchor.parent`
+         * before passing the anchor into the engine.
+         */
+        function makeAnchorStub(): AnchorStub {
+            return { parent: null, link: vi.fn() };
+        }
+
+        /**
+         * Creates a latch stub with a mutable `anchor` property and a `link` spy
+         * that updates `anchor` when called.  Passing `null` models a floating
+         * latch whose endpoint is not yet connected.
+         */
+        function makeLatchStub(anchor: AnchorStub | null): LatchStub {
+            const latch: LatchStub = {
+                anchor,
+                link: vi.fn((newAnchor: AnchorStub, _update?: boolean) => {
+                    latch.anchor = newAnchor;
+                })
+            };
+            return latch;
+        }
+
+        /**
+         * Creates a block stub whose `moveTo` updates `face.boundingBox` in place
+         * so the geometric rebind pass reads the post-TALA positions.  Each block
+         * is pre-populated with all four cardinal anchors; each anchor's `parent`
+         * is wired back to the block after construction.
+         *
+         * `(x, y)` is the initial center; `(w, h)` are the face dimensions.
+         */
+        function makeBlockWithAnchors(instance: string, x: number, y: number, w: number, h: number): BlockStubWithAnchors {
+            const anchors = new Map<AnchorPosition, AnchorStub>();
+            const block: BlockStubWithAnchors = {
+                instance,
+                properties: { isDefined: () => false, toString: () => "" },
+                face: {
+                    width:  w,
+                    height: h,
+                    boundingBox: {
+                        xMin: x - w / 2,
+                        xMax: x + w / 2,
+                        yMin: y - h / 2,
+                        yMax: y + h / 2
+                    }
+                },
+                moveTo: vi.fn((cx: number, cy: number) => {
+                    block.face.boundingBox.xMin = cx - w / 2;
+                    block.face.boundingBox.xMax = cx + w / 2;
+                    block.face.boundingBox.yMin = cy - h / 2;
+                    block.face.boundingBox.yMax = cy + h / 2;
+                }),
+                anchors
+            };
+            for (const pos of [AnchorPosition.D0, AnchorPosition.D90, AnchorPosition.D180, AnchorPosition.D270]) {
+                const anchor = makeAnchorStub();
+                anchor.parent = block;
+                anchors.set(pos, anchor);
+            }
+            return block;
+        }
+
+        /**
+         * Creates a line stub whose `source` / `target` getters throw when the
+         * backing latch is `null` — mirroring `LineView`'s runtime semantics.
+         * The `asRebindableLine` guard in the engine catches the throw and skips
+         * the line silently.
+         */
+        function makeLineStub(
+            sourceLatch: LatchStub | null,
+            targetLatch: LatchStub | null
+        ) {
+            return {
+                get source() {
+                    if (sourceLatch === null) {
+                        throw new Error("LineView: source latch is null");
+                    }
+                    return sourceLatch;
+                },
+                get target() {
+                    if (targetLatch === null) {
+                        throw new Error("LineView: target latch is null");
+                    }
+                    return targetLatch;
+                }
+            };
+        }
+
+        ///////////////////////////////////////////////////////////////////////////
+        //  Tests  /////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////////////
+
+        it("blocks side-by-side on x-axis: source latch rebinds to right anchor, target to left anchor", async () => {
+            // Source block centered at (100, 100), target centered at (400, 100).
+            // Geometric pass: source faces right (D0) toward target; target faces left (D180) toward source.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            // Wire latches to the D90 anchor of each block (an arbitrary starting anchor).
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+
+            const line = makeLineStub(srcLatch, tgtLatch);
+            const canvas: SerializableCanvas = {
+                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
+                groups: [],
+                lines:  [line] as unknown as SerializableCanvas["lines"]
+            };
+
+            // TALA places src at top-left (50, 75) with w=100, h=50 → center (100, 100).
+            // TALA places tgt at top-left (350, 75) with w=100, h=50 → center (400, 100).
+            const svg = makeTalaSvg([
+                { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "geometric").run(makeObjects(canvas));
+
+            // Source is to the left of target → source's D0 (right) faces target.
+            expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D0), true);
+            // Target is to the right of source → target's D180 (left) faces source.
+            expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
+        });
+
+        it("blocks stacked on y-axis: source latch rebinds to bottom anchor, target to top anchor", async () => {
+            // Source block centered at (100, 100), target centered at (100, 400).
+            // Geometric pass: source faces bottom (D270) toward target; target faces top (D90) toward source.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 100, 400, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
+
+            const line = makeLineStub(srcLatch, tgtLatch);
+            const canvas: SerializableCanvas = {
+                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
+                groups: [],
+                lines:  [line] as unknown as SerializableCanvas["lines"]
+            };
+
+            // TALA places src at top-left (50, 75) → center (100, 100).
+            // TALA places tgt at top-left (50, 375) → center (100, 400).
+            const svg = makeTalaSvg([
+                { id: "src-block", x: 50, y:  75, width: 100, height: 50 },
+                { id: "tgt-block", x: 50, y: 375, width: 100, height: 50 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "geometric").run(makeObjects(canvas));
+
+            // Source is above target → source's D270 (bottom) faces target.
+            expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D270), true);
+            // Target is below source → target's D90 (top) faces source.
+            expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D90), true);
+        });
+
+        it("block placement passes (moveTo) still run when geometric rebind also runs", async () => {
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
+
+            const line = makeLineStub(srcLatch, tgtLatch);
+            const canvas: SerializableCanvas = {
+                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
+                groups: [],
+                lines:  [line] as unknown as SerializableCanvas["lines"]
+            };
+
+            const svg = makeTalaSvg([
+                { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "geometric").run(makeObjects(canvas));
+
+            // TALA top-left + half-dims = center.  50 + 50 = 100; 75 + 25 = 100.
+            expect(srcBlock.moveTo).toHaveBeenCalledWith(100, 100);
+            // 350 + 50 = 400; 75 + 25 = 100.
+            expect(tgtBlock.moveTo).toHaveBeenCalledWith(400, 100);
+        });
+
+        it("lines with a null source latch are skipped silently — no crash, no link calls", async () => {
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            // Null source latch → line.source getter throws → asRebindableLine returns null.
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
+
+            const line = makeLineStub(null, tgtLatch);
+            const canvas: SerializableCanvas = {
+                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
+                groups: [],
+                lines:  [line] as unknown as SerializableCanvas["lines"]
+            };
+
+            const svg = makeTalaSvg([
+                { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+            try {
+                // Must not throw.
+                await expect(
+                    new NewAutoLayoutEngine(layoutSource, "geometric").run(makeObjects(canvas))
+                ).resolves.toBeUndefined();
+
+                // Target latch's link spy must not fire — the line was skipped entirely.
+                expect(tgtLatch.link).not.toHaveBeenCalled();
+                // No console.error — silent skip.
+                expect(errorSpy).not.toHaveBeenCalled();
+            } finally {
+                errorSpy.mockRestore();
+            }
+        });
+
+        it("default strategy 'tala' is a no-op for rebinding (wiring check)", async () => {
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+
+            const line = makeLineStub(srcLatch, tgtLatch);
+            const canvas: SerializableCanvas = {
+                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
+                groups: [],
+                lines:  [line] as unknown as SerializableCanvas["lines"]
+            };
+
+            const svg = makeTalaSvg([
+                { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            // No second argument → default "tala" strategy.
+            await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
+
+            // "tala" is not yet wired (Step 4); no rebinding should happen.
+            expect(srcLatch.link).not.toHaveBeenCalled();
+            expect(tgtLatch.link).not.toHaveBeenCalled();
+        });
+
+        it("explicit strategy 'none' is a no-op for rebinding", async () => {
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+
+            const line = makeLineStub(srcLatch, tgtLatch);
+            const canvas: SerializableCanvas = {
+                blocks: [srcBlock, tgtBlock] as unknown as SerializableBlock[],
+                groups: [],
+                lines:  [line] as unknown as SerializableCanvas["lines"]
+            };
+
+            const svg = makeTalaSvg([
+                { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+            ]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "none").run(makeObjects(canvas));
+
+            expect(srcLatch.link).not.toHaveBeenCalled();
+            expect(tgtLatch.link).not.toHaveBeenCalled();
         });
 
     });
