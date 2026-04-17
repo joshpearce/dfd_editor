@@ -839,7 +839,7 @@ describe("parseTalaSvg — edges", () => {
 
     // -------------------------------------------------------------------------
 
-    it("malformed path d falls through silently — no <path> child", () => {
+    it("no <path> child → skipped silently", () => {
         const svg = `<svg xmlns="http://www.w3.org/2000/svg">
   <g class="connection">
     <rect x="0" y="0" width="10" height="10"/>
@@ -864,6 +864,101 @@ describe("parseTalaSvg — edges", () => {
     });
 
     // -------------------------------------------------------------------------
+
+    it("cubic Bezier path C x1 y1 x2 y2 x y → start is M point, end is curve endpoint", () => {
+        // TALA typically emits cubic Beziers for curved connection paths.
+        const svg = buildSvgWithConnections([], [
+            { d: "M 10 20 C 30 40 50 60 70 80" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: 10, y: 20 });
+        expect(edges[0].end).toEqual({ x: 70, y: 80 });
+    });
+
+    it("multi-segment cubic Bezier → end is the last curve's endpoint", () => {
+        const svg = buildSvgWithConnections([], [
+            { d: "M 10 20 C 30 40 50 60 70 80 C 90 100 110 120 130 140" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: 10, y: 20 });
+        expect(edges[0].end).toEqual({ x: 130, y: 140 });
+    });
+
+    it("comma-separated coordinates → parsed correctly", () => {
+        const svg = buildSvgWithConnections([], [
+            { d: "M 10,20 C 30,40 50,60 70,80" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: 10, y: 20 });
+        expect(edges[0].end).toEqual({ x: 70, y: 80 });
+    });
+
+    it("negative coordinates → parsed correctly", () => {
+        const svg = buildSvgWithConnections([], [
+            { d: "M -10 -20 L -100 -200" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: -10, y: -20 });
+        expect(edges[0].end).toEqual({ x: -100, y: -200 });
+    });
+
+    it("implicit negative-sign separator (L 100-20) → end extracted correctly", () => {
+        // SVG allows omitting the separator when the next number starts with a minus,
+        // e.g. "L 100-20" is valid and means L x=100 y=-20.
+        const svg = buildSvgWithConnections([], [
+            { d: "M 10 20 L 100-200" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: 10, y: 20 });
+        expect(edges[0].end).toEqual({ x: 100, y: -200 });
+    });
+
+    it("trailing Z with no space before it (L100,200Z) → end extracted correctly", () => {
+        const svg = buildSvgWithConnections([], [
+            { d: "M 10 20 L 100,200Z" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: 10, y: 20 });
+        expect(edges[0].end).toEqual({ x: 100, y: 200 });
+    });
+
+    it("connection group with arrowhead sibling <path> → only the direct-child edge path is read", () => {
+        // Real D2 connection groups contain the edge <path> plus nested arrowhead
+        // paths. The selector :scope > path must match only the direct child.
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+  <g class="connection">
+    <path d="M 5 10 L 50 100"/>
+    <g class="arrowhead">
+      <path d="M 999 999 L 888 888"/>
+    </g>
+  </g>
+</svg>`;
+
+        const { edges } = parseTalaSvg(svg);
+
+        // Only the direct-child edge path should be read; arrowhead path ignored.
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: 5, y: 10 });
+        expect(edges[0].end).toEqual({ x: 50, y: 100 });
+    });
 
     it("node parsing and edge parsing coexist independently", () => {
         // An SVG with both a base64-encoded node and a connection element.

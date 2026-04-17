@@ -433,7 +433,10 @@ export function parseTalaSvg(svg: string): {
     const connectionGroups = doc.querySelectorAll("g.connection");
 
     for (const connG of connectionGroups) {
-        const pathEl = connG.querySelector("path");
+        // Use :scope > path to match only the direct-child edge path and avoid
+        // descending into arrowhead or marker <path> elements that D2 nests
+        // inside the same connection group.
+        const pathEl = connG.querySelector(":scope > path");
         if (!pathEl) {
             continue;
         }
@@ -445,17 +448,23 @@ export function parseTalaSvg(svg: string): {
             continue;
         }
 
-        // Extract the end point from the last numeric pair, after stripping
-        // any trailing close-path command (Z or z).
-        const dStripped = d.replace(/[Zz]\s*$/, "").trimEnd();
-        const endMatch = /([-\d.]+)[,\s]+([-\d.]+)\s*$/.exec(dStripped);
-        if (!endMatch) {
+        // Extract the end point from the last two numeric tokens after stripping
+        // any trailing close-path command (Z or z).  Tokenising rather than
+        // matching a fixed separator handles all D2/TALA coordinate formats:
+        // space-separated ("L 100 200"), comma-separated ("L 100,200"), and
+        // implicit-separator ("L 100-20" where the negative sign acts as the
+        // separator between adjacent numbers).
+        const dStripped = d.replace(/[Zz]\s*$/, "");
+        const numTokens = Array.from(dStripped.matchAll(/([-+]?[\d.]+)/g));
+        if (numTokens.length < 2) {
             continue;
         }
+        const endX = parseFloat(numTokens[numTokens.length - 2][1]);
+        const endY = parseFloat(numTokens[numTokens.length - 1][1]);
 
         edges.push({
             start: { x: parseFloat(startMatch[1]), y: parseFloat(startMatch[2]) },
-            end:   { x: parseFloat(endMatch[1]),   y: parseFloat(endMatch[2])   }
+            end:   { x: endX, y: endY }
         });
     }
 
