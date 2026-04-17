@@ -180,18 +180,14 @@ function serializeGroup(
     const id     = d2Escape(group.id);
     const label  = group.properties.isDefined() ? d2Escape(group.properties.toString()) : "";
     const header = label ? `${indent}${id}: ${label} {` : `${indent}${id} {`;
-    const bb     = group.face.boundingBox;
-    const width  = Math.round(bb.xMax - bb.xMin);
-    const height = Math.round(bb.yMax - bb.yMin);
 
     // The qualified ancestor chain for children of this group.
     const childAncestors = [...ancestors, group.id];
 
-    const lines: string[] = [
-        header,
-        `${indent}  width: ${width}`,
-        `${indent}  height: ${height}`
-    ];
+    // TALA auto-sizes containers from their contents; emitting explicit
+    // width/height from a pre-layout boundingBox (all zeros) would collapse
+    // sibling containers on top of each other.
+    const lines: string[] = [header];
 
     for (const child of group.blocks) {
         lines.push(serializeBlock(child, `${indent}  `, childAncestors));

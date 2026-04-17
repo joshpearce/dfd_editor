@@ -11,7 +11,8 @@
  *   - Happy path: 2 blocks + 1 line → one D2 declaration per block
  *     (with matching width/height) + one `source -> target` connection.
  *   - Groups: a block nested in a group is emitted inside the group's
- *     `{ ... }` container; group emits width/height from its bounding box.
+ *     `{ ... }` container. Groups themselves do NOT emit width/height — TALA
+ *     auto-sizes containers from their contents.
  *   - Nested lines (C1): a line connecting two blocks inside a group is
  *     emitted inside the group's `{ ... }` block, not at the canvas root.
  *   - Edge qualified paths (C2): edge endpoints inside groups use the
@@ -233,36 +234,38 @@ describe("serializeToD2", () => {
             expect(childIdx).toBeLessThan(closeBraceIdx);
         });
 
-        it("emits group width and height derived from its bounding box", () => {
-            // xMax - xMin = 300 - 0 = 300; yMax - yMin = 200 - 0 = 200
+        it("does not emit width or height for a group (TALA auto-sizes containers)", () => {
+            // Pre-layout bounding boxes are all-zero, and even when non-zero
+            // they do not reflect the post-layout container size. Emitting
+            // `width:` / `height:` would constrain TALA and collapse sibling
+            // containers at the origin — see auto-layout-boundary-overlap fix.
             const group  = makeGroup(
                 "g1",
                 "G1",
                 { xMin: 0, yMin: 0, xMax: 300, yMax: 200 },
-                []
+                [makeBlock("inner", "Inner", 100, 50)]
             );
             const canvas = makeCanvas([], [group], []);
 
             const output = serializeToD2(canvas);
 
-            expect(output).toMatch(/width:\s*300/);
-            expect(output).toMatch(/height:\s*200/);
-        });
+            // The inner block still carries width/height. Only the group must not.
+            // Split on the group's opening brace and closing brace to isolate the
+            // group-level lines (direct properties of the group), excluding nested
+            // block declarations.
+            const groupHeader = "g1: G1 {";
+            const headerIdx   = output.indexOf(groupHeader);
+            expect(headerIdx).toBeGreaterThanOrEqual(0);
 
-        it("emits non-zero fractional bounding-box dimensions rounded to the nearest integer", () => {
-            // Bounding box with non-integer values: 299.7 → 300; 199.3 → 199
-            const group  = makeGroup(
-                "g-frac",
-                "",
-                { xMin: 0, yMin: 0, xMax: 299.7, yMax: 199.3 },
-                []
-            );
-            const canvas = makeCanvas([], [group], []);
+            // Between the header and the first nested `{` (the inner block's
+            // opening brace) there should be no `width:` or `height:` line —
+            // that slice represents lines that are direct properties of the group.
+            const afterHeader    = headerIdx + groupHeader.length;
+            const firstChildOpen = output.indexOf("{", afterHeader);
+            const groupOwnLines  = output.slice(afterHeader, firstChildOpen);
 
-            const output = serializeToD2(canvas);
-
-            expect(output).toMatch(/width:\s*300/);
-            expect(output).toMatch(/height:\s*199/);
+            expect(groupOwnLines).not.toMatch(/width:/);
+            expect(groupOwnLines).not.toMatch(/height:/);
         });
 
     });
