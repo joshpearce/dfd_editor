@@ -3,7 +3,6 @@ import { Device } from "@/assets/scripts/Browser";
 import { DoNothing } from "../index.commands";
 import { AppCommand } from "../index.commands";
 import { stripExtension } from "@OpenChart/Utilities";
-import { StixToAttackFlowConverter } from "@/assets/scripts/StixToAttackFlow";
 import { DiagramObjectViewFactory, DiagramViewFile, NewAutoLayoutEngine } from "@OpenChart/DiagramView";
 import { createDiagram, getDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
 import {
@@ -19,7 +18,6 @@ import {
     SaveDiagramImageToDevice,
     SaveSelectionImageToDevice
 } from "./index.commands";
-import type { StixBundle } from "@/assets/scripts/StixToAttackFlow";
 import type { ApplicationStore } from "@/stores/ApplicationStore";
 import type { DiagramViewExport } from "@OpenChart/DiagramView";
 import type { DiagramViewEditor } from "@/assets/scripts/OpenChart/DiagramEditor";
@@ -141,50 +139,6 @@ export async function loadFileFromServer(
 }
 
 /**
- * Loads a STIX file into the application.
- * @param context
- *  The application's context.
- * @param file
- *  The STIX file.
- * @param name
- *  The file's name.
- * @returns
- *  A command that represents the action.
- */
-export async function loadExistingStixFile(
-    context: ApplicationStore, file: string, name?: string
-): Promise<LoadFile> {
-    const stixBundle = JSON.parse(file) as StixBundle;
-    // Construct factory
-    const factory = await getObjectFactory(context);
-    // Translate STIX
-    const jsonFile = new StixToAttackFlowConverter(factory).convert(stixBundle);
-    // Construct file
-    const viewFile = new DiagramViewFile(factory, jsonFile);
-    // Return command
-    return new LoadFile(context, viewFile, name);
-}
-
-/**
- * Loads a stix file, from the file system, into the application.
- * @param context
- *  The application's context.
- * @returns
- *  A command that represents the action.
- */
-export async function loadStixFileFromFileSystem(
-    context: ApplicationStore
-): Promise<AppCommand> {
-    const file = await Device.openTextFileDialog("json");
-    if (file) {
-        const filename = stripExtension(file.filename);
-        return loadExistingStixFile(context, file.contents as string, filename);
-    } else {
-        return new DoNothing();
-    }
-}
-
-/**
  * Returns the requested object factory.
  * @param context
  *  The application's context.
@@ -269,52 +223,6 @@ export async function importFileFromFilesystem(
     }
 }
 
-/**
- * Imports a STIX file into an existing editor.
- * @param context
- *  The application context.
- * @param editor
- *  The editor to import into.
- * @param file
- *  The file to import.
- * @returns
- *  A command that represents the action.
- */
-export async function importExistingStixFile(
-    context: ApplicationStore, editor: DiagramViewEditor, file: string
-): Promise<AppCommand> {
-    const stixBundle = JSON.parse(file) as StixBundle;
-    // Construct factory
-    const factory = await getObjectFactory(context);
-    // Translate STIX
-    const jsonFile = new StixToAttackFlowConverter(factory).convert(stixBundle);
-    // Construct file
-    const viewFile = new DiagramViewFile(factory, jsonFile);
-    // Return command
-    return new ImportFile(context, editor, viewFile);
-}
-
-/**
- * Imports a STIX file, from the file system, into the application.
- * @param context
- *  The application context.
- * @param editor
- *  The editor to import into.
- * @returns
- *  A command that represents the action.
- */
-export async function importStixFileFromFilesystem(
-    context: ApplicationStore, editor: DiagramViewEditor
-) {
-    const file = await Device.openTextFileDialog("json");
-    if (file) {
-        return importExistingStixFile(context, editor, file.contents as string);
-    } else {
-        return new DoNothing();
-    }
-}
-
-
 ///////////////////////////////////////////////////////////////////////////////
 //  3. Prepare Editor with File  //////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -361,39 +269,6 @@ export async function prepareEditorFromFileSystem(
     context: ApplicationStore
 ): Promise<AppCommand> {
     const cmd = await loadFileFromFileSystem(context);
-    if (cmd instanceof LoadFile) {
-        return new PrepareEditorWithFile(context, cmd);
-    } else {
-        return cmd;
-    }
-}
-
-/**
- * Prepares the editor with an existing STIX file.
- * @param context
- *  The application context.
- * @param file
- *  The STIX file.
- * @returns
- *  A command that represents the action.
- */
-export async function prepareEditorFromExistingStixFile(
-    context: ApplicationStore, file: string
-): Promise<PrepareEditorWithFile> {
-    return new PrepareEditorWithFile(context, await loadExistingStixFile(context, file));
-}
-
-/**
- * Prepares the editor with an existing STIX file from the file system.
- * @param context
- *  The application context.
- * @returns
- *  A command that represents the action.
- */
-export async function prepareEditorFromStixFileSystem(
-    context: ApplicationStore
-): Promise<AppCommand> {
-    const cmd = await loadStixFileFromFileSystem(context);
     if (cmd instanceof LoadFile) {
         return new PrepareEditorWithFile(context, cmd);
     } else {

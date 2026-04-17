@@ -87,20 +87,6 @@
               {{ openFile.description }}
             </p>
           </div>
-          <div
-            class="button"
-            @click="onImportStix"
-          >
-            <div class="button-header">
-              <span class="button-icon"><FolderIcon /></span>
-              <p class="button-title">
-                {{ importStix.title }}
-              </p>
-            </div>
-            <p class="button-description">
-              {{ importStix.description }}
-            </p>
-          </div>
         </div>
       </div>
       <div class="section open-server-file">
@@ -221,7 +207,6 @@ export default defineComponent({
       organization: Configuration.splash.organization,
       newFile: Configuration.splash.new_file,
       openFile: Configuration.splash.open_file,
-      importStix: Configuration.splash.import_stix,
       helpLinks: Configuration.splash.help_links,
       serverFiles: [] as DiagramSummary[],
       serverError: null as string | null
@@ -273,14 +258,6 @@ export default defineComponent({
     async onOpenFile() {
       const ctx = this.application;
       this.execute(await AppCommands.prepareEditorFromFileSystem(ctx));
-    },
-
-    /**
-     * Import STIX behavior.
-     */
-    async onImportStix() {
-      const ctx = this.application;
-      this.execute(await AppCommands.prepareEditorFromStixFileSystem(ctx));
     },
 
     /**
@@ -564,7 +541,7 @@ export default defineComponent({
 .section.open-file .button-grid {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: 14px;
 }
 
