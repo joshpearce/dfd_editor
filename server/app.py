@@ -1,4 +1,5 @@
 import json
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -56,3 +57,31 @@ def update_diagram(diagram_id):
         return jsonify({"error": "not found"}), 404
     path.write_text(json.dumps(request.get_json(), indent=4))
     return "", 204
+
+
+@app.route("/api/layout", methods=["POST"])
+def layout():
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "request body must be valid JSON"}), 400
+    source = body.get("source")
+    if source is None:
+        return jsonify({"error": "missing required field: source"}), 400
+    if not isinstance(source, str):
+        return jsonify({"error": "source must be a string"}), 400
+    try:
+        result = subprocess.run(
+            ["d2", "--layout=tala", "-", "-"],
+            input=source,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "layout timed out after 30s"}), 502
+    except FileNotFoundError:
+        return jsonify({"error": "d2 binary not found on PATH"}), 502
+    if result.returncode == 0:
+        return jsonify({"svg": result.stdout})
+    error_msg = result.stderr.strip() or "d2 exited with non-zero status"
+    return jsonify({"error": error_msg}), 502

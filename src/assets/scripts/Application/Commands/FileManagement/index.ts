@@ -4,8 +4,8 @@ import { DoNothing } from "../index.commands";
 import { AppCommand } from "../index.commands";
 import { stripExtension } from "@OpenChart/Utilities";
 import { StixToAttackFlowConverter } from "@/assets/scripts/StixToAttackFlow";
-import { DiagramObjectViewFactory, DiagramViewFile } from "@OpenChart/DiagramView";
-import { createDiagram, getDiagram, saveDiagram } from "@/assets/scripts/api/DfdApiClient";
+import { DiagramObjectViewFactory, DiagramViewFile, NewAutoLayoutEngine } from "@OpenChart/DiagramView";
+import { createDiagram, getDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
 import {
     BindEditorToServer,
     ClearFileRecoveryBank,
@@ -71,7 +71,12 @@ export async function loadExistingFile(
     const viewFile = new DiagramViewFile(factory, jsonFile);
     // Run layout
     if (!jsonFile.layout) {
-        // TODO: Run automated layout
+        try {
+            await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
+        } catch (err) {
+            // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
+            console.error("auto-layout failed, continuing without layout:", err);
+        }
     }
     // Return command
     return new LoadFile(context, viewFile, name);
@@ -235,7 +240,12 @@ export async function importExistingFile(
     const viewFile = new DiagramViewFile(factory, jsonFile);
     // Run layout
     if (!jsonFile.layout) {
-        // TODO: Run automated layout
+        try {
+            await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
+        } catch (err) {
+            // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
+            console.error("auto-layout failed, continuing without layout:", err);
+        }
     }
     // Import file
     return new ImportFile(context, editor, viewFile);

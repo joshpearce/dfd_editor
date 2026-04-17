@@ -59,6 +59,37 @@ export async function saveDiagram(id: DiagramId, payload: string): Promise<void>
 }
 
 /**
+ * Requests an automatic layout for a D2 source string.
+ * @param source
+ *  The D2 source string to lay out.
+ * @returns
+ *  The rendered SVG string from TALA.
+ * @throws
+ *  If the request fails, with the backend's error message when available.
+ */
+export async function layoutDiagram(source: string): Promise<string> {
+    const response = await fetch("/api/layout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source })
+    });
+    if (!response.ok) {
+        let message = `layout request failed: ${response.status}`;
+        try {
+            const body = await response.json() as { error?: string };
+            if (body.error) {
+                message = `layout request failed: ${body.error}`;
+            }
+        } catch {
+            // response body unreadable — use the status-based message
+        }
+        throw new Error(message);
+    }
+    const data = await response.json() as { svg: string };
+    return data.svg;
+}
+
+/**
  * Creates a new diagram on the server.
  * @returns
  *  The new diagram's ID.
