@@ -82,6 +82,11 @@ def layout():
     except FileNotFoundError:
         return jsonify({"error": "d2 binary not found on PATH"}), 502
     if result.returncode == 0:
+        # Dump the raw TALA SVG and D2 source next to the saved diagrams so
+        # they can be inspected / opened directly.  Overwrites on each call;
+        # diagnostic artifact, not persisted per-diagram.
+        (DATA_DIR / "latest-layout.svg").write_text(result.stdout)
+        (DATA_DIR / "latest-layout.d2").write_text(source)
         return jsonify({"svg": result.stdout})
     error_msg = result.stderr.strip() or "d2 exited with non-zero status"
     return jsonify({"error": error_msg}), 502

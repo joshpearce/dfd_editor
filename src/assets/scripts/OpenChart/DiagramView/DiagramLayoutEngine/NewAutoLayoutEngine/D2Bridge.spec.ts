@@ -287,7 +287,7 @@ describe("serializeToD2", () => {
 
     describe("C1 — nested lines inside a group", () => {
 
-        it("emits a line between two children of a group inside the group block", () => {
+        it("emits the edge at the canvas root using absolute paths rooted at the canvas", () => {
             const blockA = makeBlock("block-a", "A", 100, 50);
             const blockB = makeBlock("block-b", "B", 100, 50);
             const innerLine = makeLine(blockA, blockB);
@@ -303,40 +303,19 @@ describe("serializeToD2", () => {
 
             const output = serializeToD2(canvas);
 
-            // The edge must be inside the group's braces
-            const groupOpenIdx  = output.indexOf("group-g");
-            const openBraceIdx  = output.indexOf("{", groupOpenIdx);
-            const closeBraceIdx = output.lastIndexOf("}");
-            const arrowIdx      = output.indexOf("->");
-
-            expect(arrowIdx).toBeGreaterThan(openBraceIdx);
-            expect(arrowIdx).toBeLessThan(closeBraceIdx);
-
-            // No edge at the canvas root level (no -> after the last `}`)
-            expect(output.indexOf("->", closeBraceIdx)).toBe(-1);
-        });
-
-        it("emits the inner-group edge with qualified paths for both endpoints", () => {
-            const blockA = makeBlock("block-a", "A", 100, 50);
-            const blockB = makeBlock("block-b", "B", 100, 50);
-            const innerLine = makeLine(blockA, blockB);
-            const group = makeGroup(
-                "group-g",
-                "G",
-                { xMin: 0, yMin: 0, xMax: 400, yMax: 300 },
-                [blockA, blockB],
-                [],
-                [innerLine]
-            );
-            const canvas = makeCanvas([], [group], []);
-
-            const output = serializeToD2(canvas);
-
-            // Qualified paths: group-g.block-a -> group-g.block-b
+            // Absolute path from canvas root: group-g.block-a -> group-g.block-b
             expect(output).toContain("group-g.block-a -> group-g.block-b");
+
+            // The edge must be OUTSIDE the group's braces (at canvas root),
+            // not inside — emitting inside the group's scope would either
+            // require bare names (which D2 only resolves against direct
+            // children of the current scope) or group-prefixed paths (which
+            // D2 auto-materializes as a phantom container).
+            const closeBraceIdx = output.lastIndexOf("}");
+            expect(output.indexOf("->", closeBraceIdx)).toBeGreaterThan(closeBraceIdx);
         });
 
-        it("does not emit inner-group lines at the canvas root", () => {
+        it("emits exactly one arrow at the canvas root for a single inner-group edge", () => {
             const blockA = makeBlock("block-a", "A", 100, 50);
             const blockB = makeBlock("block-b", "B", 100, 50);
             const innerLine = makeLine(blockA, blockB);
@@ -352,7 +331,6 @@ describe("serializeToD2", () => {
 
             const output = serializeToD2(canvas);
 
-            // Arrow count must be exactly 1 (inside the group)
             const arrowCount = (output.match(/->/g) ?? []).length;
             expect(arrowCount).toBe(1);
         });
@@ -393,7 +371,7 @@ describe("serializeToD2", () => {
             );
         });
 
-        it("uses the instance uuid (not the template id) in the qualified path for nested edges", () => {
+        it("uses the instance uuid (not the template id) when emitting nested edges", () => {
             const blockA = makeBlock("uuid-block-a", "A", 100, 50);
             const blockB = makeBlock("uuid-block-b", "B", 100, 50);
             const line   = makeLine(blockA, blockB);
@@ -409,6 +387,7 @@ describe("serializeToD2", () => {
 
             const output = serializeToD2(canvas);
 
+            // Absolute path rooted at canvas: uuid-group.uuid-block-a -> uuid-group.uuid-block-b
             expect(output).toContain("uuid-group.uuid-block-a -> uuid-group.uuid-block-b");
         });
 
@@ -416,17 +395,9 @@ describe("serializeToD2", () => {
 
     // -------------------------------------------------------------------------
 
-    describe("C2 — cross-group edge qualified paths (currently broken)", () => {
+    describe("C2 — cross-group edge uses absolute path for nested endpoint", () => {
 
-        // NOTE: the name says "currently broken" because this test pins the
-        // status quo — not the correct behavior.  See the block comment in
-        // `serializeToD2` for the full explanation: the canvas-level line
-        // emits the raw endpoint uuids, which causes D2 to fabricate a
-        // top-level stub rather than connect to the pre-declared nested
-        // block.  A future fix should (a) emit the qualified path for the
-        // nested endpoint and (b) rewrite these assertions (not flip them
-        // from red to green — the shape of the expected output changes).
-        it("emits a cross-boundary line using the raw leaf id instead of the qualified nested path", () => {
+        it("emits a cross-boundary line using the absolute path for the nested endpoint", () => {
             // top-level block-a → nested group-g.block-c
             const blockA = makeBlock("block-a", "A", 100, 50);
             const blockC = makeBlock("block-c", "C", 80, 40);
@@ -442,16 +413,12 @@ describe("serializeToD2", () => {
 
             const output = serializeToD2(canvas);
 
-            // The canvas-level line uses the raw leaf id `block-c` — NOT the
-            // qualified path `group-g.block-c`.  That's the broken bit: D2
-            // will fabricate a spurious top-level stub for `block-c` rather
-            // than connect to the pre-declared nested block.
-            expect(output).toContain("block-a -> block-c");
-            // Explicit negative assertion pinning the known-bad state: the
-            // qualified path is NOT present in the output.  When the fix
-            // lands this assertion will fail loudly, forcing the test to be
-            // updated alongside the fix.
-            expect(output).not.toContain("block-a -> group-g.block-c");
+            // Cross-boundary endpoints use absolute paths rooted at the
+            // canvas, so D2 connects to the pre-declared nested block
+            // instead of fabricating a phantom top-level stub named
+            // `block-c`.
+            expect(output).toContain("block-a -> group-g.block-c");
+            expect(output).not.toMatch(/^block-a -> block-c$/m);
         });
 
     });

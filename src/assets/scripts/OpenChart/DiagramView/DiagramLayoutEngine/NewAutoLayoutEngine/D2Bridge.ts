@@ -134,8 +134,7 @@ export function qualifiedD2Path(ancestorIds: string[], nodeId: string): string {
 
 function serializeBlock(
     block: SerializableBlock,
-    indent: string,
-    _ancestors: string[]
+    indent: string
 ): string {
     const id     = d2Escape(block.instance);
     const label  = block.properties.isDefined() ? d2Escape(block.properties.toString()) : "";
@@ -183,17 +182,74 @@ function resolveLineEndpoints(
     }
 }
 
+/**
+ * Walks the canvas and builds a map from every positionable node's
+ * `instance` to its fully-qualified ancestor chain (outermost first,
+ * not including the node itself).  Used so every edge — wherever it is
+ * emitted — can be written as an absolute path rooted at the canvas.
+ *
+ * Why we can't use bare names or group-relative paths:
+ *  - D2 bare-name resolution only searches the current container's
+ *    *direct* children, so an edge targeting a block nested two levels
+ *    deep will NOT be resolved via the bare name.  D2 silently creates
+ *    a phantom node in the current scope instead.
+ *  - Group-relative paths (e.g. `parent.child.leaf` emitted inside
+ *    `parent`'s scope) trigger the same phantom-creation bug: the
+ *    first segment is interpreted as a sibling of the current scope,
+ *    not as the scope itself, so `parent` is materialized inside
+ *    `parent` as an empty container.
+ *
+ * Absolute paths from the canvas root (`parent.child.leaf` emitted at
+ * top level) avoid both traps.
+ */
+function buildAncestorIndex(canvas: SerializableCanvas): Map<string, string[]> {
+    const index = new Map<string, string[]>();
+
+    function visitBlock(block: SerializableBlock, ancestors: string[]): void {
+        index.set(block.instance, ancestors);
+    }
+
+    function visitGroup(group: SerializableGroup, ancestors: string[]): void {
+        index.set(group.instance, ancestors);
+        const childAncestors = [...ancestors, group.instance];
+        for (const child of group.blocks) {
+            visitBlock(child, childAncestors);
+        }
+        for (const nested of group.groups) {
+            visitGroup(nested, childAncestors);
+        }
+    }
+
+    for (const block of canvas.blocks) {
+        visitBlock(block, []);
+    }
+    for (const group of canvas.groups) {
+        visitGroup(group, []);
+    }
+    return index;
+}
+
+/**
+ * Returns the absolute D2 path for the given instance using the index
+ * built by {@link buildAncestorIndex}.  Falls back to the bare escaped
+ * instance when the instance is not in the index (shouldn't happen for
+ * well-formed canvases; the fallback keeps the emitter total).
+ */
+function absoluteD2Path(
+    instance: string,
+    index: Map<string, string[]>
+): string {
+    const ancestors = index.get(instance) ?? [];
+    return qualifiedD2Path(ancestors, instance);
+}
+
 function serializeGroup(
     group: SerializableGroup,
-    indent: string,
-    ancestors: string[]
+    indent: string
 ): string {
     const id     = d2Escape(group.instance);
     const label  = group.properties.isDefined() ? d2Escape(group.properties.toString()) : "";
     const header = label ? `${indent}${id}: ${label} {` : `${indent}${id} {`;
-
-    // The qualified ancestor chain for children of this group.
-    const childAncestors = [...ancestors, group.instance];
 
     // TALA auto-sizes containers from their contents; emitting explicit
     // width/height from a pre-layout boundingBox (all zeros) would collapse
@@ -201,22 +257,10 @@ function serializeGroup(
     const lines: string[] = [header];
 
     for (const child of group.blocks) {
-        lines.push(serializeBlock(child, `${indent}  `, childAncestors));
+        lines.push(serializeBlock(child, `${indent}  `));
     }
     for (const nested of group.groups) {
-        lines.push(serializeGroup(nested, `${indent}  `, childAncestors));
-    }
-
-    // Lines whose both endpoints live inside this group (LCA = this group).
-    for (const line of group.lines) {
-        const endpoints = resolveLineEndpoints(line);
-        if (!endpoints) {
-            continue;
-        }
-        const { sourceInstance, targetInstance } = endpoints;
-        const srcPath = qualifiedD2Path(childAncestors, sourceInstance);
-        const tgtPath = qualifiedD2Path(childAncestors, targetInstance);
-        lines.push(`${indent}  ${srcPath} -> ${tgtPath}`);
+        lines.push(serializeGroup(nested, `${indent}  `));
     }
 
     lines.push(`${indent}}`);
@@ -257,27 +301,47 @@ export function serializeToD2(canvas: SerializableCanvas): string {
 
     // Top-level blocks
     for (const block of canvas.blocks) {
-        parts.push(serializeBlock(block, "", []));
+        parts.push(serializeBlock(block, ""));
     }
 
     // Top-level groups (recurse inside serializeGroup)
     for (const group of canvas.groups) {
-        parts.push(serializeGroup(group, "", []));
+        parts.push(serializeGroup(group, ""));
     }
 
-    // Canvas-level lines — connecting top-level nodes or crossing boundaries.
-    for (const line of canvas.lines) {
-        const endpoints = resolveLineEndpoints(line);
-        if (!endpoints) {
-            // Floating latch or dangling line — skip silently.
-            continue;
+    // All edges — canvas-level AND nested inside groups — are emitted
+    // here at the canvas root using absolute paths rooted at the canvas.
+    // Emitting edges inside their group's `{ ... }` scope either forced
+    // us to use bare names (which D2 resolves only against direct
+    // children, so deeply-nested targets become phantoms) or group-
+    // relative paths (which D2 re-resolves in-scope, creating a
+    // phantom container for the first segment).  Absolute paths
+    // emitted at canvas level avoid both traps.
+    const index = buildAncestorIndex(canvas);
+
+    function emitLines(lines: ReadonlyArray<SerializableLine>): void {
+        for (const line of lines) {
+            const endpoints = resolveLineEndpoints(line);
+            if (!endpoints) {
+                continue;
+            }
+            const { sourceInstance, targetInstance } = endpoints;
+            parts.push(
+                `${absoluteD2Path(sourceInstance, index)} -> ${absoluteD2Path(targetInstance, index)}`
+            );
         }
-        const { sourceInstance, targetInstance } = endpoints;
-        // Top-level nodes have no ancestors, so their qualified path is just
-        // their escaped instance.  Cross-boundary lines need the target's
-        // qualified path; at the canvas level we only have the leaf instance,
-        // which IS the qualified path for a top-level node.
-        parts.push(`${d2Escape(sourceInstance)} -> ${d2Escape(targetInstance)}`);
+    }
+
+    function visitGroupLines(group: SerializableGroup): void {
+        emitLines(group.lines);
+        for (const nested of group.groups) {
+            visitGroupLines(nested);
+        }
+    }
+
+    emitLines(canvas.lines);
+    for (const group of canvas.groups) {
+        visitGroupLines(group);
     }
 
     return parts.join("\n");
