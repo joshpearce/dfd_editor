@@ -1,8 +1,17 @@
 // pattern: Imperative Shell
 import { serializeToD2, parseTalaSvg } from "./D2Bridge";
-import type { SerializableBlock, SerializableCanvas, SerializableGroup } from "./D2Bridge";
+import type { SerializableBlock, SerializableCanvas, SerializableGroup, TalaPlacement } from "./D2Bridge";
 import type { DiagramObjectView } from "../../DiagramObjectView";
 import type { AsyncDiagramLayoutEngine } from "../DiagramLayoutEngine";
+
+/**
+ * Cap on the number of qualified paths enumerated in each bucket of the
+ * end-of-run warning.  Keeps a badly-malformed canvas from producing a
+ * megabyte-wide console line while still showing enough context to
+ * diagnose the first few problems; anything beyond the cap is summarized
+ * as `", ... and N more"` by {@link formatBucket}.
+ */
+const MAX_MISSING_DISPLAYED = 10;
 
 /**
  * A function that accepts a D2 source string and returns a Promise that
@@ -13,34 +22,75 @@ import type { AsyncDiagramLayoutEngine } from "../DiagramLayoutEngine";
 export type LayoutSource = (d2Source: string) => Promise<string>;
 
 /**
- * A node from the live canvas that can be repositioned.
+ * Outcome of applying a single TALA placement to a positionable node.
  *
- * `BlockView` and `GroupView` both satisfy this interface.
+ * - `"placed"`               — the node accepted and applied the placement.
+ * - `"skipped-rect-less"`    — TALA emitted no rect (rect-less placement)
+ *                              AND the node has no usable fallback size
+ *                              (its bounding box is zero).  Placing would
+ *                              leave user bounds at the default 300×200 and
+ *                              re-introduce the sibling-overlap bug.
+ * - `"skipped-non-positive"` — TALA emitted a rect with non-positive
+ *                              dimensions.  Writing such a rect into user
+ *                              bounds would produce an inverted/zero-area
+ *                              rectangle that downstream code cannot handle
+ *                              coherently.
  *
- * `halfW` and `halfH` are the half-dimensions of the node, used to convert
- * TALA's top-left coordinates into the center-based coordinate expected by
- * `moveTo`.  See coordinate semantics note in {@link NewAutoLayoutEngine.run}.
+ * Both skipped outcomes flow into the aggregated end-of-run warning, but
+ * are bucketed separately so the warning says _which_ skip cause applied
+ * to _which_ path (so "why was this specific group skipped?" can be
+ * answered from the log line alone).
+ *
+ * TALA-missing paths (no placement found for a qualified path at all) are
+ * tracked separately in `run()` — they aren't a node-level outcome because
+ * `placeAt` is never called for them.
+ */
+type PlacementOutcome = "placed" | "skipped-rect-less" | "skipped-non-positive";
+
+/**
+ * A node from the live canvas that can be repositioned given a TALA
+ * placement.  `placeAt` is called exactly once per applied placement, by
+ * {@link NewAutoLayoutEngine.run}.
+ *
+ * Returns a {@link PlacementOutcome} indicating whether the placement was
+ * applied (`"placed"`) or skipped (`"skipped-rect-less"` /
+ * `"skipped-non-positive"`).  Skipped outcomes flow into the single
+ * aggregated end-of-run warning alongside TALA-missing paths, bucketed by
+ * cause — see {@link NewAutoLayoutEngine.run}.
+ *
+ * The specifics of how each kind of node interprets the placement — blocks
+ * via `moveTo(center)`, groups via `setBounds(...)`, and the cylinder
+ * fallback in each case — live on {@link placeBlock} and {@link placeGroup},
+ * which are bound into the closure returned by {@link collectNodes}.
  */
 interface PositionableNode {
-    readonly id: string;
-    readonly halfW: number;
-    readonly halfH: number;
-    moveTo(x: number, y: number): void;
+    placeAt(placement: TalaPlacement): PlacementOutcome;
 }
 
 /**
- * A block or group from the canvas extended with the `moveTo` method.
+ * A block from the canvas extended with the `moveTo` method used by
+ * {@link placeBlock}.
  *
  * The serializable interfaces (`SerializableBlock`, `SerializableGroup`) only
  * describe the fields that the D2 bridge reads.  The actual `BlockView` and
- * `GroupView` instances also expose `moveTo`.  This interface captures that
- * without using an unsafe intersection cast.
+ * `GroupView` instances also expose movement methods.  These interfaces
+ * capture that without using an unsafe intersection cast.
  */
 interface PositionableBlock extends SerializableBlock {
     moveTo(x: number, y: number): void;
 }
 
+/**
+ * A group from the canvas extended with the movement methods used by
+ * {@link placeGroup}: `setBounds` on the face (primary path), and `moveTo`
+ * on the group itself (cylinder fallback when TALA emits no rect).  Child
+ * collections are typed as `PositionableBlock` / `PositionableGroup` so
+ * recursive traversal in {@link collectNodes} picks up the same mix-in.
+ */
 interface PositionableGroupMixin extends SerializableGroup {
+    readonly face: SerializableGroup["face"] & {
+        setBounds(xMin: number, yMin: number, xMax: number, yMax: number): void;
+    };
     moveTo(x: number, y: number): void;
     readonly blocks: ReadonlyArray<PositionableBlock>;
     readonly groups: ReadonlyArray<PositionableGroup>;
@@ -50,60 +100,294 @@ interface PositionableGroupMixin extends SerializableGroup {
 type PositionableGroup = PositionableGroupMixin;
 
 /**
+ * Converts a TALA placement into a `moveTo(center)` call for a block.
+ *
+ * TALA's rect `width` / `height` win over the block's own face dimensions
+ * when both are present; the fallback to `face.width` / `face.height`
+ * covers the cylinder case where `parseTalaSvg` returns only the top-left
+ * coordinate (`TalaPlacement`'s rect-less branch — see the discriminated
+ * union in `D2Bridge.ts`).
+ *
+ * Returns the literal `"placed"` — blocks have no skip path today.  The
+ * narrower return type (vs. the three-valued `PlacementOutcome`) lets the
+ * caller see in the type system that this function never emits a skipped
+ * outcome.  `applyPlacements` still handles the full union via control
+ * flow, so if a skip cause is ever added to blocks the return type
+ * widens naturally.
+ */
+function placeBlock(block: PositionableBlock, p: TalaPlacement): "placed" {
+    // Narrow via the discriminated union: if `width` is defined, `height`
+    // is defined too (and vice versa) — the type disallows half-populated
+    // placements, so `parseTalaSvg` produces one of the two shapes.
+    const halfW = p.width  !== undefined ? p.width  / 2 : block.face.width  / 2;
+    const halfH = p.height !== undefined ? p.height / 2 : block.face.height / 2;
+    block.moveTo(p.x + halfW, p.y + halfH);
+    return "placed";
+}
+
+/**
+ * Applies a TALA placement to a group by writing TALA's exact bounds
+ * into the group's user bounds via `setBounds`.
+ *
+ * Why not `moveTo`?  `GroupFace.moveTo` only translates — it leaves the
+ * user bounds' *size* unchanged (default 300×200).  After translation,
+ * `calculateLayout` expands the displayed bounding box to max(user bounds,
+ * children hull + padding), which leaves sibling containers overlapping at
+ * their default half-dimensions.  Writing TALA's size directly into user
+ * bounds makes the displayed size match TALA's intent.
+ *
+ * If TALA did not return a size (no `<rect>` — e.g. a future cylinder-
+ * shaped group), we fall back to `moveTo(center)` using the group's
+ * current bounding-box size to convert TALA's top-left into the center
+ * that `moveTo` expects.  Groups rendered as cylinders aren't a real case
+ * in the DFD schema today, but the engine shouldn't crash and — if it
+ * ever does fire — the coordinate semantics should still be correct.
+ *
+ * Skipped outcomes, bucketed by cause so the end-of-run warning can say
+ * which skip cause applied to which path:
+ *  - `"skipped-non-positive"` — the rect branch has non-positive
+ *    dimensions.  A backstop — TALA reliably emits positive dimensions
+ *    for rects, but a degenerate rectangle would write inverted/zero-area
+ *    user bounds that downstream face/layout code doesn't handle
+ *    coherently.
+ *  - `"skipped-rect-less"` — the rect-less fallback would be wrong
+ *    (current bbox is zero, which would leave user bounds at their
+ *    300×200 default and re-introduce the sibling-overlap bug).
+ *
+ * The caller aggregates skipped paths into a single end-of-run warning so
+ * this path does not produce per-group console spam.
+ */
+function placeGroup(group: PositionableGroup, p: TalaPlacement): PlacementOutcome {
+    if (p.width !== undefined && p.height !== undefined) {
+        if (p.width <= 0 || p.height <= 0) {
+            return "skipped-non-positive";
+        }
+        group.face.setBounds(p.x, p.y, p.x + p.width, p.y + p.height);
+        return "placed";
+    }
+    const groupFallbackBoundingBox = group.face.boundingBox;
+    const halfW = (groupFallbackBoundingBox.xMax - groupFallbackBoundingBox.xMin) / 2;
+    const halfH = (groupFallbackBoundingBox.yMax - groupFallbackBoundingBox.yMin) / 2;
+    // A zero-sized bounding box on a group means the group is pre-layout
+    // (all-zero face.boundingBox default).  A `moveTo` with halfW=halfH=0
+    // would translate the group's *origin* but leave user bounds at the
+    // default 300x200 — re-introducing the sibling-overlap bug that the
+    // primary `setBounds` path is meant to fix.  We'd rather leave the
+    // group unplaced and let `run` include its qualified path in the
+    // single end-of-run warning (unified with TALA-missing paths) than
+    // log a per-group line here and then do the broken thing.
+    if (halfW === 0 && halfH === 0) {
+        return "skipped-rect-less";
+    }
+    group.moveTo(p.x + halfW, p.y + halfH);
+    return "placed";
+}
+
+/**
+ * A positionable canvas node paired with its qualified D2 path.  Used as the
+ * element type in the block/group pass lists.
+ */
+interface PositionableEntry {
+    readonly qualifiedPath: string;
+    readonly node: PositionableNode;
+}
+
+/**
+ * Collected positionables from the canvas, already partitioned by kind into
+ * two ordered lists so `run` can iterate each kind directly without filtering.
+ */
+interface CollectedNodes {
+    readonly blocks: ReadonlyArray<PositionableEntry>;
+    readonly groups: ReadonlyArray<PositionableEntry>;
+}
+
+/**
+ * Runtime-narrows a `SerializableBlock` to a `PositionableBlock`.
+ *
+ * The serializable interfaces only describe the read-side surface that
+ * D2Bridge touches; the engine additionally requires the `moveTo` mover
+ * method that real `BlockView` / `GroupView` instances expose.  A test
+ * fixture that supplies only `SerializableBlock` would otherwise crash
+ * deep inside `placeBlock` with a `.moveTo is not a function` error;
+ * the guards throw a diagnostic error naming the offending path so
+ * bad-fixture failures are obvious.
+ */
+function asPositionableBlock(
+    block: SerializableBlock,
+    qualifiedPath: string
+): PositionableBlock {
+    if (typeof (block as { moveTo?: unknown }).moveTo !== "function") {
+        throw new Error(
+            `NewAutoLayoutEngine: block "${qualifiedPath}" is not positionable — missing moveTo method`
+        );
+    }
+    return block as PositionableBlock;
+}
+
+/**
+ * Runtime-narrows a `SerializableGroup` to a `PositionableGroup`.
+ *
+ * Mirrors {@link asPositionableBlock}: the group must additionally carry
+ * `moveTo` on the group and `setBounds` on its face.  Missing methods
+ * produce a diagnostic error naming the offending qualified path.
+ */
+function asPositionableGroup(
+    group: SerializableGroup,
+    qualifiedPath: string
+): PositionableGroup {
+    if (typeof (group as { moveTo?: unknown }).moveTo !== "function") {
+        throw new Error(
+            `NewAutoLayoutEngine: group "${qualifiedPath}" is not positionable — missing moveTo method`
+        );
+    }
+    const face = group.face as { setBounds?: unknown };
+    if (typeof face.setBounds !== "function") {
+        throw new Error(
+            `NewAutoLayoutEngine: group "${qualifiedPath}" face is not positionable — missing setBounds method`
+        );
+    }
+    return group as PositionableGroup;
+}
+
+/**
  * Collects all blocks and groups from the canvas (top-level and recursively
- * nested) into a flat map keyed by **qualified D2 path**.
+ * nested) into two lists keyed by **qualified D2 path**, partitioned by kind.
  *
  * The qualified path matches exactly what `serializeToD2` emits for edge
  * endpoints (e.g. `group-g.block-c` for a block nested one level deep).
  * This keeps the serialize → SVG → parse → apply id round-trip consistent.
  *
- * Traversal order is depth-first: each group is inserted into the map before
- * its descendants.  This parent-before-descendant ordering is an invariant
- * required by {@link NewAutoLayoutEngine.run} — see its JSDoc for the full
- * explanation.  Do NOT change the traversal order without preserving this
- * invariant.
+ * Traversal order is depth-first.  Within each list, parent-before-descendant
+ * ordering is preserved (a group appears in `groups` before its nested
+ * sub-groups; a block's parent group appears in `groups` before the block
+ * appears in `blocks`).  Partitioning by kind lets `run` apply all block
+ * placements before any group placement — see {@link NewAutoLayoutEngine.run}.
  *
  * Only blocks and groups are collected; lines, anchors, and latches are
  * ignored because D2/TALA does not emit positions for them.
  */
-function collectNodes(canvas: SerializableCanvas): Map<string, PositionableNode> {
-    const result = new Map<string, PositionableNode>();
+function collectNodes(canvas: SerializableCanvas): CollectedNodes {
+    const blocks: PositionableEntry[] = [];
+    const groups: PositionableEntry[] = [];
 
-    function visitBlock(block: PositionableBlock, qualifiedPath: string): void {
-        result.set(qualifiedPath, {
-            id:    block.id,
-            halfW: block.face.width  / 2,
-            halfH: block.face.height / 2,
-            moveTo: (x, y) => block.moveTo(x, y)
+    function visitBlock(block: SerializableBlock, qualifiedPath: string): void {
+        const positionable = asPositionableBlock(block, qualifiedPath);
+        blocks.push({
+            qualifiedPath,
+            node: { placeAt: (p): PlacementOutcome => placeBlock(positionable, p) }
         });
     }
 
-    function visitGroup(group: PositionableGroup, qualifiedPath: string): void {
-        const bb = group.face.boundingBox;
-        result.set(qualifiedPath, {
-            id:    group.id,
-            halfW: (bb.xMax - bb.xMin) / 2,
-            halfH: (bb.yMax - bb.yMin) / 2,
-            moveTo: (x, y) => group.moveTo(x, y)
+    function visitGroup(group: SerializableGroup, qualifiedPath: string): void {
+        const positionable = asPositionableGroup(group, qualifiedPath);
+        groups.push({
+            qualifiedPath,
+            node: { placeAt: (p): PlacementOutcome => placeGroup(positionable, p) }
         });
-        for (const child of group.blocks) {
-            const childPath = `${qualifiedPath}.${child.id}`;
+        for (const child of positionable.blocks) {
+            const childPath = `${qualifiedPath}.${child.instance}`;
             visitBlock(child, childPath);
         }
-        for (const nested of group.groups) {
-            const nestedPath = `${qualifiedPath}.${nested.id}`;
+        for (const nested of positionable.groups) {
+            const nestedPath = `${qualifiedPath}.${nested.instance}`;
             visitGroup(nested, nestedPath);
         }
     }
 
     for (const block of canvas.blocks) {
-        visitBlock(block as PositionableBlock, block.id);
+        visitBlock(block, block.instance);
     }
     for (const group of canvas.groups) {
-        visitGroup(group as PositionableGroup, group.id);
+        visitGroup(group, group.instance);
     }
 
-    return result;
+    return { blocks, groups };
+}
+
+/**
+ * Aggregated lists of qualified paths that did not receive a placement,
+ * bucketed by cause so the end-of-run warning can report each bucket
+ * separately:
+ *
+ * - `missing`            — no placement in the TALA SVG for this path.
+ * - `skippedRectLess`    — rect-less TALA placement AND the node has no
+ *                          usable fallback bounding box (see `placeGroup`).
+ * - `skippedNonPositive` — TALA emitted a rect with non-positive
+ *                          dimensions (see `placeGroup`).
+ */
+interface UnplacedPaths {
+    readonly missing:            string[];
+    readonly skippedRectLess:    string[];
+    readonly skippedNonPositive: string[];
+}
+
+/**
+ * Applies placements from `coords` to every entry in `entries`, mutating
+ * the buckets in `unplaced` for paths that did not receive a placement
+ * (see {@link UnplacedPaths}).  Extracted from `run()` so the two-pass
+ * logic and the aggregation contract are easy to reason about in
+ * isolation.
+ */
+function applyPlacements(
+    entries:  ReadonlyArray<PositionableEntry>,
+    coords:   Map<string, TalaPlacement>,
+    unplaced: UnplacedPaths
+): void {
+    for (const { qualifiedPath, node } of entries) {
+        const placement = coords.get(qualifiedPath);
+        if (placement === undefined) {
+            unplaced.missing.push(qualifiedPath);
+            continue;
+        }
+        const outcome = node.placeAt(placement);
+        if (outcome === "skipped-rect-less") {
+            unplaced.skippedRectLess.push(qualifiedPath);
+        } else if (outcome === "skipped-non-positive") {
+            unplaced.skippedNonPositive.push(qualifiedPath);
+        }
+    }
+}
+
+/**
+ * Formats one bucket of the aggregated end-of-run warning.  Enforces the
+ * per-bucket `MAX_MISSING_DISPLAYED` display cap and the `", ... and N
+ * more"` elision suffix in one place.  Returns `null` if the bucket is
+ * empty so callers can filter it out without boilerplate.
+ */
+function formatBucket(paths: ReadonlyArray<string>, cause: string): string | null {
+    if (paths.length === 0) {
+        return null;
+    }
+    const shown  = paths.slice(0, MAX_MISSING_DISPLAYED).map((p) => `"${p}"`).join(", ");
+    const elided = paths.length - MAX_MISSING_DISPLAYED;
+    const suffix = elided > 0 ? `, ... and ${elided} more` : "";
+    return `${paths.length} ${cause}: ${shown}${suffix}`;
+}
+
+/**
+ * Formats the aggregated end-of-run warning payload.  Each {@link
+ * UnplacedPaths} bucket is reported as its own clause with a distinct
+ * cause label so a reader can tell which cause applied to which path.
+ *
+ * Returns the warning string, or `null` if there is nothing to warn about.
+ */
+function formatSkippedWarning(unplaced: UnplacedPaths): string | null {
+    const total
+        = unplaced.missing.length
+        + unplaced.skippedRectLess.length
+        + unplaced.skippedNonPositive.length;
+    if (total === 0) {
+        return null;
+    }
+    const parts = [
+        formatBucket(unplaced.missing,            "not found in the TALA SVG"),
+        formatBucket(unplaced.skippedRectLess,    "skipped (rect-less placement with zero bbox)"),
+        formatBucket(unplaced.skippedNonPositive, "skipped (non-positive rect dimensions)")
+    ].filter((s): s is string => s !== null);
+    return (
+        `NewAutoLayoutEngine: ${total} canvas node(s) kept their current positions. `
+        + parts.join("; ")
+    );
 }
 
 export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
@@ -119,21 +403,24 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
     /**
      * Runs the TALA layout engine on the canvas root.
      *
-     * **Coordinate semantics**: TALA returns top-left `(x, y)` for every node
-     * via the SVG `<rect x y>` attribute.  However, `BlockView.moveTo` and
-     * `GroupView.moveTo` both place the node's **center** at `(x, y)` (because
-     * `DiagramFace.moveTo` targets `boundingBox.x / boundingBox.y`, which are
-     * the center coordinates in both `DictionaryBlock.calculateLayout` and
-     * `GroupFace.calculateLayout`).  We therefore convert each TALA coordinate
-     * to a center before calling `moveTo`:
+     * **Coordinate semantics**: TALA returns top-left `(x, y, width, height)`
+     * for every node via the SVG `<rect>` attributes.  Blocks are placed via
+     * `moveTo(top-left + half-dimensions)`, converting to the center-based
+     * target that `DiagramFace.moveTo` expects.  Groups are placed via
+     * `GroupFace.setBounds(xMin, yMin, xMax, yMax)`, which writes TALA's
+     * exact bounds directly into the group's user bounds — this is how the
+     * group's displayed size matches TALA's auto-computed container size.
+     * Using `moveTo` on groups would only translate them, leaving their
+     * size at the default 300×200 user bounds and causing sibling
+     * containers to overlap visually.
      *
-     *   `moveTo(talaX + halfW, talaY + halfH)`
-     *
-     * **Node iteration order MUST be parent-before-descendant** so that a
-     * group's cascading `moveTo` (which shifts all children via `moveBy`) is
-     * immediately overwritten by each descendant's own absolute `moveTo`.
-     * `collectNodes` guarantees this by inserting each group ahead of its
-     * children (DFS).  Do not reorder without preserving this invariant.
+     * **Two-pass order**: blocks first, then groups.  Each `BlockView.moveTo`
+     * propagates via `handleUpdate` → `GroupFace.calculateLayout`, which
+     * expands the parent group's user bounds to include the hull of its
+     * children (still at their default positions while other blocks are
+     * mid-pass).  Running group `setBounds` after all block moves means
+     * `setBounds` overwrites whatever `calculateLayout` expanded to, pinning
+     * the group to TALA's exact reported bounds regardless of the ripple.
      *
      * @param objects
      *  The canvas root is expected at `objects[0]`.  If `objects` is empty
@@ -170,24 +457,35 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
         // 3. Parse SVG → qualified-path → {x, y}  (top-left coordinates)
         const coords = parseTalaSvg(svg);
 
-        // 4. Build qualified-path → node map from the live canvas
-        const nodes = collectNodes(canvas);
+        // 4. Build qualified-path lists from the live canvas, already
+        //    partitioned by kind.
+        const { blocks, groups } = collectNodes(canvas);
 
-        // 5. Apply positions — convert TALA top-left to center before moveTo
-        let warnedMissing = false;
-        for (const [qualifiedPath, node] of nodes) {
-            const pos = coords.get(qualifiedPath);
-            if (pos === undefined) {
-                if (!warnedMissing) {
-                    console.warn(
-                        `NewAutoLayoutEngine: one or more canvas nodes were not found in the TALA SVG (first missing qualified path: "${qualifiedPath}"). Those nodes will keep their current positions.`
-                    );
-                    warnedMissing = true;
-                }
-                continue;
-            }
-            // TALA gives top-left; moveTo expects center — offset by half-dimensions.
-            node.moveTo(pos.x + node.halfW, pos.y + node.halfH);
+        // 5. Apply each TALA placement in two passes (see `run` JSDoc):
+        //    pass 1 — blocks (triggers parent calculateLayout ripple);
+        //    pass 2 — groups (setBounds overwrites the ripple-expanded user
+        //    bounds with TALA's exact rectangle).
+        //
+        // Missing-placement policy: collect every qualified path that the
+        // canvas has but the placement flow did not honor — whether (a) the
+        // TALA SVG omitted it, (b) the node returned `"skipped-rect-less"`,
+        // or (c) the node returned `"skipped-non-positive"` — across BOTH
+        // passes, bucketed by cause.  Warn once at the end with the full
+        // list.  Warning per-pass or per-node would either spam the console
+        // or hide the fact that both blocks and groups went unplaced in the
+        // same run; per-cause buckets let a reader tell why any given path
+        // was left alone.
+        const unplaced: UnplacedPaths = {
+            missing:            [],
+            skippedRectLess:    [],
+            skippedNonPositive: []
+        };
+        applyPlacements(blocks, coords, unplaced);
+        applyPlacements(groups, coords, unplaced);
+
+        const warning = formatSkippedWarning(unplaced);
+        if (warning !== null) {
+            console.warn(warning);
         }
     }
 

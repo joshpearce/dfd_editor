@@ -11,14 +11,19 @@
  *   - Happy path: 2 blocks + 1 line → one D2 declaration per block
  *     (with matching width/height) + one `source -> target` connection.
  *   - Groups: a block nested in a group is emitted inside the group's
- *     `{ ... }` container; group emits width/height from its bounding box.
+ *     `{ ... }` container. Groups themselves do NOT emit width/height — TALA
+ *     auto-sizes containers from their contents.
  *   - Nested lines (C1): a line connecting two blocks inside a group is
  *     emitted inside the group's `{ ... }` block, not at the canvas root.
  *   - Edge qualified paths (C2): edge endpoints inside groups use the
  *     fully-qualified D2 path (e.g. `group-g.block-c`); top-level endpoints
  *     use the plain leaf id.
- *   - Cross-group line: a line from a top-level block to a nested block
- *     emits `block-a -> group-g.block-c` at the canvas root.
+ *   - Cross-group line (currently broken): a line from a top-level block to
+ *     a nested block emits the RAW leaf id (`block-a -> block-c`) at the
+ *     canvas root, NOT the qualified `group-g.block-c`.  The "C2 —
+ *     cross-group edge qualified paths (currently broken)" test pins this
+ *     status quo; see the comment in `serializeToD2` for the full
+ *     explanation and the plan for a proper fix.
  *   - Edge-id resolution: connected line emits `sourceId -> targetId`;
  *     a line with a missing endpoint is silently skipped.
  *   - Label/ID escaping: spaces, double quotes, and D2 reserved chars
@@ -46,6 +51,7 @@ import {
     serializeToD2,
     parseTalaSvg,
     qualifiedD2Path,
+    d2Escape,
     type SerializableBlock,
     type SerializableGroup,
     type SerializableLine,
@@ -71,10 +77,15 @@ function makeProperties(label: string): { isDefined(): boolean, toString(): stri
 
 /**
  * Builds a minimal SerializableBlock stub for the serializer.
+ *
+ * @param instance
+ *  The unique D2 node identifier — in production this is the model's
+ *  `instance` uuid, not the template `id`.  Tests pass human-readable
+ *  strings here for legibility.
  */
-function makeBlock(id: string, label: string, width: number, height: number): SerializableBlock {
+function makeBlock(instance: string, label: string, width: number, height: number): SerializableBlock {
     return {
-        id,
+        instance,
         properties: makeProperties(label),
         face: { width, height }
     };
@@ -86,7 +97,7 @@ function makeBlock(id: string, label: string, width: number, height: number): Se
  * `lines` are lines whose LCA is this group (both endpoints inside).
  */
 function makeGroup(
-    id: string,
+    instance: string,
     label: string,
     bb: { xMin: number, yMin: number, xMax: number, yMax: number },
     blocks: SerializableBlock[] = [],
@@ -94,7 +105,7 @@ function makeGroup(
     lines:  SerializableLine[]  = []
 ): SerializableGroup {
     return {
-        id,
+        instance,
         properties: makeProperties(label),
         face: { boundingBox: { ...bb } },
         blocks,
@@ -108,8 +119,8 @@ function makeGroup(
  * Pass `null` for sourceObject or targetObject to simulate a floating latch.
  */
 function makeLine(
-    sourceObject: { id: string } | null,
-    targetObject: { id: string } | null
+    sourceObject: { instance: string } | null,
+    targetObject: { instance: string } | null
 ): SerializableLine {
     return { sourceObject, targetObject };
 }
@@ -233,36 +244,40 @@ describe("serializeToD2", () => {
             expect(childIdx).toBeLessThan(closeBraceIdx);
         });
 
-        it("emits group width and height derived from its bounding box", () => {
-            // xMax - xMin = 300 - 0 = 300; yMax - yMin = 200 - 0 = 200
+        it("does not emit width or height for a group (TALA auto-sizes containers)", () => {
+            // Pre-layout bounding boxes are all-zero, and even when non-zero
+            // they do not reflect the post-layout container size. Emitting
+            // `width:` / `height:` would constrain TALA and collapse sibling
+            // containers at the origin — see auto-layout-boundary-overlap fix.
             const group  = makeGroup(
                 "g1",
                 "G1",
                 { xMin: 0, yMin: 0, xMax: 300, yMax: 200 },
-                []
+                [makeBlock("inner", "Inner", 100, 50)]
             );
             const canvas = makeCanvas([], [group], []);
 
             const output = serializeToD2(canvas);
 
-            expect(output).toMatch(/width:\s*300/);
-            expect(output).toMatch(/height:\s*200/);
-        });
+            // The inner block still carries width/height. Only the group must not.
+            // Split on the group's opening brace and closing brace to isolate the
+            // group-level lines (direct properties of the group), excluding nested
+            // block declarations.  Rebuild the header via `d2Escape` so this test
+            // stays in sync with escape-rule changes (e.g. if unconditionally
+            // quoting labels ever becomes the policy).
+            const groupHeader = `${d2Escape("g1")}: ${d2Escape("G1")} {`;
+            const headerIdx   = output.indexOf(groupHeader);
+            expect(headerIdx).toBeGreaterThanOrEqual(0);
 
-        it("emits non-zero fractional bounding-box dimensions rounded to the nearest integer", () => {
-            // Bounding box with non-integer values: 299.7 → 300; 199.3 → 199
-            const group  = makeGroup(
-                "g-frac",
-                "",
-                { xMin: 0, yMin: 0, xMax: 299.7, yMax: 199.3 },
-                []
-            );
-            const canvas = makeCanvas([], [group], []);
+            // Between the header and the first nested `{` (the inner block's
+            // opening brace) there should be no `width:` or `height:` line —
+            // that slice represents lines that are direct properties of the group.
+            const afterHeader    = headerIdx + groupHeader.length;
+            const firstChildOpen = output.indexOf("{", afterHeader);
+            const groupOwnLines  = output.slice(afterHeader, firstChildOpen);
 
-            const output = serializeToD2(canvas);
-
-            expect(output).toMatch(/width:\s*300/);
-            expect(output).toMatch(/height:\s*199/);
+            expect(groupOwnLines).not.toMatch(/width:/);
+            expect(groupOwnLines).not.toMatch(/height:/);
         });
 
     });
@@ -345,9 +360,72 @@ describe("serializeToD2", () => {
 
     // -------------------------------------------------------------------------
 
-    describe("C2 — cross-group edge qualified paths", () => {
+    describe("instance-based node identity — sibling groups do not collide", () => {
 
-        it("emits a cross-boundary line as top-level-block -> qualified-nested-block", () => {
+        // Regression: pre-fix, production view objects exposed the template id
+        // on `.id` (e.g. two trust-boundary siblings both named `trust_boundary`).
+        // D2 merged redeclarations of the same identifier into one node, which
+        // collapsed sibling containers into a single overlapping shape.
+        it("emits distinct D2 declarations for each unique instance even when labels differ", () => {
+            const aws      = makeGroup(
+                "uuid-aws",
+                "AWS Private Subnet",
+                { xMin: 0, yMin: 0, xMax: 100, yMax: 100 }
+            );
+            const internet = makeGroup(
+                "uuid-internet",
+                "Internet",
+                { xMin: 0, yMin: 0, xMax: 100, yMax: 100 }
+            );
+            const canvas   = makeCanvas([], [aws, internet], []);
+
+            const output = serializeToD2(canvas);
+
+            // Rebuild both headers via `d2Escape` so these assertions stay in
+            // sync with escape-rule changes (e.g. if unconditionally quoting
+            // labels ever becomes the policy).
+            expect(output).toContain(
+                `${d2Escape("uuid-aws")}: ${d2Escape("AWS Private Subnet")}`
+            );
+            expect(output).toContain(
+                `${d2Escape("uuid-internet")}: ${d2Escape("Internet")}`
+            );
+        });
+
+        it("uses the instance uuid (not the template id) in the qualified path for nested edges", () => {
+            const blockA = makeBlock("uuid-block-a", "A", 100, 50);
+            const blockB = makeBlock("uuid-block-b", "B", 100, 50);
+            const line   = makeLine(blockA, blockB);
+            const group  = makeGroup(
+                "uuid-group",
+                "G",
+                { xMin: 0, yMin: 0, xMax: 400, yMax: 300 },
+                [blockA, blockB],
+                [],
+                [line]
+            );
+            const canvas = makeCanvas([], [group], []);
+
+            const output = serializeToD2(canvas);
+
+            expect(output).toContain("uuid-group.uuid-block-a -> uuid-group.uuid-block-b");
+        });
+
+    });
+
+    // -------------------------------------------------------------------------
+
+    describe("C2 — cross-group edge qualified paths (currently broken)", () => {
+
+        // NOTE: the name says "currently broken" because this test pins the
+        // status quo — not the correct behavior.  See the block comment in
+        // `serializeToD2` for the full explanation: the canvas-level line
+        // emits the raw endpoint uuids, which causes D2 to fabricate a
+        // top-level stub rather than connect to the pre-declared nested
+        // block.  A future fix should (a) emit the qualified path for the
+        // nested endpoint and (b) rewrite these assertions (not flip them
+        // from red to green — the shape of the expected output changes).
+        it("emits a cross-boundary line using the raw leaf id instead of the qualified nested path", () => {
             // top-level block-a → nested group-g.block-c
             const blockA = makeBlock("block-a", "A", 100, 50);
             const blockC = makeBlock("block-c", "C", 80, 40);
@@ -363,12 +441,16 @@ describe("serializeToD2", () => {
 
             const output = serializeToD2(canvas);
 
-            // The canvas-level line should use the leaf id for block-a (top-level)
-            // and the leaf id for block-c (also top-level from the canvas line
-            // perspective — the canvas only knows the endpoint ids).
-            // Note: canvas-level lines have no ancestor context for nested nodes;
-            // they emit the raw ids as provided by resolveLineEndpoints.
+            // The canvas-level line uses the raw leaf id `block-c` — NOT the
+            // qualified path `group-g.block-c`.  That's the broken bit: D2
+            // will fabricate a spurious top-level stub for `block-c` rather
+            // than connect to the pre-declared nested block.
             expect(output).toContain("block-a -> block-c");
+            // Explicit negative assertion pinning the known-bad state: the
+            // qualified path is NOT present in the output.  When the fix
+            // lands this assertion will fail loudly, forcing the test to be
+            // updated alongside the fix.
+            expect(output).not.toContain("block-a -> group-g.block-c");
         });
 
     });
@@ -427,10 +509,10 @@ describe("serializeToD2", () => {
         it("skips a line that throws when accessing endpoints (I1 — null-safe resolution)", () => {
             // Simulate a LineView where sourceObject getter throws (null latch).
             const throwingLine: SerializableLine = {
-                get sourceObject(): { id: string } | null {
+                get sourceObject(): { instance: string } | null {
                     throw new Error("No source latch assigned.");
                 },
-                targetObject: { id: "tgt-id" }
+                targetObject: { instance: "tgt-id" }
             };
             const tgt    = makeBlock("tgt-id", "", 100, 50);
             const canvas = makeCanvas([tgt], [], [throwingLine]);
@@ -577,8 +659,9 @@ describe("parseTalaSvg", () => {
 
             expect(result.size).toBe(2);
 
-            expect(result.get("alpha")).toEqual({ x: 10,  y: 20  });
-            expect(result.get("beta")).toEqual({ x: 100, y: 200 });
+            // buildSvg uses width=50, height=30 for every rect.
+            expect(result.get("alpha")).toEqual({ x: 10,  y: 20,  width: 50, height: 30 });
+            expect(result.get("beta")).toEqual({ x: 100, y: 200, width: 50, height: 30 });
         });
 
     });
@@ -594,7 +677,7 @@ describe("parseTalaSvg", () => {
             const result = parseTalaSvg(svg);
 
             // Should use the FULL path "parent.child" as key, not just the leaf.
-            expect(result.get("parent.child")).toEqual({ x: 50, y: 80 });
+            expect(result.get("parent.child")).toEqual({ x: 50, y: 80, width: 50, height: 30 });
             // The leaf alone must NOT be present as a separate key.
             expect(result.has("child")).toBe(false);
         });
@@ -604,7 +687,7 @@ describe("parseTalaSvg", () => {
 
             const result = parseTalaSvg(svg);
 
-            expect(result.get("a.b.c")).toEqual({ x: 7, y: 13 });
+            expect(result.get("a.b.c")).toEqual({ x: 7, y: 13, width: 50, height: 30 });
             expect(result.has("c")).toBe(false);
             expect(result.has("b.c")).toBe(false);
         });
@@ -676,7 +759,7 @@ describe("parseTalaSvg", () => {
             const result = parseTalaSvg(svg);
 
             expect(result.size).toBe(1);
-            expect(result.get("good-node")).toEqual({ x: 42, y: 17 });
+            expect(result.get("good-node")).toEqual({ x: 42, y: 17, width: 50, height: 30 });
         });
 
     });
