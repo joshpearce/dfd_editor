@@ -685,11 +685,11 @@ describe("NewAutoLayoutEngine", () => {
          */
         interface BlockStubWithAnchors {
             instance:   string;
-            properties: { isDefined: () => boolean; toString: () => string };
+            properties: { isDefined: () => boolean, toString: () => string };
             face: {
                 width:  number;
                 height: number;
-                boundingBox: { xMin: number; xMax: number; yMin: number; yMax: number };
+                boundingBox: { xMin: number, xMax: number, yMin: number, yMax: number };
             };
             moveTo:  ReturnType<typeof vi.fn>;
             anchors: Map<AnchorPosition, AnchorStub>;
