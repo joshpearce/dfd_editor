@@ -1,4 +1,7 @@
 // pattern: Functional Core
+import type { Point } from "./AnchorRebind";
+export type { Point };
+
 ///////////////////////////////////////////////////////////////////////////////
 //  Serializable interfaces (test-friendly structural surface)  ///////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -307,13 +310,29 @@ export type TalaPlacement =
     | { readonly x: number, readonly y: number, readonly width?: undefined, readonly height?: undefined };
 
 /**
- * Parses a TALA-rendered SVG string and returns a map of node path to
- * its {@link TalaPlacement}.
+ * The start and end coordinates of a connection (edge) as reported by TALA.
  *
- * D2 encodes each node's id as the base64 of the node's full D2 path
- * (e.g. `cGFyZW50LmNoaWxk` decodes to `parent.child`).  The full decoded
- * path is used as the map key so that nodes at different nesting depths
- * with the same leaf id can be distinguished.
+ * Both points are in TALA's coordinate space.  `start` corresponds to the
+ * `M x y` move-to command at the beginning of the SVG path data; `end`
+ * corresponds to the last absolute coordinate pair in the path data (the
+ * arrowhead tip).
+ *
+ * @see parseTalaSvg
+ */
+export type TalaEdge = {
+    readonly start: Point;
+    readonly end:   Point;
+};
+
+/**
+ * Parses a TALA-rendered SVG string and returns a map of node path to
+ * its {@link TalaPlacement} and an array of {@link TalaEdge} values for
+ * every connection element found in the SVG.
+ *
+ * **Node parsing**: D2 encodes each node's id as the base64 of the node's
+ * full D2 path (e.g. `cGFyZW50LmNoaWxk` decodes to `parent.child`).  The
+ * full decoded path is used as the map key so that nodes at different
+ * nesting depths with the same leaf id can be distinguished.
  *
  * Position and size are read from the `x`/`y`/`width`/`height` attributes
  * of the first `<rect>` child of the `<g class="shape">` element that
@@ -321,13 +340,25 @@ export type TalaPlacement =
  * cylinder shapes D2 uses a `<path>` instead; in that case we fall back
  * to parsing the `M x y` from the path data and omit the size.
  *
+ * **Edge parsing**: `<g class="connection">` elements do NOT have a base64
+ * class — they are matched directly by class name.  For each, the inner
+ * `<path>` element's `d` attribute is inspected:
+ *   - `start` is extracted from the leading `M x y` command.
+ *   - `end`   is extracted from the last numeric coordinate pair in the
+ *             path data (after stripping a trailing `Z`/`z` close-path).
+ * Connections whose `<path>` is absent or whose `d` attribute does not
+ * match either regex are silently skipped (no throw).
+ *
  * @throws {Error} if the SVG string cannot be parsed (DOMParser returns a
  *   `<parsererror>` document).  `NewAutoLayoutEngine.run` propagates this
  *   throw rather than recovering — there is no partial-result mode, and
  *   the call-site's outer `try`/`catch` in `src/assets/scripts/Application/`
  *   is expected to surface the failure as a user-visible error.
  */
-export function parseTalaSvg(svg: string): Map<string, TalaPlacement> {
+export function parseTalaSvg(svg: string): {
+    nodes: Map<string, TalaPlacement>;
+    edges: TalaEdge[];
+} {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, "image/svg+xml");
 
@@ -335,7 +366,7 @@ export function parseTalaSvg(svg: string): Map<string, TalaPlacement> {
         throw new Error("failed to parse TALA SVG");
     }
 
-    const result = new Map<string, TalaPlacement>();
+    const nodes = new Map<string, TalaPlacement>();
 
     // Collect all <g> elements whose class decodes to a recognisable node id.
     const allGroups = doc.querySelectorAll("g[class]");
@@ -359,7 +390,7 @@ export function parseTalaSvg(svg: string): Map<string, TalaPlacement> {
         // Use the full decoded path as the map key so that nodes at different
         // nesting levels with the same leaf id can be distinguished.
         const nodeId = decoded;
-        if (!nodeId || result.has(nodeId)) {
+        if (!nodeId || nodes.has(nodeId)) {
             // Already resolved — first occurrence wins (SVG document order).
             continue;
         }
@@ -380,7 +411,7 @@ export function parseTalaSvg(svg: string): Map<string, TalaPlacement> {
                 const placement: TalaPlacement = !isNaN(width) && !isNaN(height)
                     ? { x, y, width, height }
                     : { x, y };
-                result.set(nodeId, placement);
+                nodes.set(nodeId, placement);
             }
             continue;
         }
@@ -391,10 +422,42 @@ export function parseTalaSvg(svg: string): Map<string, TalaPlacement> {
             const d = path.getAttribute("d") ?? "";
             const m = /^M\s*([\d.]+)\s+([\d.]+)/.exec(d);
             if (m) {
-                result.set(nodeId, { x: parseFloat(m[1]), y: parseFloat(m[2]) });
+                nodes.set(nodeId, { x: parseFloat(m[1]), y: parseFloat(m[2]) });
             }
         }
     }
 
-    return result;
+    // Parse connection (edge) elements — these use the plain class "connection"
+    // and are NOT base64-encoded, so they fall outside the node-parsing loop.
+    const edges: TalaEdge[] = [];
+    const connectionGroups = doc.querySelectorAll("g.connection");
+
+    for (const connG of connectionGroups) {
+        const pathEl = connG.querySelector("path");
+        if (!pathEl) {
+            continue;
+        }
+        const d = pathEl.getAttribute("d") ?? "";
+
+        // Extract the start point from the leading "M x y" command.
+        const startMatch = /^M\s*([-\d.]+)[,\s]+([-\d.]+)/.exec(d);
+        if (!startMatch) {
+            continue;
+        }
+
+        // Extract the end point from the last numeric pair, after stripping
+        // any trailing close-path command (Z or z).
+        const dStripped = d.replace(/[Zz]\s*$/, "").trimEnd();
+        const endMatch = /([-\d.]+)[,\s]+([-\d.]+)\s*$/.exec(dStripped);
+        if (!endMatch) {
+            continue;
+        }
+
+        edges.push({
+            start: { x: parseFloat(startMatch[1]), y: parseFloat(startMatch[2]) },
+            end:   { x: parseFloat(endMatch[1]),   y: parseFloat(endMatch[2])   }
+        });
+    }
+
+    return { nodes, edges };
 }

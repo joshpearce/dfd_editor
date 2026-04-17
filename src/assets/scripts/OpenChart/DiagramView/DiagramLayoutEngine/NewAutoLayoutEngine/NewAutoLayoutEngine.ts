@@ -667,7 +667,8 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
         const svg = await this.layoutSource(source);
 
         // 3. Parse SVG → qualified-path → {x, y}  (top-left coordinates)
-        const coords = parseTalaSvg(svg);
+        //    _edges reserved for Step 4 (TALA anchor strategy).
+        const { nodes: coords } = parseTalaSvg(svg);
 
         // 4. Build qualified-path lists from the live canvas, already
         //    partitioned by kind.

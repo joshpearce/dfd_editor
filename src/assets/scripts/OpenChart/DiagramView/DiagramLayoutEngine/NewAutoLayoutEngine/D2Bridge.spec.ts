@@ -55,7 +55,8 @@ import {
     type SerializableBlock,
     type SerializableGroup,
     type SerializableLine,
-    type SerializableCanvas
+    type SerializableCanvas,
+    type TalaEdge
 } from "./D2Bridge";
 
 
@@ -655,7 +656,7 @@ describe("parseTalaSvg", () => {
                 { id: "beta",  x: 100, y: 200 }
             ]);
 
-            const result = parseTalaSvg(svg);
+            const { nodes: result } = parseTalaSvg(svg);
 
             expect(result.size).toBe(2);
 
@@ -674,7 +675,7 @@ describe("parseTalaSvg", () => {
             // base64("parent.child") → the parser should use "parent.child" as the key
             const svg = buildSvg([{ id: "parent.child", x: 50, y: 80 }]);
 
-            const result = parseTalaSvg(svg);
+            const { nodes: result } = parseTalaSvg(svg);
 
             // Should use the FULL path "parent.child" as key, not just the leaf.
             expect(result.get("parent.child")).toEqual({ x: 50, y: 80, width: 50, height: 30 });
@@ -685,7 +686,7 @@ describe("parseTalaSvg", () => {
         it("uses the full decoded path as the map key for a three-level path", () => {
             const svg = buildSvg([{ id: "a.b.c", x: 7, y: 13 }]);
 
-            const result = parseTalaSvg(svg);
+            const { nodes: result } = parseTalaSvg(svg);
 
             expect(result.get("a.b.c")).toEqual({ x: 7, y: 13, width: 50, height: 30 });
             expect(result.has("c")).toBe(false);
@@ -707,7 +708,7 @@ describe("parseTalaSvg", () => {
   </g>
 </svg>`;
 
-            const result = parseTalaSvg(svg);
+            const { nodes: result } = parseTalaSvg(svg);
 
             expect(result.size).toBe(0);
         });
@@ -724,7 +725,7 @@ describe("parseTalaSvg", () => {
   </g>
 </svg>`;
 
-            const result = parseTalaSvg(svg);
+            const { nodes: result } = parseTalaSvg(svg);
 
             expect(result.size).toBe(0);
         });
@@ -738,7 +739,7 @@ describe("parseTalaSvg", () => {
   </g>
 </svg>`;
 
-            const result = parseTalaSvg(svg);
+            const { nodes: result } = parseTalaSvg(svg);
 
             expect(result.size).toBe(0);
         });
@@ -756,7 +757,7 @@ describe("parseTalaSvg", () => {
   </g>
 </svg>`;
 
-            const result = parseTalaSvg(svg);
+            const { nodes: result } = parseTalaSvg(svg);
 
             expect(result.size).toBe(1);
             expect(result.get("good-node")).toEqual({ x: 42, y: 17, width: 50, height: 30 });
@@ -774,6 +775,114 @@ describe("parseTalaSvg", () => {
             expect(() => parseTalaSvg(badSvg)).toThrow("failed to parse TALA SVG");
         });
 
+    });
+
+});
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  parseTalaSvg — edges  //////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+describe("parseTalaSvg — edges", () => {
+
+    /**
+     * Builds an SVG containing the given nodes (base64-encoded) and the
+     * given connection elements (raw <g class="connection"> with a path).
+     */
+    function buildSvgWithConnections(
+        nodes: Array<{ id: string, x: number, y: number }>,
+        connections: Array<{ d: string }>
+    ): string {
+        const nodeMarkup = nodes.map(({ id, x, y }) => {
+            const cls = btoa(id);
+            return [
+                `  <g class="${cls}">`,
+                "    <g class=\"shape\">",
+                `      <rect x="${x}" y="${y}" width="50" height="30"/>`,
+                "    </g>",
+                "  </g>"
+            ].join("\n");
+        }).join("\n");
+
+        const connMarkup = connections.map(({ d }) => [
+            "  <g class=\"connection\">",
+            `    <path d="${d}"/>`,
+            "  </g>"
+        ].join("\n")).join("\n");
+
+        const inner = [nodeMarkup, connMarkup].filter(Boolean).join("\n");
+        return `<svg xmlns="http://www.w3.org/2000/svg">\n${inner}\n</svg>`;
+    }
+
+    // -------------------------------------------------------------------------
+
+    it("two connections → two TalaEdges with correct start/end", () => {
+        const svg = buildSvgWithConnections([], [
+            { d: "M 10 20 L 100 200" },
+            { d: "M 30 40 L 300 400" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(2);
+
+        const first: TalaEdge = edges[0];
+        expect(first.start).toEqual({ x: 10, y: 20 });
+        expect(first.end).toEqual({ x: 100, y: 200 });
+
+        const second: TalaEdge = edges[1];
+        expect(second.start).toEqual({ x: 30, y: 40 });
+        expect(second.end).toEqual({ x: 300, y: 400 });
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("malformed path d falls through silently — no <path> child", () => {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+  <g class="connection">
+    <rect x="0" y="0" width="10" height="10"/>
+  </g>
+</svg>`;
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(0);
+    });
+
+    it("malformed path d falls through silently — unparseable d attribute", () => {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+  <g class="connection">
+    <path d="not-a-valid-path"/>
+  </g>
+</svg>`;
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(0);
+    });
+
+    // -------------------------------------------------------------------------
+
+    it("node parsing and edge parsing coexist independently", () => {
+        // An SVG with both a base64-encoded node and a connection element.
+        const nodeId = "my-node";
+        const svg = buildSvgWithConnections(
+            [{ id: nodeId, x: 5, y: 15 }],
+            [{ d: "M 1 2 L 3 4" }]
+        );
+
+        const { nodes, edges } = parseTalaSvg(svg);
+
+        // Node was parsed correctly.
+        expect(nodes.size).toBe(1);
+        expect(nodes.get(nodeId)).toEqual({ x: 5, y: 15, width: 50, height: 30 });
+
+        // Edge was parsed correctly.
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: 1, y: 2 });
+        expect(edges[0].end).toEqual({ x: 3, y: 4 });
     });
 
 });
