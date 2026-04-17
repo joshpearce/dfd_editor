@@ -602,14 +602,15 @@ function rebindLinesGeometric(lines: ReadonlyArray<RebindableLineSurface>): void
 
 /**
  * Returns the Euclidean distance from point `p` to the nearest point on the
- * boundary of the bounding box.  Returns 0 if `p` is inside the box.
+ * boundary of the bounding box.  Returns 0 if `p` is inside the box (or on
+ * its perimeter).
  *
  * Used by {@link rebindLinesTala} to score how well a TALA edge endpoint
  * aligns with a block's perimeter when selecting the best matching edge.
  */
 function pointToBoxDistance(
     p: Point,
-    box: { xMin: number, yMin: number, xMax: number, yMax: number }
+    box: CardinalBlockSurface["face"]["boundingBox"]
 ): number {
     const clampedX = Math.max(box.xMin, Math.min(box.xMax, p.x));
     const clampedY = Math.max(box.yMin, Math.min(box.yMax, p.y));
@@ -649,7 +650,11 @@ function rebindLinesTala(
         const srcBox = srcBlock.face.boundingBox;
         const tgtBox = tgtBlock.face.boundingBox;
 
-        // Plausibility thresholds: one half-dimension of each block.
+        // Plausibility threshold: the larger of a block's two half-dimensions.
+        // The plan says "one block's half-width"; `max(halfW, halfH)` is used
+        // to avoid false rejections for anisotropic blocks — a connection
+        // terminating on the wide face of a very narrow/tall block would
+        // otherwise be rejected because its other dimension is small.
         const srcThreshold = Math.max(
             (srcBox.xMax - srcBox.xMin) / 2,
             (srcBox.yMax - srcBox.yMin) / 2
@@ -660,6 +665,19 @@ function rebindLinesTala(
         );
 
         // Nearest-neighbor edge search.
+        //
+        // Direction assumption: TALA emits connections in source→target order
+        // (matching the `srcInstance -> tgtInstance` edge in the D2 source).
+        // If TALA reverses a specific connection, dStart/dEnd will both be
+        // large and the match falls through to the geometric fallback.
+        //
+        // Many-to-one policy: for cardinal-only rebinding, two diagram lines
+        // between the same block pair that both select the same TALA edge will
+        // still receive the correct cardinal anchor (they both exit the same
+        // face).  An assignment pass is not needed for this scope.
+        //
+        // Tie-break: when two edges have equal combined distance, the first
+        // edge in document (SVG) order wins.
         let bestEdge: TalaEdge | null = null;
         let bestDStart = Infinity;
         let bestDEnd   = Infinity;
@@ -676,6 +694,10 @@ function rebindLinesTala(
 
         if (bestEdge !== null && bestDStart <= srcThreshold && bestDEnd <= tgtThreshold) {
             // Use TALA edge endpoints to pick anchors.
+            // Note: pickCardinalAnchor uses center-to-point direction, which
+            // is exact when TALA terminates connections at face midpoints (the
+            // normal case for rectangular blocks).  Corner terminations are
+            // rare in practice; they may trigger the helper's tiebreak rule.
             const srcPos = pickCardinalAnchor(srcBlock, bestEdge.start);
             const tgtPos = pickCardinalAnchor(tgtBlock, bestEdge.end);
             const newSrcAnchor = srcBlock.anchors.get(srcPos);

@@ -131,6 +131,132 @@ function makeObjects(canvas: SerializableCanvas): DiagramObjectView[] {
 
 describe("NewAutoLayoutEngine", () => {
 
+    ///////////////////////////////////////////////////////////////////////////
+    //  Shared stub types and factories for the anchor-rebind tests  //////////
+    //  (used by both the "geometric" and "tala" describe blocks)  ////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+    /**
+     * Minimal anchor shape: a `parent` pointing back to a `BlockStubWithAnchors`
+     * and a `link` spy.  Declared as an interface to break the mutual recursion
+     * with `BlockStubWithAnchors`.
+     */
+    interface AnchorStub {
+        parent: BlockStubWithAnchors | null;
+        link:   ReturnType<typeof vi.fn>;
+    }
+
+    /** Minimal latch shape: a mutable `anchor` (updated by the `link` spy). */
+    interface LatchStub {
+        anchor: AnchorStub | null;
+        link:   ReturnType<typeof vi.fn>;
+    }
+
+    /**
+     * Block shape visible to the anchor rebind pass: `face.boundingBox`
+     * (mutable so `moveTo` can update it), `anchors` map, and a `moveTo` spy.
+     */
+    interface BlockStubWithAnchors {
+        instance:   string;
+        properties: { isDefined: () => boolean, toString: () => string };
+        face: {
+            width:  number;
+            height: number;
+            boundingBox: { xMin: number, xMax: number, yMin: number, yMax: number };
+        };
+        moveTo:  ReturnType<typeof vi.fn>;
+        anchors: Map<AnchorPosition, AnchorStub>;
+    }
+
+    function makeAnchorStub(): AnchorStub {
+        return { parent: null, link: vi.fn() };
+    }
+
+    function makeLatchStub(anchor: AnchorStub | null): LatchStub {
+        const latch: LatchStub = {
+            anchor,
+            link: vi.fn((newAnchor: AnchorStub, _update?: boolean) => {
+                latch.anchor = newAnchor;
+            })
+        };
+        return latch;
+    }
+
+    /**
+     * Creates a block stub whose `moveTo` updates `face.boundingBox` in place
+     * so the rebind pass reads the post-TALA positions.  Each block is
+     * pre-populated with all four cardinal anchors, each wired back to the block.
+     */
+    function makeBlockWithAnchors(instance: string, x: number, y: number, w: number, h: number): BlockStubWithAnchors {
+        const anchors = new Map<AnchorPosition, AnchorStub>();
+        const block: BlockStubWithAnchors = {
+            instance,
+            properties: { isDefined: () => false, toString: () => "" },
+            face: {
+                width:  w,
+                height: h,
+                boundingBox: {
+                    xMin: x - w / 2,
+                    xMax: x + w / 2,
+                    yMin: y - h / 2,
+                    yMax: y + h / 2
+                }
+            },
+            moveTo: vi.fn((cx: number, cy: number) => {
+                block.face.boundingBox.xMin = cx - w / 2;
+                block.face.boundingBox.xMax = cx + w / 2;
+                block.face.boundingBox.yMin = cy - h / 2;
+                block.face.boundingBox.yMax = cy + h / 2;
+            }),
+            anchors
+        };
+        for (const pos of [AnchorPosition.D0, AnchorPosition.D90, AnchorPosition.D180, AnchorPosition.D270]) {
+            const anchor = makeAnchorStub();
+            anchor.parent = block;
+            anchors.set(pos, anchor);
+        }
+        return block;
+    }
+
+    /**
+     * Creates a line stub whose `source` / `target` getters throw when null —
+     * mirroring `LineView`'s runtime semantics.
+     */
+    function makeLineStub(
+        sourceLatch: LatchStub | null,
+        targetLatch: LatchStub | null
+    ) {
+        return {
+            get source() {
+                if (sourceLatch === null) {
+                    throw new Error("LineView: source latch is null");
+                }
+                return sourceLatch;
+            },
+            get target() {
+                if (targetLatch === null) {
+                    throw new Error("LineView: target latch is null");
+                }
+                return targetLatch;
+            }
+        };
+    }
+
+    /**
+     * Assembles a `SerializableCanvas` from pre-built anchor-rebind stubs.
+     */
+    function makeGeometricCanvas(
+        blocks: BlockStubWithAnchors[],
+        groups: GroupStub[],
+        lines:  ReturnType<typeof makeLineStub>[]
+    ): SerializableCanvas {
+        return {
+            blocks: blocks as unknown as SerializableBlock[],
+            groups: groups as unknown as SerializableGroup[],
+            lines:  lines  as unknown as SerializableCanvas["lines"]
+        };
+    }
+
     describe("run — happy path: two top-level blocks", () => {
 
         it("calls layoutSource once with the serialized D2 source", async () => {
@@ -656,160 +782,6 @@ describe("NewAutoLayoutEngine", () => {
     describe("run — geometric anchor strategy", () => {
 
         ///////////////////////////////////////////////////////////////////////////
-        //  Structural types for the geometric-rebind stubs  //////////////////////
-        ///////////////////////////////////////////////////////////////////////////
-
-        /**
-         * Minimal anchor shape: a `parent` pointing back to a `BlockStubWithAnchors`
-         * and a `link` spy.  Declared as an interface to break the mutual recursion
-         * with `BlockStubWithAnchors` — TypeScript resolves forward-declared
-         * interfaces but not forward-inferred return types.
-         */
-        interface AnchorStub {
-            parent: BlockStubWithAnchors | null;
-            link:   ReturnType<typeof vi.fn>;
-        }
-
-        /**
-         * Minimal latch shape: a mutable `anchor` (updated by the `link` spy) and
-         * the `link` spy itself.
-         */
-        interface LatchStub {
-            anchor: AnchorStub | null;
-            link:   ReturnType<typeof vi.fn>;
-        }
-
-        /**
-         * Block shape visible to the geometric rebind pass: `face.boundingBox`
-         * (mutable so `moveTo` can update it), `anchors` map, and a `moveTo` spy.
-         */
-        interface BlockStubWithAnchors {
-            instance:   string;
-            properties: { isDefined: () => boolean, toString: () => string };
-            face: {
-                width:  number;
-                height: number;
-                boundingBox: { xMin: number, xMax: number, yMin: number, yMax: number };
-            };
-            moveTo:  ReturnType<typeof vi.fn>;
-            anchors: Map<AnchorPosition, AnchorStub>;
-        }
-
-        ///////////////////////////////////////////////////////////////////////////
-        //  Stub factories  ////////////////////////////////////////////////////////
-        ///////////////////////////////////////////////////////////////////////////
-
-        /**
-         * Creates an anchor stub whose `parent` is set after construction to avoid
-         * the circular-initializer problem.  Callers must assign `anchor.parent`
-         * before passing the anchor into the engine.
-         */
-        function makeAnchorStub(): AnchorStub {
-            return { parent: null, link: vi.fn() };
-        }
-
-        /**
-         * Creates a latch stub with a mutable `anchor` property and a `link` spy
-         * that updates `anchor` when called.  Passing `null` models a floating
-         * latch whose endpoint is not yet connected.
-         */
-        function makeLatchStub(anchor: AnchorStub | null): LatchStub {
-            const latch: LatchStub = {
-                anchor,
-                link: vi.fn((newAnchor: AnchorStub, _update?: boolean) => {
-                    latch.anchor = newAnchor;
-                })
-            };
-            return latch;
-        }
-
-        /**
-         * Creates a block stub whose `moveTo` updates `face.boundingBox` in place
-         * so the geometric rebind pass reads the post-TALA positions.  Each block
-         * is pre-populated with all four cardinal anchors; each anchor's `parent`
-         * is wired back to the block after construction.
-         *
-         * `(x, y)` is the initial center; `(w, h)` are the face dimensions.
-         */
-        function makeBlockWithAnchors(instance: string, x: number, y: number, w: number, h: number): BlockStubWithAnchors {
-            const anchors = new Map<AnchorPosition, AnchorStub>();
-            const block: BlockStubWithAnchors = {
-                instance,
-                properties: { isDefined: () => false, toString: () => "" },
-                face: {
-                    width:  w,
-                    height: h,
-                    boundingBox: {
-                        xMin: x - w / 2,
-                        xMax: x + w / 2,
-                        yMin: y - h / 2,
-                        yMax: y + h / 2
-                    }
-                },
-                moveTo: vi.fn((cx: number, cy: number) => {
-                    block.face.boundingBox.xMin = cx - w / 2;
-                    block.face.boundingBox.xMax = cx + w / 2;
-                    block.face.boundingBox.yMin = cy - h / 2;
-                    block.face.boundingBox.yMax = cy + h / 2;
-                }),
-                anchors
-            };
-            for (const pos of [AnchorPosition.D0, AnchorPosition.D90, AnchorPosition.D180, AnchorPosition.D270]) {
-                const anchor = makeAnchorStub();
-                anchor.parent = block;
-                anchors.set(pos, anchor);
-            }
-            return block;
-        }
-
-        /**
-         * Creates a line stub whose `source` / `target` getters throw when the
-         * backing latch is `null` — mirroring `LineView`'s runtime semantics.
-         * The `asRebindableLine` guard in the engine catches the throw and skips
-         * the line silently.
-         */
-        function makeLineStub(
-            sourceLatch: LatchStub | null,
-            targetLatch: LatchStub | null
-        ) {
-            return {
-                get source() {
-                    if (sourceLatch === null) {
-                        throw new Error("LineView: source latch is null");
-                    }
-                    return sourceLatch;
-                },
-                get target() {
-                    if (targetLatch === null) {
-                        throw new Error("LineView: target latch is null");
-                    }
-                    return targetLatch;
-                }
-            };
-        }
-
-        ///////////////////////////////////////////////////////////////////////////
-        //  Canvas assembly helper (L3)  //////////////////////////////////////////
-        ///////////////////////////////////////////////////////////////////////////
-
-        /**
-         * Assembles a `SerializableCanvas` from pre-built geometric stubs without
-         * repeating the `as unknown as SerializableCanvas["lines"]` cast at each
-         * call site.  Only used inside this describe block.
-         */
-        function makeGeometricCanvas(
-            blocks: BlockStubWithAnchors[],
-            groups: GroupStub[],
-            lines:  ReturnType<typeof makeLineStub>[]
-        ): SerializableCanvas {
-            return {
-                blocks: blocks as unknown as SerializableBlock[],
-                groups: groups as unknown as SerializableGroup[],
-                lines:  lines  as unknown as SerializableCanvas["lines"]
-            };
-        }
-
-        ///////////////////////////////////////////////////////////////////////////
         //  Tests  /////////////////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////////////////
 
@@ -1104,86 +1076,6 @@ describe("NewAutoLayoutEngine", () => {
         }
 
         ///////////////////////////////////////////////////////////////////////////
-        //  Stub types and factories (mirrors the geometric describe block)  //////
-        ///////////////////////////////////////////////////////////////////////////
-
-        interface TAnchorStub {
-            parent: TBlockStub | null;
-            link:   ReturnType<typeof vi.fn>;
-        }
-        interface TLatchStub {
-            anchor: TAnchorStub | null;
-            link:   ReturnType<typeof vi.fn>;
-        }
-        interface TBlockStub {
-            instance:   string;
-            properties: { isDefined: () => boolean, toString: () => string };
-            face: {
-                width: number, height: number;
-                boundingBox: { xMin: number, xMax: number, yMin: number, yMax: number };
-            };
-            moveTo:  ReturnType<typeof vi.fn>;
-            anchors: Map<AnchorPosition, TAnchorStub>;
-        }
-
-        function makeTAnchorStub(): TAnchorStub {
-            return { parent: null, link: vi.fn() };
-        }
-        function makeTLatchStub(anchor: TAnchorStub | null): TLatchStub {
-            const latch: TLatchStub = {
-                anchor,
-                link: vi.fn((newAnchor: TAnchorStub) => { latch.anchor = newAnchor; })
-            };
-            return latch;
-        }
-        function makeTBlockWithAnchors(instance: string, x: number, y: number, w: number, h: number): TBlockStub {
-            const anchors = new Map<AnchorPosition, TAnchorStub>();
-            const block: TBlockStub = {
-                instance,
-                properties: { isDefined: () => false, toString: () => "" },
-                face: {
-                    width: w, height: h,
-                    boundingBox: { xMin: x - w / 2, xMax: x + w / 2, yMin: y - h / 2, yMax: y + h / 2 }
-                },
-                moveTo: vi.fn((cx: number, cy: number) => {
-                    block.face.boundingBox.xMin = cx - w / 2;
-                    block.face.boundingBox.xMax = cx + w / 2;
-                    block.face.boundingBox.yMin = cy - h / 2;
-                    block.face.boundingBox.yMax = cy + h / 2;
-                }),
-                anchors
-            };
-            for (const pos of [AnchorPosition.D0, AnchorPosition.D90, AnchorPosition.D180, AnchorPosition.D270]) {
-                const anchor = makeTAnchorStub();
-                anchor.parent = block;
-                anchors.set(pos, anchor);
-            }
-            return block;
-        }
-        function makeTLineStub(srcLatch: TLatchStub | null, tgtLatch: TLatchStub | null) {
-            return {
-                get source() {
-                    if (srcLatch === null) { throw new Error("no source latch"); }
-                    return srcLatch;
-                },
-                get target() {
-                    if (tgtLatch === null) { throw new Error("no target latch"); }
-                    return tgtLatch;
-                }
-            };
-        }
-        function makeTCanvas(
-            blocks: TBlockStub[],
-            lines:  ReturnType<typeof makeTLineStub>[]
-        ): SerializableCanvas {
-            return {
-                blocks: blocks as unknown as SerializableBlock[],
-                groups: [],
-                lines:  lines  as unknown as SerializableCanvas["lines"]
-            };
-        }
-
-        ///////////////////////////////////////////////////////////////////////////
         //  Tests  /////////////////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////////////////
 
@@ -1197,14 +1089,14 @@ describe("NewAutoLayoutEngine", () => {
             //   src: dx=0, dy=75−100=−25  → D90 (top)
             //   tgt: dx=0, dy=75−100=−25  → D90 (top)
             // So TALA strategy picks D90/D90, which differs from geometric D0/D180.
-            const srcBlock = makeTBlockWithAnchors("src-block", 100, 100, 100, 50);
-            const tgtBlock = makeTBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
-            const srcLatch = makeTLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
-            const tgtLatch = makeTLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
 
-            const line   = makeTLineStub(srcLatch, tgtLatch);
-            const canvas = makeTCanvas([srcBlock, tgtBlock], [line]);
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             // TALA connection has start at (100, 75) on the top edge of src-block
             // and end at (400, 75) on the top edge of tgt-block.
@@ -1226,14 +1118,14 @@ describe("NewAutoLayoutEngine", () => {
 
         it("tala with right-to-left connection: src D0 (right), tgt D180 (left)", async () => {
             // Classic case: connection exits the right side of src, enters the left side of tgt.
-            const srcBlock = makeTBlockWithAnchors("src-block", 100, 100, 100, 50);
-            const tgtBlock = makeTBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
-            const srcLatch = makeTLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
-            const tgtLatch = makeTLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
 
-            const line   = makeTLineStub(srcLatch, tgtLatch);
-            const canvas = makeTCanvas([srcBlock, tgtBlock], [line]);
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             // Connection: start (150, 100) on right edge of src-block, end (350, 100) on left edge of tgt-block.
             const svg = makeTalaSvgWithConnections(
@@ -1254,14 +1146,14 @@ describe("NewAutoLayoutEngine", () => {
         it("tala connection far from blocks (distance > threshold) → falls back to geometric", async () => {
             // src center (100, 100), tgt center (400, 100) — threshold = max(50, 25) = 50.
             // Connection start (100, 900) is 775 units below src-block → dStart >> threshold.
-            const srcBlock = makeTBlockWithAnchors("src-block", 100, 100, 100, 50);
-            const tgtBlock = makeTBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
-            const srcLatch = makeTLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
-            const tgtLatch = makeTLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
 
-            const line   = makeTLineStub(srcLatch, tgtLatch);
-            const canvas = makeTCanvas([srcBlock, tgtBlock], [line]);
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             const svg = makeTalaSvgWithConnections(
                 [
@@ -1280,14 +1172,14 @@ describe("NewAutoLayoutEngine", () => {
         });
 
         it("explicit 'none' strategy → no rebinding regardless of connections in SVG", async () => {
-            const srcBlock = makeTBlockWithAnchors("src-block", 100, 100, 100, 50);
-            const tgtBlock = makeTBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
-            const srcLatch = makeTLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
-            const tgtLatch = makeTLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D90)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D90)!);
 
-            const line   = makeTLineStub(srcLatch, tgtLatch);
-            const canvas = makeTCanvas([srcBlock, tgtBlock], [line]);
+            const line   = makeLineStub(srcLatch, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
 
             const svg = makeTalaSvgWithConnections(
                 [
@@ -1302,6 +1194,79 @@ describe("NewAutoLayoutEngine", () => {
 
             expect(srcLatch.link).not.toHaveBeenCalled();
             expect(tgtLatch.link).not.toHaveBeenCalled();
+        });
+
+        it("tala: line with null source latch is skipped silently", async () => {
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            // Null source latch → line.source getter throws → asRebindableLine returns null.
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
+            const line   = makeLineStub(null, tgtLatch);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 150 100 L 350 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await expect(
+                new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas))
+            ).resolves.toBeUndefined();
+
+            expect(tgtLatch.link).not.toHaveBeenCalled();
+        });
+
+        it("tala: two independent lines each match their own TALA edge", async () => {
+            // Line 1: blockA → blockB (side-by-side at y=100)
+            // Line 2: blockC → blockD (side-by-side at y=500 — different block pair, different row)
+            //
+            // Two TALA edges:
+            //   edge1: M 150 100 L 350 100  (exits right of blockA, enters left of blockB)
+            //   edge2: M 750 500 L 950 500  (exits right of blockC, enters left of blockD)
+            //
+            // Each line's nearest-neighbor search picks the edge closest to its own blocks.
+            const blockA = makeBlockWithAnchors("block-a", 100, 100, 100, 50);
+            const blockB = makeBlockWithAnchors("block-b", 400, 100, 100, 50);
+            const blockC = makeBlockWithAnchors("block-c", 700, 500, 100, 50);
+            const blockD = makeBlockWithAnchors("block-d", 1000, 500, 100, 50);
+
+            const latchA = makeLatchStub(blockA.anchors.get(AnchorPosition.D90)!);
+            const latchB = makeLatchStub(blockB.anchors.get(AnchorPosition.D90)!);
+            const latchC = makeLatchStub(blockC.anchors.get(AnchorPosition.D90)!);
+            const latchD = makeLatchStub(blockD.anchors.get(AnchorPosition.D90)!);
+
+            const line1 = makeLineStub(latchA, latchB);
+            const line2 = makeLineStub(latchC, latchD);
+            const canvas = makeGeometricCanvas([blockA, blockB, blockC, blockD], [], [line1, line2]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "block-a", x:  50, y:  75, width: 100, height: 50 },
+                    { id: "block-b", x: 350, y:  75, width: 100, height: 50 },
+                    { id: "block-c", x: 650, y: 475, width: 100, height: 50 },
+                    { id: "block-d", x: 950, y: 475, width: 100, height: 50 }
+                ],
+                [
+                    { d: "M 150 100 L 350 100" },   // line1's TALA edge (right-of-A → left-of-B)
+                    { d: "M 750 500 L 950 500" }    // line2's TALA edge (right-of-C → left-of-D)
+                ]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            // Line 1: edge1 → A gets D0 (right), B gets D180 (left).
+            expect(latchA.link).toHaveBeenCalledWith(blockA.anchors.get(AnchorPosition.D0),   true);
+            expect(latchB.link).toHaveBeenCalledWith(blockB.anchors.get(AnchorPosition.D180), true);
+
+            // Line 2: edge2 → C gets D0 (right), D gets D180 (left).
+            expect(latchC.link).toHaveBeenCalledWith(blockC.anchors.get(AnchorPosition.D0),   true);
+            expect(latchD.link).toHaveBeenCalledWith(blockD.anchors.get(AnchorPosition.D180), true);
         });
 
     });
