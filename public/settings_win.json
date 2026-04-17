@@ -27,9 +27,7 @@
         "file": {
             "new_file": "Control+N",
             "open_file": "Control+O",
-            "open_stix_file": "",
             "import_file": "",
-            "import_stix_file": "",
             "save_file": "Control+S",
             "save_to_server": "Control+Shift+S",
             "save_image": "",

@@ -42,10 +42,6 @@ const configuration: AppConfiguration = {
             title: "Open Diagram",
             description: "Open an existing diagram."
         },
-        import_stix: {
-            title: "",
-            description: ""
-        },
         help_links: [
             {
                 title: "Getting Started",

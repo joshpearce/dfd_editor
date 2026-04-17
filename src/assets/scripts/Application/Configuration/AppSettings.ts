@@ -30,9 +30,7 @@ export const BaseAppSettings: AppSettings = {
         file: {
             new_file: "",
             open_file: "",
-            open_stix_file: "",
             import_file: "",
-            import_stix_file: "",
             save_file: "",
             save_to_server: "",
             save_image: "",
@@ -135,9 +133,7 @@ export type DiagramDisplaySettings = {
 export type FileHotkeys = {
     new_file: string;
     open_file: string;
-    open_stix_file: string;
     import_file: string;
-    import_stix_file: string;
     save_file: string;
     save_to_server: string;
     save_image: string;
