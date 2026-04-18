@@ -386,6 +386,15 @@ export type TalaPlacement =
 export type TalaEdge = {
     readonly start: Point;
     readonly end:   Point;
+    /**
+     * The full polyline vertex list as TALA drew it, in order from start to
+     * end.  `points[0]` equals `start` and `points[points.length - 1]`
+     * equals `end`.  Intermediate entries (if any) are the polyline's bend
+     * points — the information a downstream pass needs to steer a line's
+     * handle toward TALA's actual route rather than a straight latch-to-
+     * latch path.
+     */
+    readonly points: readonly Point[];
 };
 
 /**
@@ -512,23 +521,40 @@ export function parseTalaSvg(svg: string): {
             continue;
         }
 
-        // Extract the end point from the last two numeric tokens after stripping
-        // any trailing close-path command (Z or z).  Tokenising rather than
-        // matching a fixed separator handles all D2/TALA coordinate formats:
-        // space-separated ("L 100 200"), comma-separated ("L 100,200"), and
-        // implicit-separator ("L 100-20" where the negative sign acts as the
-        // separator between adjacent numbers).
+        // Tokenise every numeric coordinate pair in the path and treat them
+        // as polyline vertices.  This is a lossy-but-useful view of the path:
+        // TALA emits straight-line edges as `M x0 y0 L x1 y1 L x2 y2 …` which
+        // is a pure polyline, and curved edges (`C`, `Q`) as `M x0 y0 C cx1
+        // cy1 cx2 cy2 x1 y1 …`.  In the curved case the "vertices" include
+        // control points; downstream callers that care about the visual bend
+        // shape treat control points and vertices interchangeably here (the
+        // geometric spread across the path is what matters for picking a
+        // single handle waypoint, not the exact Bezier semantics).
+        //
+        // Tokenising rather than matching a fixed separator handles all
+        // D2/TALA coordinate formats: space-separated ("L 100 200"),
+        // comma-separated ("L 100,200"), and implicit-separator ("L 100-20"
+        // where the negative sign acts as the separator).
         const dStripped = d.replace(/[Zz]\s*$/, "");
         const numTokens = Array.from(dStripped.matchAll(/([-+]?[\d.]+)/g));
         if (numTokens.length < 2) {
             continue;
         }
-        const endX = parseFloat(numTokens[numTokens.length - 2][1]);
-        const endY = parseFloat(numTokens[numTokens.length - 1][1]);
-
+        const points: Point[] = [];
+        for (let i = 0; i + 1 < numTokens.length; i += 2) {
+            const x = parseFloat(numTokens[i][1]);
+            const y = parseFloat(numTokens[i + 1][1]);
+            if (!isNaN(x) && !isNaN(y)) {
+                points.push({ x, y });
+            }
+        }
+        if (points.length < 2) {
+            continue;
+        }
         edges.push({
-            start: { x: parseFloat(startMatch[1]), y: parseFloat(startMatch[2]) },
-            end:   { x: endX, y: endY }
+            start:  points[0],
+            end:    points[points.length - 1],
+            points
         });
     }
 

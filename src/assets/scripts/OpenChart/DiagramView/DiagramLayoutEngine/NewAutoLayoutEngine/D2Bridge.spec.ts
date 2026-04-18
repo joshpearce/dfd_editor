@@ -907,6 +907,42 @@ describe("parseTalaSvg — edges", () => {
         expect(edges[0].end).toEqual({ x: 100, y: 200 });
     });
 
+    it("polyline with bend points → `points` captures every vertex in order", () => {
+        // TALA emits orthogonal U-routes as `M x0 y0 L x1 y1 L x2 y2 L x3 y3`.
+        // The rebind pass needs the intermediate (x1,y1)/(x2,y2) vertices so it
+        // can steer the line's handle onto TALA's bend, so `points` must
+        // surface them in order.
+        const svg = buildSvgWithConnections([], [
+            { d: "M 150 100 L 250 100 L 250 200 L 350 100" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].points).toEqual([
+            { x: 150, y: 100 },
+            { x: 250, y: 100 },
+            { x: 250, y: 200 },
+            { x: 350, y: 100 }
+        ]);
+        expect(edges[0].start).toEqual(edges[0].points[0]);
+        expect(edges[0].end).toEqual(edges[0].points[edges[0].points.length - 1]);
+    });
+
+    it("straight two-point polyline → `points` has exactly the two endpoints", () => {
+        const svg = buildSvgWithConnections([], [
+            { d: "M 10 20 L 100 200" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].points).toEqual([
+            { x: 10, y: 20 },
+            { x: 100, y: 200 }
+        ]);
+    });
+
     it("connection group with arrowhead sibling <path> → only the direct-child edge path is read", () => {
         // Real D2 connection groups contain the edge <path> plus nested arrowhead
         // paths. The selector :scope > path must match only the direct child.
