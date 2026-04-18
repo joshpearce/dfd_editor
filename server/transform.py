@@ -1,11 +1,8 @@
-"""Transformer: native dfd_v1 format ↔ minimal JSON format.
-
-Only to_minimal (native→minimal) is implemented in this module (Step 3).
-The inverse (to_native, minimal→native) will be added in Step 4.
-"""
+"""Transformer: native dfd_v1 format ↔ minimal JSON format."""
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -32,6 +29,55 @@ _BOOL_PROPS: dict[str, frozenset[str]] = {
 
 # Data-flow property keys that are string-encoded booleans in native format.
 _FLOW_BOOL_PROPS: frozenset[str] = frozenset({"authenticated", "encrypted_in_transit"})
+
+# Property keys that are boolean in native format, per node type.
+# These must be emitted as "true"/"false" strings (not JSON booleans).
+_NATIVE_BOOL_PROPS: dict[str, tuple[str, ...]] = {
+    "process": (),
+    "external_entity": ("out_of_scope",),
+    "data_store": ("contains_pii", "encryption_at_rest"),
+}
+
+# Ordered property keys per node type (must match DfdObjects.ts template order).
+_NODE_PROP_ORDER: dict[str, tuple[str, ...]] = {
+    "process": ("name", "description", "number", "trust_level", "assumptions"),
+    "external_entity": ("name", "description", "entity_type", "out_of_scope"),
+    "data_store": ("name", "description", "storage_type", "contains_pii", "encryption_at_rest"),
+}
+
+# Ordered property keys per container type.
+_CONTAINER_PROP_ORDER: dict[str, tuple[str, ...]] = {
+    "trust_boundary": ("name", "description", "privilege_level"),
+    "container": ("name", "description"),
+}
+
+# Ordered property keys for data flows.
+_FLOW_PROP_ORDER: tuple[str, ...] = (
+    "name",
+    "data_classification",
+    "protocol",
+    "authenticated",
+    "encrypted_in_transit",
+)
+
+# Ordered property keys for the canvas (dfd) object.
+_CANVAS_PROP_ORDER: tuple[str, ...] = ("name", "description", "author", "created")
+
+# Anchor angle → anchor type mapping (12 anchors at 30° steps).
+_ANCHOR_TYPES: dict[int, str] = {
+    0: "horizontal_anchor",
+    30: "horizontal_anchor",
+    60: "vertical_anchor",
+    90: "vertical_anchor",
+    120: "vertical_anchor",
+    150: "horizontal_anchor",
+    180: "horizontal_anchor",
+    210: "horizontal_anchor",
+    240: "vertical_anchor",
+    270: "vertical_anchor",
+    300: "vertical_anchor",
+    330: "horizontal_anchor",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +162,139 @@ def to_minimal(native: dict) -> dict:
     Diagram(**result)
 
     return result
+
+
+def to_native(minimal: dict) -> dict:
+    """Transform a minimal JSON document into a native dfd_v1 document.
+
+    Args:
+        minimal: Parsed minimal format dict.
+
+    Returns:
+        Native dfd_v1 dict ready for persistence (no layout/camera/groupBounds).
+
+    Raises:
+        pydantic.ValidationError: The minimal doc fails schema validation.
+        DuplicateParentError: A GUID appears in two containers' children lists.
+    """
+    # --- Step 1: validate via pydantic -----------------------------------------
+    diagram = Diagram(**minimal)
+
+    # --- Step 2: assert single-parent on minimal containers --------------------
+    _assert_single_parent_minimal(diagram)
+
+    # --- Step 3: compute top-level children ------------------------------------
+    all_child_guids: set[str] = set()
+    for c in diagram.containers:
+        for child in c.children:
+            all_child_guids.add(str(child))
+
+    top_level_guids: list[str] = []
+    # Containers first, then nodes (preserves a deterministic order)
+    for c in diagram.containers:
+        if str(c.guid) not in all_child_guids:
+            top_level_guids.append(str(c.guid))
+    for n in diagram.nodes:
+        if str(n.guid) not in all_child_guids:
+            top_level_guids.append(str(n.guid))
+
+    objects: list[dict] = []
+
+    # --- Step 4: canvas object -------------------------------------------------
+    meta = diagram.meta
+    canvas_props = _build_canvas_props(meta)
+    canvas_instance = str(uuid.uuid4())
+    objects.append(
+        {
+            "id": "dfd",
+            "instance": canvas_instance,
+            "properties": canvas_props,
+            "objects": top_level_guids,
+        }
+    )
+
+    # --- Step 5: container objects ---------------------------------------------
+    for c in diagram.containers:
+        container_props = _build_container_props(c)
+        objects.append(
+            {
+                "id": str(c.type),
+                "instance": str(c.guid),
+                "properties": container_props,
+                "objects": [str(child) for child in c.children],
+            }
+        )
+
+    # angle_zero_anchors: block_guid → anchor object (mutable reference for latch attachment)
+    angle_zero_anchors: dict[str, dict] = {}
+
+    # --- Step 6: node objects + their 12 anchor objects ------------------------
+    for n in diagram.nodes:
+        block_guid = str(n.guid)
+        node_type = str(n.type)
+
+        # Mint 12 anchor instance UUIDs
+        anchor_instances: dict[int, str] = {angle: str(uuid.uuid4()) for angle in _ANCHOR_TYPES}
+
+        # Build anchor map (angle string → instance uuid)
+        anchors_map: dict[str, str] = {str(angle): inst for angle, inst in anchor_instances.items()}
+
+        node_props = _build_node_props(n)
+        objects.append(
+            {
+                "id": node_type,
+                "instance": block_guid,
+                "properties": node_props,
+                "anchors": anchors_map,
+            }
+        )
+
+        # Emit 12 anchor objects; keep reference to angle-0 for latch attachment
+        for angle, anchor_inst in anchor_instances.items():
+            anchor_obj: dict = {
+                "id": _ANCHOR_TYPES[angle],
+                "instance": anchor_inst,
+                "latches": [],
+            }
+            objects.append(anchor_obj)
+            if angle == 0:
+                angle_zero_anchors[block_guid] = anchor_obj
+
+    # --- Step 7: data flow objects + latches + handles ------------------------
+    for flow in diagram.data_flows:
+        flow_guid = str(flow.guid)
+        source_block = str(flow.source)
+        target_block = str(flow.target)
+
+        source_latch_inst = str(uuid.uuid4())
+        target_latch_inst = str(uuid.uuid4())
+        handle_inst = str(uuid.uuid4())
+
+        # Attach latches to angle-0 anchors of source/target blocks
+        source_anchor = angle_zero_anchors.get(source_block)
+        if source_anchor is not None:
+            source_anchor["latches"].append(source_latch_inst)
+
+        target_anchor = angle_zero_anchors.get(target_block)
+        if target_anchor is not None:
+            target_anchor["latches"].append(target_latch_inst)
+
+        flow_props = _build_flow_props(flow)
+        objects.append(
+            {
+                "id": "data_flow",
+                "instance": flow_guid,
+                "properties": flow_props,
+                "source": source_latch_inst,
+                "target": target_latch_inst,
+                "handles": [handle_inst],
+            }
+        )
+        objects.append({"id": "generic_latch", "instance": source_latch_inst})
+        objects.append({"id": "generic_latch", "instance": target_latch_inst})
+        objects.append({"id": "generic_handle", "instance": handle_inst})
+
+    return {"schema": "dfd_v1", "theme": "dark_theme", "objects": objects}
 
 
 # ---------------------------------------------------------------------------
@@ -349,3 +528,111 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
         "target": target_block,
         "properties": flow_props,
     }
+
+
+def _assert_single_parent_minimal(diagram: Diagram) -> None:
+    """Raise DuplicateParentError if any GUID appears in two containers' children."""
+    seen: dict[str, str] = {}
+    for c in diagram.containers:
+        parent_guid = str(c.guid)
+        for child in c.children:
+            child_str = str(child)
+            if child_str in seen:
+                raise DuplicateParentError(
+                    f"GUID {child_str!r} appears as a child of both {seen[child_str]!r} and {parent_guid!r}"
+                )
+            seen[child_str] = parent_guid
+
+
+def _bool_to_native(value: bool) -> str:
+    """Convert a Python bool to a native string-encoded boolean."""
+    return "true" if value else "false"
+
+
+def _build_canvas_props(meta: Any) -> list[list]:
+    """Build the canvas (dfd) object's properties list from the meta model."""
+    name = meta.name if meta else None
+    description = meta.description if meta else None
+    author = meta.author if meta else None
+    created_dt = meta.created if meta else None
+
+    created_val: Any = None
+    if created_dt is not None:
+        iso = created_dt.isoformat()
+        # Determine zone name: prefer tzname() if it returns something useful,
+        # otherwise fall back to "UTC".
+        tz_name = created_dt.tzname() if created_dt.tzinfo is not None else None
+        if not tz_name or tz_name in ("+00:00", "UTC", "UTC+00:00"):
+            tz_name = "UTC"
+        created_val = {"time": iso, "zone": tz_name}
+
+    return [
+        ["name", name],
+        ["description", description],
+        ["author", author],
+        ["created", created_val],
+    ]
+
+
+def _build_container_props(container: Any) -> list[list]:
+    """Build a container object's properties list in template declaration order."""
+    container_type = str(container.type)
+    prop_order = _CONTAINER_PROP_ORDER[container_type]
+    props = container.properties
+    result: list[list] = []
+    for key in prop_order:
+        val = getattr(props, key, None)
+        if val is None:
+            result.append([key, None])
+        else:
+            result.append([key, str(val)])
+    return result
+
+
+def _build_node_props(node: Any) -> list[list]:
+    """Build a node object's properties list in template declaration order."""
+    node_type = str(node.type)
+    prop_order = _NODE_PROP_ORDER[node_type]
+    bool_keys = _NATIVE_BOOL_PROPS[node_type]
+    props = node.properties
+    result: list[list] = []
+    for key in prop_order:
+        val = getattr(props, key, None)
+        if key == "assumptions":
+            # Convert list[str] → [[hash, str], ...]; use uuid hex as opaque hash.
+            if val is None:
+                result.append([key, []])
+            else:
+                native_assumptions = [[uuid.uuid4().hex, s] for s in val]
+                result.append([key, native_assumptions])
+        elif key in bool_keys:
+            # Always emit as string bool, defaulting to "false".
+            bool_val = val if val is not None else False
+            result.append([key, _bool_to_native(bool_val)])
+        else:
+            if val is None:
+                result.append([key, None])
+            else:
+                result.append([key, str(val)])
+    return result
+
+
+def _build_flow_props(flow: Any) -> list[list]:
+    """Build a data_flow object's properties list in template declaration order."""
+    props = flow.properties
+    result: list[list] = []
+    for key in _FLOW_PROP_ORDER:
+        if key == "encrypted_in_transit":
+            # External field is "encrypted"; native is "encrypted_in_transit"
+            val = props.encrypted
+            result.append([key, _bool_to_native(val if val is not None else False)])
+        elif key == "authenticated":
+            val = props.authenticated
+            result.append([key, _bool_to_native(val if val is not None else False)])
+        else:
+            val = getattr(props, key, None)
+            if val is None:
+                result.append([key, None])
+            else:
+                result.append([key, str(val)])
+    return result
