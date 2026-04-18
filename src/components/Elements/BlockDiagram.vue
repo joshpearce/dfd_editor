@@ -28,6 +28,7 @@ import { defineComponent } from 'vue';
 import { Cursor, MouseClick } from "@OpenChart/DiagramInterface";
 import { useApplicationStore } from "@/stores/ApplicationStore";
 import { useContextMenuStore } from "@/stores/ContextMenuStore";
+import { computeFitCamera } from '@/assets/scripts/OpenChart/DiagramView';
 import type { DiagramObjectView } from '@/assets/scripts/OpenChart/DiagramView';
 import type { ContextMenuSection } from '@/assets/scripts/Browser';
 import type { Command, CommandEmitter } from '@/assets/scripts/Application';
@@ -226,8 +227,19 @@ export default defineComponent({
       ui.on("canvas-click", this.onCanvasClick, this);
       ui.on("cursor-change", this.onCursorChange, this);
       ui.on("suggestion-request", this.onSuggestionRequest, this);
-      // Set camera location
-      ui.setCameraLocation(this.editor.file.camera, 0);
+      // Set camera location: always fit the canvas contents into the
+      // viewport on mount / editor switch.  The file's persisted camera is
+      // ignored by design — diagrams should open fully visible regardless
+      // of where the previous save's viewport happened to be.  The fit
+      // helper returns null for empty canvases; in that case fall back to
+      // the file's camera (default origin at 1×) so the diagram still
+      // renders somewhere predictable.
+      const fit = computeFitCamera(
+        [...this.editor.file.canvas.objects],
+        ui.width,
+        ui.height
+      );
+      ui.setCameraLocation(fit ?? this.editor.file.camera, 0);
       // Render
       ui.render();
     }
