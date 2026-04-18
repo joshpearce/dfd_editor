@@ -70,6 +70,9 @@ export async function loadExistingFile(
     // Run layout
     if (!jsonFile.layout) {
         try {
+            // Anchor strategy defaults to "geometric" (center-to-center cardinal
+            // rebind).  Pass "tala" or "none" as the second constructor argument
+            // to change the strategy; see AnchorStrategy in NewAutoLayoutEngine.ts.
             await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
         } catch (err) {
             // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
@@ -195,6 +198,8 @@ export async function importExistingFile(
     // Run layout
     if (!jsonFile.layout) {
         try {
+            // Anchor strategy defaults to "geometric"; see AnchorStrategy in
+            // NewAutoLayoutEngine.ts to switch to "tala" or "none".
             await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
         } catch (err) {
             // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
