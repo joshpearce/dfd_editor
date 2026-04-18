@@ -170,7 +170,7 @@ Container = Annotated[
 
 
 class DataFlowProps(_Base):
-    name: str
+    name: str | None = None
     data_classification: DataClassification | None = None
     protocol: str | None = None
     authenticated: StrictBool = False
