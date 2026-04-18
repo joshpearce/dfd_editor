@@ -209,6 +209,64 @@ describe("PowerEditPlugin.smartHover", () => {
         expect(hit).toBe(group);
     });
 
+    it("pass 4 — canvas-level line beats a nested group body", () => {
+        // Regression: an outer group containing an inner group (e.g. a trust
+        // boundary enclosing a container).  Clicking on a canvas-level line
+        // that visually crosses the empty interior of the inner group used
+        // to select the inner group instead of the line — the outer group's
+        // getObjectAt descended into the inner group, which returned itself
+        // (no children were under the click), and smartHover misread that
+        // as "real content" and short-circuited past the line check.
+        const { plugin, canvas } = createTestableEditor(factory, {
+            groups: [
+                {
+                    id: "outer",
+                    bounds: [0, 0, 600, 400],
+                    groups: [
+                        { id: "inner", bounds: [100, 100, 500, 300] }
+                    ]
+                }
+            ],
+            lines: [
+                { id: "l", source: [50, 200], target: [550, 200] }
+            ]
+        });
+
+        const line = findById(canvas, "l") as LineView;
+        expect(line).toBeInstanceOf(LineView);
+
+        // Midpoint of the line, inside both outer and inner group bounds.
+        const hit = plugin.hoverAt(300, 200);
+
+        expect(hit).toBe(line);
+    });
+
+    it("pass 5 — empty nested group body beats outer group body", () => {
+        // Companion to the regression above: when there is no line to hit,
+        // a click in the empty interior of a nested group should select the
+        // innermost group, not fall through to the outer one.  This is the
+        // existing UX contract for nested containers (click empty container
+        // body → selects container, not its enclosing boundary).
+        const { plugin, canvas } = createTestableEditor(factory, {
+            groups: [
+                {
+                    id: "outer",
+                    bounds: [0, 0, 600, 400],
+                    groups: [
+                        { id: "inner", bounds: [100, 100, 500, 300] }
+                    ]
+                }
+            ]
+        });
+
+        const inner = findById(canvas, "inner") as GroupView;
+        expect(inner).toBeInstanceOf(GroupView);
+
+        const hit = plugin.hoverAt(300, 200);
+
+        expect(hit).toBe(inner);
+    });
+
 
     // -----------------------------------------------------------------------
     // Halo state cleared each call
