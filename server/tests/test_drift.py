@@ -181,7 +181,7 @@ def _assert_parity(enum_class, ts_values: set[str], label: str) -> None:
         lines.append(f"  in Python but not in TS: {sorted(missing_in_ts)}")
     if extra_in_ts:
         lines.append(f"  in TS but not in Python: {sorted(extra_in_ts)}")
-    pytest.fail("\n".join(lines))
+    assert False, "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -272,5 +272,5 @@ def test_parser_detects_added_value() -> None:
     assert "super_admin" in enums["trust_level"], (
         "parser should have found the synthetic 'super_admin' value"
     )
-    with pytest.raises(pytest.fail.Exception, match="super_admin"):
+    with pytest.raises(AssertionError, match="super_admin"):
         _assert_parity(TrustLevel, enums["trust_level"], "TrustLevel / trust_level")

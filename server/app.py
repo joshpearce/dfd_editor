@@ -7,12 +7,14 @@ from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 from pydantic import ValidationError
 
-from schema import Diagram  # noqa: F401 — imported for type contract; used in routes
 from transform import DuplicateParentError, InvalidNativeError, to_minimal, to_native
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173"])
 
+# Tests override this via monkeypatch.setattr("app.DATA_DIR", ...).
+# Any refactor that reads DATA_DIR from a different module must preserve
+# this overridable seam.
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 

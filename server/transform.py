@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -159,7 +160,7 @@ def to_minimal(native: dict) -> dict:
         result["meta"] = meta
 
     # --- Step 9: validate via pydantic (construction-only; return original) ----
-    Diagram(**result)
+    Diagram.model_validate(result)
 
     return result
 
@@ -316,9 +317,11 @@ def _build_latch_to_block(by_instance: dict[str, dict]) -> dict[str, str]:
         for _angle, anchor_inst in anchors.items():
             anchor_obj = by_instance.get(anchor_inst)
             if anchor_obj is None:
-                # Anchor instance not present in objects — tolerate silently
-                # (layout data may have been stripped).
-                continue
+                # Anchor instance referenced by this block is not present in
+                # objects[] — this is a structural invariant violation.
+                raise InvalidNativeError(
+                    f"block {inst} references missing anchor {anchor_inst}"
+                )
             for latch_inst in anchor_obj.get("latches", []):
                 latch_to_block[latch_inst] = inst
     return latch_to_block
@@ -341,7 +344,13 @@ def _extract_meta(canvas: dict | None) -> dict | None:
     if canvas is None:
         return None
 
-    raw_props = {k: v for [k, v] in canvas.get("properties", [])}
+    raw_pairs = canvas.get("properties", [])
+    try:
+        raw_props = {pair[0]: pair[1] for pair in raw_pairs if len(pair) == 2}
+        if any(len(pair) != 2 for pair in raw_pairs):
+            raise InvalidNativeError("canvas properties malformed: expected [key, value] pairs")
+    except TypeError:
+        raise InvalidNativeError("canvas properties malformed: expected [key, value] pairs")
 
     name = raw_props.get("name")
     description = raw_props.get("description")
@@ -406,9 +415,20 @@ def _props_to_dict(properties: list, drop_nulls: bool = True) -> dict[str, Any]:
     """Convert a [[k, v], ...] properties list to a plain dict.
 
     When drop_nulls is True (default), entries where v is None are omitted.
+
+    Raises InvalidNativeError if any entry is not a length-2 sequence.
     """
     result: dict[str, Any] = {}
     for pair in properties:
+        try:
+            if len(pair) != 2:
+                raise InvalidNativeError(
+                    "canvas properties malformed: expected [key, value] pairs"
+                )
+        except TypeError:
+            raise InvalidNativeError(
+                "canvas properties malformed: expected [key, value] pairs"
+            )
         k, v = pair[0], pair[1]
         if drop_nulls and v is None:
             continue
@@ -514,13 +534,20 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
     if protocol is not None:
         flow_props["protocol"] = protocol
 
-    # authenticated — string bool → real bool (default False if absent).
-    authenticated_raw = raw_props.get("authenticated", "false")
-    flow_props["authenticated"] = _convert_string_bool(authenticated_raw) or False
+    # authenticated — string bool → real bool; drop key if raw value is not
+    # "true"/"false" (or absent), letting the Diagram default take effect.
+    authenticated_raw = raw_props.get("authenticated")
+    if authenticated_raw is not None:
+        converted = _convert_string_bool(authenticated_raw)
+        if converted is not None:
+            flow_props["authenticated"] = converted
 
-    # encrypted_in_transit → encrypted.
-    encrypted_raw = raw_props.get("encrypted_in_transit", "false")
-    flow_props["encrypted"] = _convert_string_bool(encrypted_raw) or False
+    # encrypted_in_transit → encrypted; same defensiveness as authenticated.
+    encrypted_raw = raw_props.get("encrypted_in_transit")
+    if encrypted_raw is not None:
+        converted = _convert_string_bool(encrypted_raw)
+        if converted is not None:
+            flow_props["encrypted"] = converted
 
     return {
         "guid": instance,
@@ -603,7 +630,10 @@ def _build_node_props(node: Any) -> list[list]:
             if val is None:
                 result.append([key, []])
             else:
-                native_assumptions = [[uuid.uuid4().hex, s] for s in val]
+                native_assumptions = [
+                    [hashlib.sha256(s.encode("utf-8")).hexdigest()[:32], s]
+                    for s in val
+                ]
                 result.append([key, native_assumptions])
         elif key in bool_keys:
             # Always emit as string bool, defaulting to "false".

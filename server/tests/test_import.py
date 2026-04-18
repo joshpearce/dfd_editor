@@ -394,3 +394,14 @@ class TestNativeShape:
         ds_obj = next(o for o in native["objects"] if o.get("id") == "data_store")
         keys = [p[0] for p in ds_obj["properties"]]
         assert keys == ["name", "description", "storage_type", "contains_pii", "encryption_at_rest"]
+
+    def test_all_container_properties_in_order(self):
+        """Container template fields emitted in declaration order, including nulls."""
+        native = self._native_from_fixture()
+        tb_obj = next(o for o in native["objects"] if o.get("id") == "trust_boundary")
+        keys = [p[0] for p in tb_obj["properties"]]
+        assert keys == ["name", "description", "privilege_level"]
+
+        c_obj = next(o for o in native["objects"] if o.get("id") == "container")
+        keys = [p[0] for p in c_obj["properties"]]
+        assert keys == ["name", "description"]

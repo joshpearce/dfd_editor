@@ -89,6 +89,15 @@ def _minimal_native_with_dup_parent() -> dict:
                 ],
                 "anchors": {str(a): f"eeeeeeee-0000-{a:04d}-0000-000000000000" for a in range(0, 360, 30)},
             },
+            # Anchor objects for the shared block (required by I4 validation).
+            *[
+                {
+                    "id": "horizontal_anchor" if a in (0, 30, 150, 180, 210, 330) else "vertical_anchor",
+                    "instance": f"eeeeeeee-0000-{a:04d}-0000-000000000000",
+                    "latches": [],
+                }
+                for a in range(0, 360, 30)
+            ],
         ],
     }
 
