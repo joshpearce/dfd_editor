@@ -20,6 +20,15 @@ persistence surface.)
   - `GET  /api/diagrams/<id>` — raw JSON document; 404 if missing
   - `PUT  /api/diagrams/<id>` — overwrites from `request.get_json()`; returns
     204; 404 if missing
+  - `POST /api/diagrams/import` — body is a minimal JSON document (validated
+    by `schema.py` `Diagram`); calls `transform.to_native`, mints a UUID, writes
+    `server/data/<id>.json`, returns `{"id": "<uuid>"}` with HTTP 201. Returns
+    400 on pydantic `ValidationError` (with structured `details` list) or on
+    `DuplicateParentError` (a GUID appears in two containers' `children`).
+  - `GET /api/diagrams/<id>/export` — reads the stored native `dfd_v1` document
+    and projects it to minimal form via `transform.to_minimal`; returns the
+    minimal doc as JSON. 404 if missing; 500 if the stored file is not a valid
+    `dfd_v1` document.
   - `POST /api/layout` — accepts `{"source": "<d2 text>"}`, shells
     `d2 --layout=tala` via stdin, returns `{"svg": ...}` on 200 or
     `{"error": ...}` on 400 (bad input) / 502 (d2 absent or non-zero exit)
@@ -32,6 +41,10 @@ persistence surface.)
   `server/data/<id>.json`. Writes are pretty-printed (indent=4). IDs are UUIDs
   minted server-side on POST. The `/api/layout` route requires `d2` (with the
   TALA plugin) on `PATH`; its absence returns 502, not a startup failure.
+- **Schema contract** — the minimal import/export format is codified by pydantic
+  v2 models in `schema.py`; enum parity with `DfdObjects.ts` is enforced by
+  `tests/test_drift.py`. `schema.py` is the single source of truth for what a
+  valid minimal doc looks like.
 - **Expects** — PUT bodies must be valid JSON. Payload schema is owned by the
   frontend (`DfdFilePreprocessor` and friends); this server does not validate
   or interpret diagram contents beyond reading an optional top-level `name`.

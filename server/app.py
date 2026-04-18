@@ -5,6 +5,10 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
+from pydantic import ValidationError
+
+from schema import Diagram  # noqa: F401 — imported for type contract; used in routes
+from transform import DuplicateParentError, InvalidNativeError, to_minimal, to_native
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173"])
@@ -57,6 +61,37 @@ def update_diagram(diagram_id):
         return jsonify({"error": "not found"}), 404
     path.write_text(json.dumps(request.get_json(), indent=4))
     return "", 204
+
+
+@app.route("/api/diagrams/import", methods=["POST"])
+def import_diagram():
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "request body must be valid JSON"}), 400
+    try:
+        native = to_native(body)
+    except ValidationError as e:
+        return jsonify({"error": "validation failed", "details": e.errors(include_url=False)}), 400
+    except DuplicateParentError as e:
+        return jsonify({"error": "duplicate parent", "detail": str(e)}), 400
+    diagram_id = str(uuid.uuid4())
+    (DATA_DIR / f"{diagram_id}.json").write_text(json.dumps(native, indent=4))
+    return jsonify({"id": diagram_id}), 201
+
+
+@app.route("/api/diagrams/<diagram_id>/export", methods=["GET"])
+def export_diagram(diagram_id):
+    path = DATA_DIR / f"{diagram_id}.json"
+    if not path.exists():
+        return jsonify({"error": "not found"}), 404
+    native = json.loads(path.read_text())
+    try:
+        minimal = to_minimal(native)
+    except InvalidNativeError as e:
+        return jsonify({"error": "stored diagram is not a valid dfd_v1 document", "detail": str(e)}), 500
+    except ValidationError as e:
+        return jsonify({"error": "stored diagram is not a valid dfd_v1 document", "detail": str(e)}), 500
+    return jsonify(minimal)
 
 
 @app.route("/api/layout", methods=["POST"])
