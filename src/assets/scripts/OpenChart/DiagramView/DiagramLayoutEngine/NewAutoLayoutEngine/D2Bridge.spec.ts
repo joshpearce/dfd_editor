@@ -907,6 +907,51 @@ describe("parseTalaSvg — edges", () => {
         expect(edges[0].end).toEqual({ x: 100, y: 200 });
     });
 
+    it("D2 v0.7.1 wire shape — connection class on <path>, not wrapping <g>", () => {
+        // Real TALA output wraps each edge in a <g class="BASE64_EDGE_ID">
+        // and puts the `connection` class on the inner <path>.  The parser
+        // must find these without help from the wrapping group's class.
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow">
+      <path d="M 0 0 L 10 6 L 0 12 Z" class="connection fill-B1"/>
+    </marker>
+  </defs>
+  <g class="KDEyMyAtJmd0OyA0NTYpWzBd">
+    <path d="M 374 858 L 638 858" class="connection stroke-B1"/>
+  </g>
+  <g class="KDc4OSAtJmd0OyA5MDEpWzBd">
+    <path d="M 100 100 L 200 100 L 200 200 L 300 200" class="connection stroke-B1"/>
+  </g>
+</svg>`;
+
+        const { edges } = parseTalaSvg(svg);
+
+        // Two edge paths; the <marker> arrowhead is excluded.
+        expect(edges).toHaveLength(2);
+        expect(edges[0].start).toEqual({ x: 374, y: 858 });
+        expect(edges[0].end).toEqual({ x: 638, y: 858 });
+        expect(edges[1].points).toHaveLength(4);
+        expect(edges[1].points[1]).toEqual({ x: 200, y: 100 });
+        expect(edges[1].points[2]).toEqual({ x: 200, y: 200 });
+    });
+
+    it("arrowhead <path class='connection fill-…'> outside <marker> → still skipped", () => {
+        // Defence in depth: if D2 ever hoists arrowhead polygons out of the
+        // <marker> wrapper, the `fill-…` class filter still excludes them so
+        // their tiny local-space coordinates don't pollute the edge list.
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg">
+  <path d="M 0 0 L 10 6 L 0 12 Z" class="connection fill-B1"/>
+  <path d="M 100 100 L 500 100" class="connection stroke-B1"/>
+</svg>`;
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].start).toEqual({ x: 100, y: 100 });
+        expect(edges[0].end).toEqual({ x: 500, y: 100 });
+    });
+
     it("polyline with bend points → `points` captures every vertex in order", () => {
         // TALA emits orthogonal U-routes as `M x0 y0 L x1 y1 L x2 y2 L x3 y3`.
         // The rebind pass needs the intermediate (x1,y1)/(x2,y2) vertices so it
