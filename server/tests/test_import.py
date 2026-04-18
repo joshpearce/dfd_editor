@@ -336,6 +336,38 @@ class TestNativeShape:
             assert tgt in by_instance and by_instance[tgt]["id"] == "generic_latch"
             assert handle in by_instance and by_instance[handle]["id"] == "generic_handle"
 
+    def test_single_root_object(self):
+        """The native doc must parse as a tree with exactly one root (the
+        canvas), or the engine refuses to load it with 'multiple root
+        objects'. Top-level data_flows must be parented under the canvas."""
+        native = self._native_from_fixture()
+        all_instances = {o["instance"] for o in native["objects"] if "instance" in o}
+        referenced: set[str] = set()
+        for o in native["objects"]:
+            if o.get("id") == "dfd" or o.get("id") in ("trust_boundary", "container"):
+                referenced.update(o.get("objects", []))
+            if isinstance(o.get("anchors"), dict):
+                referenced.update(o["anchors"].values())
+            referenced.update(o.get("latches", []))
+            referenced.update(o.get("handles", []))
+            if "source" in o:
+                referenced.add(o["source"])
+            if "target" in o:
+                referenced.add(o["target"])
+        roots = all_instances - referenced
+        assert len(roots) == 1, f"expected single root, got {len(roots)}: {roots}"
+        root_obj = next(o for o in native["objects"] if o["instance"] in roots)
+        assert root_obj["id"] == "dfd"
+
+    def test_top_level_flow_in_canvas_objects(self):
+        """A data_flow whose GUID isn't listed in any container.children must
+        appear in the canvas object's objects[] so it has a parent."""
+        native = self._native_from_fixture()
+        canvas = next(o for o in native["objects"] if o.get("id") == "dfd")
+        # Both flows in _MINIMAL_DOC are top-level (not in any container's children)
+        assert _FLOW_1_GUID in canvas["objects"]
+        assert _FLOW_2_GUID in canvas["objects"]
+
     def test_container_objects_present(self):
         native = self._native_from_fixture()
         container_objs = [o for o in native["objects"] if o.get("id") in ("trust_boundary", "container")]

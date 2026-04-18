@@ -24,6 +24,22 @@ def health():
     return jsonify({"status": "ok"})
 
 
+def _diagram_display_name(data: dict) -> str | None:
+    """Find a human name in a stored diagram, tolerating either the
+    frontend's top-level `name` convention or the native dfd_v1 shape
+    where name lives under the canvas object's properties."""
+    name = data.get("name")
+    if name:
+        return name
+    for obj in data.get("objects", []):
+        if obj.get("id") == "dfd":
+            for entry in obj.get("properties", []):
+                if isinstance(entry, list) and len(entry) == 2 and entry[0] == "name":
+                    return entry[1] or None
+            break
+    return None
+
+
 @app.route("/api/diagrams", methods=["GET"])
 def list_diagrams():
     summaries = []
@@ -34,7 +50,7 @@ def list_diagrams():
             continue
         summaries.append({
             "id": path.stem,
-            "name": data.get("name") or path.stem,
+            "name": _diagram_display_name(data) or path.stem,
             "modified": path.stat().st_mtime,
         })
     return jsonify(summaries)

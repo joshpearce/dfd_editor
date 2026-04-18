@@ -191,13 +191,19 @@ def to_native(minimal: dict) -> dict:
             all_child_guids.add(str(child))
 
     top_level_guids: list[str] = []
-    # Containers first, then nodes (preserves a deterministic order)
+    # Containers first, then nodes, then data flows (deterministic order).
+    # Data flows whose GUID isn't listed in any container's children must be
+    # parented under the canvas; otherwise the engine treats them as extra
+    # roots and refuses to load the file.
     for c in diagram.containers:
         if str(c.guid) not in all_child_guids:
             top_level_guids.append(str(c.guid))
     for n in diagram.nodes:
         if str(n.guid) not in all_child_guids:
             top_level_guids.append(str(n.guid))
+    for f in diagram.data_flows:
+        if str(f.guid) not in all_child_guids:
+            top_level_guids.append(str(f.guid))
 
     objects: list[dict] = []
 
