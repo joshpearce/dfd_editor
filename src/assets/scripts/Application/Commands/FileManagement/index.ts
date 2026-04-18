@@ -8,6 +8,7 @@ import { createDiagram, getDiagram, importMinimalDiagram, saveDiagram, layoutDia
 import {
     BindEditorToServer,
     ClearFileRecoveryBank,
+    ExportDiagramAsDataFlow,
     ImportFile,
     LoadFile,
     PrepareEditorWithFile,
@@ -450,6 +451,25 @@ export function saveSelectionImageToDevice(
     context: ApplicationStore
 ) {
     return new SaveSelectionImageToDevice(context, context.activeEditor);
+}
+
+/**
+ * Exports the active diagram in the minimal Data Flow JSON format and
+ * downloads it to the user's file system. Returns a no-op when the active
+ * editor has no server binding (the export endpoint is server-side only).
+ * @param context
+ *  The application context.
+ * @returns
+ *  A command that represents the action.
+ */
+export function exportActiveFileAsDataFlow(
+    context: ApplicationStore
+): AppCommand {
+    const id = context.serverFileId;
+    if (!id) {
+        return new DoNothing();
+    }
+    return new ExportDiagramAsDataFlow(id, context.activeEditor);
 }
 
 /**

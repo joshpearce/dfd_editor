@@ -153,6 +153,12 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                         data: () => AppCommands.saveSelectionImageToDevice(app),
                         shortcut: file.save_select_image,
                         disabled: !app.hasSelection
+                    },
+                    {
+                        text: "Export DFD as Data Flow",
+                        type: MenuType.Action,
+                        data: () => AppCommands.exportActiveFileAsDataFlow(app),
+                        disabled: editor.id === PhantomEditor.id || !app.serverFileId
                     }
                 ]
             };

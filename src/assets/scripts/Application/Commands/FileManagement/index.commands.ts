@@ -12,3 +12,4 @@ export * from "./SaveSelectionImageToDevice";
 export * from "./PrepareEditorWithFile";
 export * from "./PublishDiagramFileToDevice";
 export * from "./ImportFile";
+export * from "./ExportDiagramAsDataFlow";

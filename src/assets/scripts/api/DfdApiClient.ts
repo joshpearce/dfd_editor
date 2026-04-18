@@ -106,6 +106,32 @@ export async function createDiagram(): Promise<DiagramId> {
 }
 
 /**
+ * Fetches a diagram from the server projected to the minimal DFD format.
+ * @param id
+ *  The diagram's ID.
+ * @returns
+ *  The minimal JSON document as a string.
+ * @throws
+ *  If the request fails.
+ */
+export async function exportMinimalDiagram(id: DiagramId): Promise<string> {
+    const response = await fetch(`/api/diagrams/${id}/export`);
+    if (!response.ok) {
+        let message = `Failed to export diagram '${id}': ${response.status}`;
+        try {
+            const body = await response.json() as { error?: string, detail?: string };
+            if (body.error) {
+                message = body.detail ? `${body.error}: ${body.detail}` : body.error;
+            }
+        } catch {
+            // body unreadable — keep status-based message
+        }
+        throw new Error(message);
+    }
+    return await response.text();
+}
+
+/**
  * Imports a minimal DFD JSON document to the server; server validates it
  * via pydantic, converts it to the native dfd_v1 shape, and persists it.
  * @param minimal
