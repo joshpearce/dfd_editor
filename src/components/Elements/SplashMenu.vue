@@ -87,6 +87,20 @@
               {{ openFile.description }}
             </p>
           </div>
+          <div
+            class="button"
+            @click="onImportDataFlow"
+          >
+            <div class="button-header">
+              <span class="button-icon"><FolderIcon /></span>
+              <p class="button-title">
+                Import Data Flow
+              </p>
+            </div>
+            <p class="button-description">
+              {{ importError ?? 'Upload a minimal JSON DFD; server validates and opens it.' }}
+            </p>
+          </div>
         </div>
       </div>
       <div class="section open-server-file">
@@ -209,7 +223,8 @@ export default defineComponent({
       openFile: Configuration.splash.open_file,
       helpLinks: Configuration.splash.help_links,
       serverFiles: [] as DiagramSummary[],
-      serverError: null as string | null
+      serverError: null as string | null,
+      importError: null as string | null
     }
   },
   mounted() {
@@ -258,6 +273,22 @@ export default defineComponent({
     async onOpenFile() {
       const ctx = this.application;
       this.execute(await AppCommands.prepareEditorFromFileSystem(ctx));
+    },
+
+    /**
+     * Import Data Flow behavior. Uploads a minimal-format JSON file to the
+     * server, which validates + converts it; the new diagram then opens
+     * in the editor bound to its server id.
+     */
+    async onImportDataFlow() {
+      const ctx = this.application;
+      try {
+        const cmd = await AppCommands.prepareEditorFromImportedFile(ctx);
+        this.importError = null;
+        this.execute(cmd);
+      } catch (e) {
+        this.importError = e instanceof Error ? e.message : "Import failed.";
+      }
     },
 
     /**
@@ -541,7 +572,7 @@ export default defineComponent({
 .section.open-file .button-grid {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   column-gap: 14px;
 }
 

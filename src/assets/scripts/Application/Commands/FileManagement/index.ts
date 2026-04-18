@@ -4,7 +4,7 @@ import { DoNothing } from "../index.commands";
 import { AppCommand } from "../index.commands";
 import { stripExtension } from "@OpenChart/Utilities";
 import { DiagramObjectViewFactory, DiagramViewFile, NewAutoLayoutEngine } from "@OpenChart/DiagramView";
-import { createDiagram, getDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
+import { createDiagram, getDiagram, importMinimalDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
 import {
     BindEditorToServer,
     ClearFileRecoveryBank,
@@ -350,6 +350,33 @@ export async function prepareEditorFromNewServerFile(
     const cmd = new PrepareEditorWithFile(context, loadCmd);
     cmd.add(new BindEditorToServer(context, id));
     return cmd;
+}
+
+/**
+ * Prompts the user for a minimal DFD JSON file, uploads it to the server
+ * for validation + conversion to native `dfd_v1`, then opens the resulting
+ * diagram in the editor bound to its new server id. Returns `DoNothing`
+ * when the user cancels the file picker.
+ * @param context
+ *  The application context.
+ * @returns
+ *  A command that represents the action.
+ */
+export async function prepareEditorFromImportedFile(
+    context: ApplicationStore
+): Promise<AppCommand> {
+    const file = await Device.openTextFileDialog("json");
+    if (!file) {
+        return new DoNothing();
+    }
+    let minimal: unknown;
+    try {
+        minimal = JSON.parse(file.contents as string);
+    } catch (e) {
+        throw new Error(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const id = await importMinimalDiagram(minimal);
+    return prepareEditorFromServerFile(context, id);
 }
 
 /**

@@ -104,3 +104,47 @@ export async function createDiagram(): Promise<DiagramId> {
     const data = await response.json() as { id: DiagramId };
     return data.id;
 }
+
+/**
+ * Imports a minimal DFD JSON document to the server; server validates it
+ * via pydantic, converts it to the native dfd_v1 shape, and persists it.
+ * @param minimal
+ *  The minimal JSON document (already parsed into a JS value).
+ * @returns
+ *  The imported diagram's ID.
+ * @throws
+ *  If validation fails (400) or the request fails. The error message
+ *  includes the server's `error` field and pydantic `details` when present.
+ */
+export async function importMinimalDiagram(minimal: unknown): Promise<DiagramId> {
+    const response = await fetch("/api/diagrams/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(minimal)
+    });
+    if (!response.ok) {
+        let message = `Import failed: ${response.status}`;
+        try {
+            const body = await response.json() as {
+                error?: string;
+                detail?: string;
+                details?: { loc?: (string | number)[], msg?: string }[];
+            };
+            if (body.error) {
+                message = body.error;
+                if (body.detail) {
+                    message += `: ${body.detail}`;
+                } else if (body.details && body.details.length) {
+                    const first = body.details[0];
+                    const loc = (first.loc ?? []).join(".");
+                    message += ` at ${loc || "<root>"}: ${first.msg ?? ""}`;
+                }
+            }
+        } catch {
+            // body unreadable — keep status-based message
+        }
+        throw new Error(message);
+    }
+    const data = await response.json() as { id: DiagramId };
+    return data.id;
+}
