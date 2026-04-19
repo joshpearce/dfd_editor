@@ -1,6 +1,6 @@
 # Configuration (DFD Fork Point)
 
-Last verified: 2026-04-14
+Last verified: 2026-04-19
 
 ## Purpose
 This directory is what turns the upstream attack-flow builder scaffold into a DFD editor. Everything DFD-specific (schema, themes, export format, validation, incoming-file handling) lives here; the rest of the app is domain-agnostic and consumes what this directory declares.

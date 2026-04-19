@@ -1,6 +1,6 @@
 # Flask Backend
 
-Last verified: 2026-04-16
+Last verified: 2026-04-19
 
 ## Purpose
 Hosts DFD diagram files for the browser editor: the "API creates diagram,
@@ -50,8 +50,9 @@ persistence surface.)
   or interpret diagram contents beyond reading an optional top-level `name`.
 
 ## Dependencies
-- **Uses** — `flask>=3.0`, `flask-cors>=4.0` (see `requirements.txt`). Stdlib
-  only otherwise (`json`, `uuid`, `pathlib`).
+- **Uses** — `flask>=3.0`, `flask-cors>=4.0`, `pydantic>=2.0` (see
+  `requirements.txt`). Stdlib only otherwise (`json`, `uuid`, `pathlib`,
+  `subprocess` for shelling `d2`).
 - **Used by**
   - `src/assets/scripts/api/DfdApiClient.ts` — the HTTP client; calls
     `/api/diagrams` via relative URLs (Vite proxies to `127.0.0.1:5050`).
@@ -79,8 +80,11 @@ persistence surface.)
   those files in the same change.
 
 ## Key Files
-- `app.py` — the entire server (6 routes, ~87 lines)
-- `requirements.txt` — pinned floor versions of flask / flask-cors
+- `app.py` — the HTTP surface (8 routes, ~145 lines)
+- `schema.py` — pydantic v2 models for the minimal DFD format; single source of truth for the import payload shape
+- `transform.py` — native `dfd_v1` ↔ minimal format converter used by the import/export endpoints
+- `tests/` — pytest suites covering endpoints, schema, import/export, and enum-drift vs. `DfdObjects.ts`
+- `requirements.txt` — pinned floor versions of flask / flask-cors (plus `pydantic` for schema validation)
 - `data/` — persistence directory; auto-created on startup. Contents are
   local-only and should not be committed.
 - `.venv/` — expected virtual-env location; `npm run dev:flask` invokes

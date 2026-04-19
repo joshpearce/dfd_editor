@@ -1,6 +1,6 @@
 # OpenChart (Diagram Engine — Forked)
 
-Last verified: 2026-04-16
+Last verified: 2026-04-19
 
 ## Purpose
 
@@ -21,9 +21,13 @@ has been abandoned; treat this directory as first-party code.
   `AnchorPoint`/`LatchPoint`/`HandlePoint`); `DiagramEditor` commands +
   interface plugins; `AutomaticLayoutEngine` (sync); `NewAutoLayoutEngine`
   (async, implements `AsyncDiagramLayoutEngine`, takes a `LayoutSource`
-  callback at construction so no HTTP client is imported here);
-  `DiagramLayoutEngine` (sync interface) and `AsyncDiagramLayoutEngine`
-  (async interface).
+  callback at construction so no HTTP client is imported here) plus its
+  siblings `D2Bridge` (canvas ↔ D2 text + TALA-SVG parsing) and
+  `AnchorRebind` (`pickCardinalAnchor` / `rebindLatchToAnchor` — line
+  endpoint rebinding after layout); `AnchorStrategy` (`"none"` /
+  `"geometric"` / `"tala"`, default `"geometric"`); `DiagramLayoutEngine`
+  (sync interface) and `AsyncDiagramLayoutEngine` (async interface);
+  `computeFitCamera` (viewport-fit helper used by `MoveCameraToObjects`).
 - **Guarantees**: Group is a first-class model object (not an overlay)
   that owns children, supports nesting, and persists via the same file
   format as blocks/lines. `GroupBoundsEngine` persists user-set group
@@ -64,8 +68,10 @@ has been abandoned; treat this directory as first-party code.
 - `DiagramModel/` — model classes (Canvas, Block, Line, Group, Anchor,
   Latch, Handle), factory, serializer, schema config, semantic analysis.
 - `DiagramView/` — Face system, renderers, view factory,
-  `DiagramLayoutEngine/` (incl. `GroupBoundsEngine`), style-aware
-  `GroupFace` (dashed / translucent).
+  `DiagramLayoutEngine/` (incl. `GroupBoundsEngine` and
+  `NewAutoLayoutEngine/` — the async TALA/D2 engine), style-aware
+  `GroupFace` (dashed / translucent), `FitCamera.ts` (pure
+  viewport-fit math).
 - `DiagramEditor/` — commands, `SynchronousCommandProcessor`,
   `AutosaveController`, `InterfacePlugins/PowerEditPlugin/` (incl.
   `ObjectMovers/` — Block / Group / Generic / Latch Movers) and
@@ -92,3 +98,10 @@ has been abandoned; treat this directory as first-party code.
   the bulk of fork-level engine changes.
 - `GroupBoundsEngine` lives under `DiagramView/DiagramLayoutEngine/`,
   not under `DiagramEditor/` — it's a view-layer concern.
+- `NewAutoLayoutEngine` must stay HTTP-free: it takes a `LayoutSource`
+  callback at construction rather than importing `src/assets/scripts/api/`.
+  The Vite-side wiring that injects the callback lives in the Application
+  layer (`DiagramModelEditor` / file-management commands).
+- Default `AnchorStrategy` is `"geometric"` as of `de99bd9`; the `"tala"`
+  path depends on parseable TALA SVG and falls back to `"geometric"`
+  per-line when edge data is missing.

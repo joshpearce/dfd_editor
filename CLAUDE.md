@@ -1,6 +1,6 @@
 # dfd_editor
 
-Last verified: 2026-04-14
+Last verified: 2026-04-19
 
 Browser-based Data Flow Diagram (DFD) editor. Scaffolded from MITRE's
 Apache-2.0 [attack-flow](https://github.com/center-for-threat-informed-defense/attack-flow)
@@ -48,9 +48,21 @@ python3 -m venv .venv
 ```
 
 Then `npm run dev:flask` (or `npm run dev:all`). The server persists diagrams
-as JSON files under `server/data/` and exposes `/api/health` and
-`/api/diagrams[/<id>]` (GET/POST/PUT). CORS is allowed only for
-`http://localhost:5173`.
+as JSON files under `server/data/` and exposes `/api/health`,
+`/api/diagrams[/<id>]` (GET/POST/PUT), `/api/diagrams/<id>/export` + `/api/diagrams/import`
+for the minimal DFD interchange format, and `/api/layout` (shells `d2 --layout=tala`
+for `NewAutoLayoutEngine`). CORS is allowed only for `http://localhost:5173`.
+See `server/CLAUDE.md` for the full contract.
+
+### TALA auto-layout
+
+`NewAutoLayoutEngine` (under `OpenChart/DiagramView/DiagramLayoutEngine/NewAutoLayoutEngine/`)
+is an async layout engine used for coord-less imported diagrams. It serializes
+the canvas to D2, POSTs to `/api/layout`, and re-parses the returned TALA SVG to
+place blocks/groups. `d2` with the TALA plugin must be on the server's `PATH`;
+without it, `/api/layout` returns 502 rather than failing at startup. Line
+endpoints are then rebound via an `AnchorStrategy` (default `"geometric"`;
+`"tala"` and `"none"` also supported — see the engine source).
 
 ## Project Structure
 
@@ -63,7 +75,9 @@ as JSON files under `server/data/` and exposes `/api/health` and
 - `src/assets/scripts/Application/` — app-level commands, stores glue,
   file-management commands (server save/load lives here).
 - `src/assets/scripts/Browser/` — browser-side utilities.
-- `src/assets/scripts/api/` — HTTP client for the Flask backend.
+- `src/assets/scripts/api/` — HTTP client for the Flask backend
+  (`DfdApiClient.ts`: list/create/get/save, minimal-format import/export, TALA
+  layout).
 - `src/assets/scripts/OpenChartFinder/` — search/index over diagram contents.
 - `src/assets/scripts/SegmentLayoutEngine/` — layout helpers.
 - `src/assets/scripts/StixToAttackFlow/` — vestigial STIX-import code carried
@@ -87,14 +101,17 @@ as JSON files under `server/data/` and exposes `/api/health` and
   `DiagramModel/DiagramModel.spec.ts`.
 - TypeScript is strict; the build fails on type errors via `vue-tsc`.
 - Lint on save; `npm run lint:fix` for mechanical fixes.
-- "API creates the diagram, user edits in the browser" workflow is now
-  backed by the Flask server's `/api/diagrams` endpoints (see `server/` and
-  `src/assets/scripts/api/DfdApiClient.ts`). `docs/getting-started.md`
-  describes an upstream `?src=<url>` query parameter, but that path is not
-  currently wired in this fork — server HTTP is the working surface.
-- Subdirectory `CLAUDE.md` files are expected (follow-up phase) under
-  `src/assets/configuration/`, `src/assets/scripts/OpenChart/`, and `server/`
-  to capture per-domain contracts. None exist yet.
+- "API creates the diagram, user edits in the browser" workflow is backed by
+  the Flask server's `/api/diagrams` endpoints (see `server/` and
+  `src/assets/scripts/api/DfdApiClient.ts`). Server save/load is the default
+  file surface (`1e5a7af feat(files): make server save/load the default`); the
+  recovery bank is a fallback only. `docs/getting-started.md` describes an
+  upstream `?src=<url>` query parameter, but that path is not currently wired
+  in this fork.
+- Per-domain context lives in sibling `CLAUDE.md` files: `server/CLAUDE.md`,
+  `src/assets/configuration/CLAUDE.md`, and
+  `src/assets/scripts/OpenChart/CLAUDE.md`. Prefer updating those over
+  inflating this file when changing a specific domain.
 
 ## Boundaries
 
@@ -109,8 +126,10 @@ as JSON files under `server/data/` and exposes `/api/health` and
 - `server/data/` — user diagram storage. Do not hand-edit; do not commit.
 - `node_modules/`, `dist/`, `package-lock.json` — generated, never hand-edit.
 - `docs/` — read for context. Phase plans (`trust-boundary-phase-*.md`,
-  `trust-boundary-integration-plan.md`, `flask-backend-plan.md`) are
-  historical records of completed work; treat as background, not as
-  current-state documentation.
+  `trust-boundary-integration-plan.md`, `flask-backend-plan.md`,
+  `tala-layout-integration-plan.md`, `tala-layout-integration-notes.md`,
+  `auto-layout-boundary-overlap-plan.md`,
+  `auto-layout-connector-anchoring-plan.md`) are historical records of
+  completed work; treat as background, not as current-state documentation.
 - `src/assets/scripts/StixToAttackFlow/` — upstream vestige; safe to ignore
   but don't delete without confirming no stray imports.
