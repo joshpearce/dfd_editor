@@ -59,6 +59,61 @@ export interface RebindableLatch {
 }
 
 /**
+ * A block surface that exposes every anchor's position — used by
+ * {@link pickNearestAnchor} so it can pick from the full anchor grid
+ * (12 positions: 4 cardinal midpoints plus 8 face-quarter positions) rather
+ * than only the 4 cardinals that {@link pickCardinalAnchor} returns.
+ *
+ * Only structural — concrete `BlockView` / `AnchorView` types are not
+ * imported here (deliberate decoupling).
+ */
+export interface AnchoredBlockSurface {
+    /**
+     * Map key is the string value of an `AnchorPosition` enum member
+     * (e.g. `"0"`, `"30"`, `"60"`, … `"330"`).
+     */
+    readonly anchors: ReadonlyMap<string, { readonly x: number; readonly y: number }>;
+}
+
+/**
+ * Returns the anchor on `block` whose (x, y) position is Euclidean-closest
+ * to `target`. Considers every anchor in `block.anchors` — typically all 12
+ * positions a block carries (cardinals + face quarters), so the returned
+ * anchor can land on any of the three positions along any face rather than
+ * only the face midpoints that {@link pickCardinalAnchor} picks from.
+ *
+ * Used by the TALA rebind pass to align a latch with TALA's actual edge
+ * endpoint on a block's perimeter, which often lies at a quarter rather
+ * than the midpoint.
+ *
+ * Ties (two anchors at the same distance) are broken by iteration order
+ * of the `anchors` map — insertion order in practice, which mirrors the
+ * order in `AnchorPosition`.
+ *
+ * @param block  - Block whose anchors to consider.
+ * @param target - Point in the same coordinate space as the anchor positions.
+ * @returns The key of the closest anchor (an `AnchorPosition` enum string),
+ *          or `null` if `block.anchors` is empty.
+ */
+export function pickNearestAnchor(
+    block: AnchoredBlockSurface,
+    target: Point
+): AnchorPosition | null {
+    let bestKey: string | null = null;
+    let bestDistSq = Infinity;
+    for (const [key, anchor] of block.anchors) {
+        const dx = anchor.x - target.x;
+        const dy = anchor.y - target.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < bestDistSq) {
+            bestDistSq = distSq;
+            bestKey = key;
+        }
+    }
+    return bestKey as AnchorPosition | null;
+}
+
+/**
  * Returns the cardinal anchor side of `block` that faces toward `target`.
  *
  * **Design note — center-based direction, not nearest-side:**

@@ -211,14 +211,31 @@ describe("NewAutoLayoutEngine", () => {
                 block.face.boundingBox.xMax = cx + w / 2;
                 block.face.boundingBox.yMin = cy - h / 2;
                 block.face.boundingBox.yMax = cy + h / 2;
+                // Anchor positions follow the block — updated here so
+                // post-placement `pickNearestAnchor` sees the moved block.
+                syncAnchorPositions();
             }),
             anchors
         };
+        function syncAnchorPositions(): void {
+            const bb = block.face.boundingBox;
+            const xMid = (bb.xMin + bb.xMax) / 2;
+            const yMid = (bb.yMin + bb.yMax) / 2;
+            const setXY = (pos: AnchorPosition, ax: number, ay: number): void => {
+                const a = anchors.get(pos);
+                if (a) { a.x = ax; a.y = ay; }
+            };
+            setXY(AnchorPosition.D0,   bb.xMax, yMid);
+            setXY(AnchorPosition.D90,  xMid,    bb.yMin);
+            setXY(AnchorPosition.D180, bb.xMin, yMid);
+            setXY(AnchorPosition.D270, xMid,    bb.yMax);
+        }
         for (const pos of [AnchorPosition.D0, AnchorPosition.D90, AnchorPosition.D180, AnchorPosition.D270]) {
             const anchor = makeAnchorStub();
             anchor.parent = block;
             anchors.set(pos, anchor);
         }
+        syncAnchorPositions();
         return block;
     }
 

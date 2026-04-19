@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { serializeToD2, parseTalaSvg } from "./D2Bridge";
 import type { SerializableBlock, SerializableCanvas, SerializableGroup, TalaEdge, TalaPlacement } from "./D2Bridge";
-import { pickCardinalAnchor, rebindLatchToAnchor } from "./AnchorRebind";
+import { pickCardinalAnchor, pickNearestAnchor, rebindLatchToAnchor } from "./AnchorRebind";
 import type { CardinalBlockSurface, LinkableAnchor, Point, RebindableLatch } from "./AnchorRebind";
 import type { DiagramObjectView } from "../../DiagramObjectView";
 import type { AsyncDiagramLayoutEngine } from "../DiagramLayoutEngine";
@@ -751,15 +751,18 @@ function rebindLinesTala(
         }
 
         if (bestEdge !== null && bestDStart <= srcThreshold && bestDEnd <= tgtThreshold) {
-            // Use TALA edge endpoints to pick anchors.
-            // Note: pickCardinalAnchor uses center-to-point direction, which
-            // is exact when TALA terminates connections at face midpoints (the
-            // normal case for rectangular blocks).  Corner terminations are
-            // rare in practice; they may trigger the helper's tiebreak rule.
-            const srcPos = pickCardinalAnchor(srcBlock, bestEdge.start);
-            const tgtPos = pickCardinalAnchor(tgtBlock, bestEdge.end);
-            const newSrcAnchor = srcBlock.anchors.get(srcPos);
-            const newTgtAnchor = tgtBlock.anchors.get(tgtPos);
+            // Pick the closest anchor among the full grid (12 per block:
+            // 4 face midpoints + 8 face quarters).  TALA routinely exits a
+            // face at an off-center point — in the AWS ECS sample, bottom-
+            // face entries land ~70–113 px from the cardinal midpoint, which
+            // `pickCardinalAnchor` would snap to and produce a visible
+            // dogleg.  Nearest-anchor selection cuts those gaps to ≲30 px
+            // because each face carries three anchors (midpoint + two
+            // quarters) — see AnchorLayout.ts.
+            const srcPos = pickNearestAnchor(srcBlock, bestEdge.start);
+            const tgtPos = pickNearestAnchor(tgtBlock, bestEdge.end);
+            const newSrcAnchor = srcPos !== null ? srcBlock.anchors.get(srcPos) : undefined;
+            const newTgtAnchor = tgtPos !== null ? tgtBlock.anchors.get(tgtPos) : undefined;
             if (newSrcAnchor) { rebindLatchToAnchor(line.source, newSrcAnchor); }
             if (newTgtAnchor) { rebindLatchToAnchor(line.target, newTgtAnchor); }
 
