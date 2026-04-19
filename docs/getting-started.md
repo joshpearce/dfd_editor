@@ -111,7 +111,6 @@ Creating a new shape = subclass `BlockFace` under `OpenChart/DiagramView/Diagram
 process: {
   name: string (required, representative),
   description: string,
-  number: string,                 // "1.0", "1.1", etc for hierarchical numbering
   trust_level: enum,              // public / authenticated / admin / system
   assumptions: list<string>,
 }

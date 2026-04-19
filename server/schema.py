@@ -79,7 +79,6 @@ class _Base(BaseModel):
 class ProcessProps(_Base):
     name: str
     description: str | None = None
-    number: str | None = None
     trust_level: TrustLevel | None = None
     assumptions: list[str] | None = None
 

@@ -83,7 +83,6 @@ def _minimal_native_with_dup_parent() -> dict:
                 "properties": [
                     ["name", "Shared"],
                     ["description", None],
-                    ["number", None],
                     ["trust_level", None],
                     ["assumptions", []],
                 ],
@@ -147,7 +146,6 @@ def _native_with_orphan_latch() -> dict:
                 "properties": [
                     ["name", "A"],
                     ["description", None],
-                    ["number", None],
                     ["trust_level", None],
                     ["assumptions", []],
                 ],

@@ -56,6 +56,7 @@ const DfdObjects: DesignMap = {
     process: {
         type: FaceType.DictionaryBlock,
         attributes: Alignment.Grid,
+        properties: { exclude: ["assumptions"] },
         style: LightStyle.DictionaryBlock({ head: Colors.LightThemeBlue })
     },
     external_entity: {

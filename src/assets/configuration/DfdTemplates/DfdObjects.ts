@@ -21,9 +21,6 @@ export const DfdObjects: DiagramObjectTemplate[] = [
             description: {
                 type: PropertyType.String
             },
-            number: {
-                type: PropertyType.String
-            },
             trust_level: {
                 type: PropertyType.Enum,
                 options: {

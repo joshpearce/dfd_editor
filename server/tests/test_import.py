@@ -44,7 +44,6 @@ _MINIMAL_DOC: dict = {
             "guid": _PROCESS_GUID,
             "properties": {
                 "name": "My Process",
-                "number": "1",
                 "trust_level": "admin",
                 "assumptions": ["assumption A", "assumption B"],
             },
@@ -417,7 +416,7 @@ class TestNativeShape:
         native = self._native_from_fixture()
         proc_obj = next(o for o in native["objects"] if o.get("id") == "process")
         keys = [p[0] for p in proc_obj["properties"]]
-        assert keys == ["name", "description", "number", "trust_level", "assumptions"]
+        assert keys == ["name", "description", "trust_level", "assumptions"]
 
         ext_obj = next(o for o in native["objects"] if o.get("id") == "external_entity")
         keys = [p[0] for p in ext_obj["properties"]]

@@ -41,7 +41,7 @@ _NATIVE_BOOL_PROPS: dict[str, tuple[str, ...]] = {
 
 # Ordered property keys per node type (must match DfdObjects.ts template order).
 _NODE_PROP_ORDER: dict[str, tuple[str, ...]] = {
-    "process": ("name", "description", "number", "trust_level", "assumptions"),
+    "process": ("name", "description", "trust_level", "assumptions"),
     "external_entity": ("name", "description", "entity_type", "out_of_scope"),
     "data_store": ("name", "description", "storage_type", "contains_pii", "encryption_at_rest"),
 }
