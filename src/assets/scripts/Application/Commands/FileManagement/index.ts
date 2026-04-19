@@ -4,10 +4,11 @@ import { DoNothing } from "../index.commands";
 import { AppCommand } from "../index.commands";
 import { stripExtension } from "@OpenChart/Utilities";
 import { DiagramObjectViewFactory, DiagramViewFile, NewAutoLayoutEngine } from "@OpenChart/DiagramView";
-import { createDiagram, getDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
+import { createDiagram, getDiagram, importMinimalDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
 import {
     BindEditorToServer,
     ClearFileRecoveryBank,
+    ExportDiagramAsDataFlow,
     ImportFile,
     LoadFile,
     PrepareEditorWithFile,
@@ -70,9 +71,10 @@ export async function loadExistingFile(
     // Run layout
     if (!jsonFile.layout) {
         try {
-            // Anchor strategy defaults to "geometric" (center-to-center cardinal
-            // rebind).  Pass "tala" or "none" as the second constructor argument
-            // to change the strategy; see AnchorStrategy in NewAutoLayoutEngine.ts.
+            // Anchor strategy defaults to "tala" (use TALA's SVG edge
+            // endpoints to pick anchor faces).  Pass "geometric" or "none" as
+            // the second constructor argument to change the strategy; see
+            // AnchorStrategy in NewAutoLayoutEngine.ts.
             await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
         } catch (err) {
             // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
@@ -198,8 +200,8 @@ export async function importExistingFile(
     // Run layout
     if (!jsonFile.layout) {
         try {
-            // Anchor strategy defaults to "geometric"; see AnchorStrategy in
-            // NewAutoLayoutEngine.ts to switch to "tala" or "none".
+            // Anchor strategy defaults to "tala"; see AnchorStrategy in
+            // NewAutoLayoutEngine.ts to switch to "geometric" or "none".
             await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
         } catch (err) {
             // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
@@ -353,6 +355,33 @@ export async function prepareEditorFromNewServerFile(
 }
 
 /**
+ * Prompts the user for a minimal DFD JSON file, uploads it to the server
+ * for validation + conversion to native `dfd_v1`, then opens the resulting
+ * diagram in the editor bound to its new server id. Returns `DoNothing`
+ * when the user cancels the file picker.
+ * @param context
+ *  The application context.
+ * @returns
+ *  A command that represents the action.
+ */
+export async function prepareEditorFromImportedFile(
+    context: ApplicationStore
+): Promise<AppCommand> {
+    const file = await Device.openTextFileDialog("json");
+    if (!file) {
+        return new DoNothing();
+    }
+    let minimal: unknown;
+    try {
+        minimal = JSON.parse(file.contents as string);
+    } catch (e) {
+        throw new Error(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const id = await importMinimalDiagram(minimal);
+    return prepareEditorFromServerFile(context, id);
+}
+
+/**
  * Prepares the editor with an existing file from a remote url.
  * @param context
  *  The application context.
@@ -423,6 +452,25 @@ export function saveSelectionImageToDevice(
     context: ApplicationStore
 ) {
     return new SaveSelectionImageToDevice(context, context.activeEditor);
+}
+
+/**
+ * Exports the active diagram in the minimal Data Flow JSON format and
+ * downloads it to the user's file system. Returns a no-op when the active
+ * editor has no server binding (the export endpoint is server-side only).
+ * @param context
+ *  The application context.
+ * @returns
+ *  A command that represents the action.
+ */
+export function exportActiveFileAsDataFlow(
+    context: ApplicationStore
+): AppCommand {
+    const id = context.serverFileId;
+    if (!id) {
+        return new DoNothing();
+    }
+    return new ExportDiagramAsDataFlow(id, context.activeEditor);
 }
 
 /**

@@ -89,9 +89,20 @@ interface RebindableLatchWithAnchor extends RebindableLatch {
  * attached endpoint; the runtime guard {@link asRebindableLine} catches
  * that and returns `null` so malformed lines are skipped silently.
  */
+/**
+ * A minimal handle surface — just the `moveTo` coordinates setter used by
+ * the tala rebind pass to steer a line's elbow toward TALA's polyline bend.
+ * Kept deliberately narrow: the rebind does not need to know about handle
+ * attributes, templates, or rendering.
+ */
+interface RebindableHandleSurface {
+    moveTo(x: number, y: number): void;
+}
+
 interface RebindableLineSurface {
-    readonly source: RebindableLatchWithAnchor;
-    readonly target: RebindableLatchWithAnchor;
+    readonly source:  RebindableLatchWithAnchor;
+    readonly target:  RebindableLatchWithAnchor;
+    readonly handles: ReadonlyArray<RebindableHandleSurface>;
 }
 
 /**
@@ -636,6 +647,53 @@ function pointToBoxDistance(
  *
  * Lines with unresolved endpoints are skipped silently.
  */
+/**
+ * Picks the interior polyline vertex that best captures the "bulge" of a
+ * TALA edge — the bend point a single-handle line should route through to
+ * approximate TALA's actual path.  For each interior point, computes its
+ * perpendicular distance from the straight line between the polyline's
+ * start and end, and returns the vertex with the largest distance.
+ *
+ * Returns `null` when the polyline is a straight segment (only two vertices,
+ * or all interior points are collinear with the endpoints) — in that case
+ * the caller should leave the handle where the line's layout strategy
+ * placed it.
+ */
+function pickPolylineElbow(points: readonly Point[]): Point | null {
+    if (points.length < 3) {
+        return null;
+    }
+    const a = points[0];
+    const b = points[points.length - 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const segLenSq = dx * dx + dy * dy;
+    if (segLenSq === 0) {
+        // Zero-length segment — caller's geometric rebind will handle it.
+        return null;
+    }
+    let best: Point | null = null;
+    let bestDistSq = 0;
+    // Tolerance for "collinear" — a TALA straight-edge sometimes includes
+    // tiny arrowhead-approach vertices; without this guard a sub-pixel jitter
+    // would snap the handle away from the strategy-chosen elbow.
+    const collinearEpsilon = 0.5;
+    for (let i = 1; i < points.length - 1; i++) {
+        const p = points[i];
+        // Distance-squared from p to the infinite line through a,b.
+        const cross = dx * (p.y - a.y) - dy * (p.x - a.x);
+        const distSq = (cross * cross) / segLenSq;
+        if (distSq > bestDistSq) {
+            bestDistSq = distSq;
+            best = p;
+        }
+    }
+    if (bestDistSq < collinearEpsilon * collinearEpsilon) {
+        return null;
+    }
+    return best;
+}
+
 function rebindLinesTala(
     lines: ReadonlyArray<RebindableLineSurface>,
     edges: TalaEdge[]
@@ -704,6 +762,17 @@ function rebindLinesTala(
             const newTgtAnchor = tgtBlock.anchors.get(tgtPos);
             if (newSrcAnchor) { rebindLatchToAnchor(line.source, newSrcAnchor); }
             if (newTgtAnchor) { rebindLatchToAnchor(line.target, newTgtAnchor); }
+
+            // Steer the line's single handle onto TALA's bend point when the
+            // polyline isn't a straight segment.  DynamicLine's layout
+            // strategies build the elbow path from handles[0]'s position, so
+            // moving the handle here is how we route around intermediate
+            // blocks that TALA already solved for.  Lines without a handle
+            // (pure A-to-B with no waypoint) are left alone.
+            const elbow = pickPolylineElbow(bestEdge.points);
+            if (elbow && line.handles.length > 0) {
+                line.handles[0].moveTo(elbow.x, elbow.y);
+            }
         } else {
             // Fallback: geometric center-to-center rebind for this line.
             rebindLinesGeometric([line]);
@@ -721,15 +790,16 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
      *  SVG string.  Injected to keep the engine layer free of HTTP concerns.
      * @param anchorStrategy
      *  Controls how line endpoints are rebound after block / group placement.
-     *  Defaults to `"geometric"` (center-to-center cardinal rebind), which
-     *  always produces connections that exit perpendicular to the face they
-     *  attach to.  Pass `"tala"` to use TALA SVG edge-endpoint data instead
-     *  (may produce face-parallel connections when TALA routes U-shapes), or
-     *  `"none"` to skip all rebinding.
+     *  Defaults to `"tala"` (use TALA's SVG edge endpoints to pick anchor
+     *  faces), which routes cleanly around neighboring blocks because TALA
+     *  already solved the path.  Pass `"geometric"` to pick anchors purely
+     *  from center-to-center direction (always perpendicular exit, but can
+     *  route connectors through blocks that sit between the endpoints on a
+     *  dense canvas), or `"none"` to skip all rebinding.
      */
     constructor(
         private readonly layoutSource:   LayoutSource,
-        private readonly anchorStrategy: AnchorStrategy = "geometric"
+        private readonly anchorStrategy: AnchorStrategy = "tala"
     ) {}
 
     /**

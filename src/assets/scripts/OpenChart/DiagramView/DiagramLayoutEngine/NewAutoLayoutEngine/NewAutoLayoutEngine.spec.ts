@@ -222,15 +222,28 @@ describe("NewAutoLayoutEngine", () => {
         return block;
     }
 
+    /** Minimal handle stub: just a `moveTo` spy the rebind pass can call. */
+    interface HandleStub {
+        moveTo: ReturnType<typeof vi.fn>;
+    }
+
+    function makeHandleStub(): HandleStub {
+        return { moveTo: vi.fn() };
+    }
+
     /**
      * Creates a line stub whose `source` / `target` getters throw when null —
-     * mirroring `LineView`'s runtime semantics.
+     * mirroring `LineView`'s runtime semantics.  `handles` defaults to an
+     * empty array so existing tests remain unchanged; pass one or more to
+     * exercise the tala-polyline-elbow waypoint pass.
      */
     function makeLineStub(
         sourceLatch: LatchStub | null,
-        targetLatch: LatchStub | null
+        targetLatch: LatchStub | null,
+        handles: HandleStub[] = []
     ) {
         return {
+            handles,
             get source() {
                 if (sourceLatch === null) {
                     throw new Error("LineView: source latch is null");
@@ -1005,10 +1018,9 @@ describe("NewAutoLayoutEngine", () => {
             expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
         });
 
-        it("default strategy 'geometric' rebinds to faces perpendicular to inter-block direction", async () => {
-            // Default strategy is "geometric": picks the face whose outward
-            // normal points toward the other block, ensuring connectors exit
-            // perpendicular to the face they attach to.
+        it("default strategy 'tala' with no TALA connections falls back to geometric rebind", async () => {
+            // SVG has node placements but no <g class="connection"> elements →
+            // edges is empty → rebindLinesTala falls back to geometric for each line.
             const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
             const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
@@ -1026,7 +1038,7 @@ describe("NewAutoLayoutEngine", () => {
 
             await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas));
 
-            // src is left of tgt → src gets D0 (right), tgt gets D180 (left).
+            // Geometric fallback: src is left of tgt → src gets D0 (right), tgt gets D180 (left).
             expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D0), true);
             expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
         });
@@ -1145,6 +1157,68 @@ describe("NewAutoLayoutEngine", () => {
 
             expect(srcLatch.link).toHaveBeenCalledWith(srcBlock.anchors.get(AnchorPosition.D0),   true);
             expect(tgtLatch.link).toHaveBeenCalledWith(tgtBlock.anchors.get(AnchorPosition.D180), true);
+        });
+
+        it("tala: polyline with a bend steers handles[0] to the bulge vertex", async () => {
+            // Two blocks with identical y so the straight source→target line is
+            // horizontal.  TALA routes around an imaginary obstacle via a bend
+            // at (250, 200) — 100 units below the straight midpoint.  The
+            // rebind pass should move the line's one handle to that vertex so
+            // DynamicLine's elbow bends through it instead of cutting a
+            // straight horizontal path.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D180)!);
+            const handle   = makeHandleStub();
+
+            const line   = makeLineStub(srcLatch, tgtLatch, [handle]);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                // Orthogonal U-route: right off src, down, across, up, into tgt.
+                [{ d: "M 150 100 L 250 100 L 250 200 L 350 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            // (250, 200) is the vertex farthest from the straight line between
+            // start (150, 100) and end (350, 100).
+            expect(handle.moveTo).toHaveBeenCalledWith(250, 200);
+        });
+
+        it("tala: straight polyline leaves handles[0] untouched", async () => {
+            // A pure straight edge — no bulge — must not move the handle,
+            // otherwise the strategy-chosen elbow position gets clobbered for
+            // the easy case TALA already drew as a straight line.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D180)!);
+            const handle   = makeHandleStub();
+
+            const line   = makeLineStub(srcLatch, tgtLatch, [handle]);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 150 100 L 350 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            expect(handle.moveTo).not.toHaveBeenCalled();
         });
 
         it("tala connection far from blocks (distance > threshold) → falls back to geometric", async () => {

@@ -174,20 +174,28 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
             }
         }
         // 3. Content inside groups. `group.getObjectAt` already recurses
-        //    into nested groups via `findUnlinkedObjectAt`, so iterating
-        //    canvas.groups top-down returns the deepest child hit. We still
-        //    remember the topmost group body for the final fallback so an
-        //    empty interior click selects the group.
-        let groupHit: DiagramObjectView | undefined;
+        //    into nested groups via `findUnlinkedObjectAt` and returns the
+        //    deepest hit — which may be a descendant group that returned
+        //    ITSELF because nothing inside it was hit. That case has to be
+        //    treated as a group-body fallback, not a real content hit —
+        //    otherwise a click on an empty interior of a nested container
+        //    short-circuits past the canvas-level line check in step 4 and
+        //    the container swallows clicks on lines that visually cross it.
+        //    We cache the deepest such GroupView and keep iterating so
+        //    canvas-level lines still get their chance.
+        let groupHit: GroupView | undefined;
         for (let i = canvas.groups.length - 1; 0 <= i; i--) {
             const group = canvas.groups[i] as GroupView;
             const inside = group.getObjectAt(x, y);
-            if (inside && inside !== group) {
-                return inside;
+            if (!inside) {
+                continue;
             }
-            if (inside === group && !groupHit) {
-                groupHit = group;
+            if (inside instanceof GroupView) {
+                groupHit ??= inside;
+                continue;
             }
+            // Non-group content (block, line, latch, handle, …) — real hit.
+            return inside;
         }
         // 4. Canvas-level lines. Lines created via anchor-drag are added to
         //    the canvas (see handleAnchor), so a line that visually crosses

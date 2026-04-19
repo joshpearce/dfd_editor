@@ -5,3 +5,4 @@ export * from "./DiagramObjectViewFactory";
 export * from "./DiagramViewExport";
 export * from "./DiagramViewFile";
 export * from "./CameraLocation";
+export * from "./FitCamera";

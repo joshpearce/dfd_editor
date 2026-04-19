@@ -386,6 +386,15 @@ export type TalaPlacement =
 export type TalaEdge = {
     readonly start: Point;
     readonly end:   Point;
+    /**
+     * The full polyline vertex list as TALA drew it, in order from start to
+     * end.  `points[0]` equals `start` and `points[points.length - 1]`
+     * equals `end`.  Intermediate entries (if any) are the polyline's bend
+     * points — the information a downstream pass needs to steer a line's
+     * handle toward TALA's actual route rather than a straight latch-to-
+     * latch path.
+     */
+    readonly points: readonly Point[];
 };
 
 /**
@@ -404,14 +413,21 @@ export type TalaEdge = {
  * cylinder shapes D2 uses a `<path>` instead; in that case we fall back
  * to parsing the `M x y` from the path data and omit the size.
  *
- * **Edge parsing**: `<g class="connection">` elements do NOT have a base64
- * class — they are matched directly by class name.  For each, the inner
- * `<path>` element's `d` attribute is inspected:
- *   - `start` is extracted from the leading `M x y` command.
- *   - `end`   is extracted from the last numeric coordinate pair in the
- *             path data (after stripping a trailing `Z`/`z` close-path).
- * Connections whose `<path>` is absent or whose `d` attribute does not
- * match either regex are silently skipped (no throw).
+ * **Edge parsing**: D2 v0.7.1 wraps each edge's `<path>` inside a `<g>`
+ * whose class is the base64 of the edge id (same scheme as nodes).  The
+ * `connection` CSS class lives on the *path itself*, not the wrapping
+ * group, so edges are found via `path.connection` — not `g.connection`
+ * (which matches arrowhead markers inside `<defs>` / `<marker>`).
+ *
+ * Arrowhead marker paths share the `connection` class but use a `fill-…`
+ * token and are reachable via a `<marker>` ancestor; both filters are
+ * applied to exclude them.  For each real edge path:
+ *   - `start` and `end` come from the first / last numeric coordinate
+ *             pairs in the `d` attribute.
+ *   - `points` is the full polyline vertex list (used downstream to
+ *             steer line handles onto TALA's bend points).
+ * Connections whose `<path>` is absent or whose `d` attribute cannot be
+ * tokenised into at least two coordinate pairs are silently skipped.
  *
  * @throws {Error} if the SVG string cannot be parsed (DOMParser returns a
  *   `<parsererror>` document).  `NewAutoLayoutEngine.run` propagates this
@@ -491,17 +507,26 @@ export function parseTalaSvg(svg: string): {
         }
     }
 
-    // Parse connection (edge) elements — these use the plain class "connection"
-    // and are NOT base64-encoded, so they fall outside the node-parsing loop.
+    // Parse connection (edge) paths.  D2 v0.7.1 places the `connection` class
+    // on the <path> element itself (the wrapping <g> has the base64 edge id).
+    // An older fallback layout — `<g class="connection"><path /></g>` — is also
+    // accepted for robustness and to keep the test helper simple.
     const edges: TalaEdge[] = [];
-    const connectionGroups = doc.querySelectorAll("g.connection");
+    const edgePaths: Element[] = Array.from(
+        doc.querySelectorAll("path.connection, g.connection > path")
+    );
 
-    for (const connG of connectionGroups) {
-        // Use :scope > path to match only the direct-child edge path and avoid
-        // descending into arrowhead or marker <path> elements that D2 nests
-        // inside the same connection group.
-        const pathEl = connG.querySelector(":scope > path");
-        if (!pathEl) {
+    for (const pathEl of edgePaths) {
+        // Skip arrowhead marker paths: they share the `connection` class but
+        // are defined inside <marker> elements in <defs> (tiny polygons in a
+        // local coordinate space, not routes).  Also skip any path whose
+        // class list carries a `fill-…` token — those are arrowhead fills
+        // even when they escape the marker wrapper.
+        if (pathEl.closest("marker")) {
+            continue;
+        }
+        const cls = pathEl.getAttribute("class") ?? "";
+        if (/\bfill-/.test(cls)) {
             continue;
         }
         const d = pathEl.getAttribute("d") ?? "";
@@ -512,23 +537,40 @@ export function parseTalaSvg(svg: string): {
             continue;
         }
 
-        // Extract the end point from the last two numeric tokens after stripping
-        // any trailing close-path command (Z or z).  Tokenising rather than
-        // matching a fixed separator handles all D2/TALA coordinate formats:
-        // space-separated ("L 100 200"), comma-separated ("L 100,200"), and
-        // implicit-separator ("L 100-20" where the negative sign acts as the
-        // separator between adjacent numbers).
+        // Tokenise every numeric coordinate pair in the path and treat them
+        // as polyline vertices.  This is a lossy-but-useful view of the path:
+        // TALA emits straight-line edges as `M x0 y0 L x1 y1 L x2 y2 …` which
+        // is a pure polyline, and curved edges (`C`, `Q`) as `M x0 y0 C cx1
+        // cy1 cx2 cy2 x1 y1 …`.  In the curved case the "vertices" include
+        // control points; downstream callers that care about the visual bend
+        // shape treat control points and vertices interchangeably here (the
+        // geometric spread across the path is what matters for picking a
+        // single handle waypoint, not the exact Bezier semantics).
+        //
+        // Tokenising rather than matching a fixed separator handles all
+        // D2/TALA coordinate formats: space-separated ("L 100 200"),
+        // comma-separated ("L 100,200"), and implicit-separator ("L 100-20"
+        // where the negative sign acts as the separator).
         const dStripped = d.replace(/[Zz]\s*$/, "");
         const numTokens = Array.from(dStripped.matchAll(/([-+]?[\d.]+)/g));
         if (numTokens.length < 2) {
             continue;
         }
-        const endX = parseFloat(numTokens[numTokens.length - 2][1]);
-        const endY = parseFloat(numTokens[numTokens.length - 1][1]);
-
+        const points: Point[] = [];
+        for (let i = 0; i + 1 < numTokens.length; i += 2) {
+            const x = parseFloat(numTokens[i][1]);
+            const y = parseFloat(numTokens[i + 1][1]);
+            if (!isNaN(x) && !isNaN(y)) {
+                points.push({ x, y });
+            }
+        }
+        if (points.length < 2) {
+            continue;
+        }
         edges.push({
-            start: { x: parseFloat(startMatch[1]), y: parseFloat(startMatch[2]) },
-            end:   { x: endX, y: endY }
+            start:  points[0],
+            end:    points[points.length - 1],
+            points
         });
     }
 

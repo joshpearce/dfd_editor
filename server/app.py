@@ -5,10 +5,16 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
+from pydantic import ValidationError
+
+from transform import DuplicateParentError, InvalidNativeError, to_minimal, to_native
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173"])
 
+# Tests override this via monkeypatch.setattr("app.DATA_DIR", ...).
+# Any refactor that reads DATA_DIR from a different module must preserve
+# this overridable seam.
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
@@ -16,6 +22,22 @@ DATA_DIR.mkdir(exist_ok=True)
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+def _diagram_display_name(data: dict) -> str | None:
+    """Find a human name in a stored diagram, tolerating either the
+    frontend's top-level `name` convention or the native dfd_v1 shape
+    where name lives under the canvas object's properties."""
+    name = data.get("name")
+    if name:
+        return name
+    for obj in data.get("objects", []):
+        if obj.get("id") == "dfd":
+            for entry in obj.get("properties", []):
+                if isinstance(entry, list) and len(entry) == 2 and entry[0] == "name":
+                    return entry[1] or None
+            break
+    return None
 
 
 @app.route("/api/diagrams", methods=["GET"])
@@ -28,7 +50,7 @@ def list_diagrams():
             continue
         summaries.append({
             "id": path.stem,
-            "name": data.get("name") or path.stem,
+            "name": _diagram_display_name(data) or path.stem,
             "modified": path.stat().st_mtime,
         })
     return jsonify(summaries)
@@ -57,6 +79,37 @@ def update_diagram(diagram_id):
         return jsonify({"error": "not found"}), 404
     path.write_text(json.dumps(request.get_json(), indent=4))
     return "", 204
+
+
+@app.route("/api/diagrams/import", methods=["POST"])
+def import_diagram():
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "request body must be valid JSON"}), 400
+    try:
+        native = to_native(body)
+    except ValidationError as e:
+        return jsonify({"error": "validation failed", "details": e.errors(include_url=False)}), 400
+    except DuplicateParentError as e:
+        return jsonify({"error": "duplicate parent", "detail": str(e)}), 400
+    diagram_id = str(uuid.uuid4())
+    (DATA_DIR / f"{diagram_id}.json").write_text(json.dumps(native, indent=4))
+    return jsonify({"id": diagram_id}), 201
+
+
+@app.route("/api/diagrams/<diagram_id>/export", methods=["GET"])
+def export_diagram(diagram_id):
+    path = DATA_DIR / f"{diagram_id}.json"
+    if not path.exists():
+        return jsonify({"error": "not found"}), 404
+    native = json.loads(path.read_text())
+    try:
+        minimal = to_minimal(native)
+    except InvalidNativeError as e:
+        return jsonify({"error": "stored diagram is not a valid dfd_v1 document", "detail": str(e)}), 500
+    except ValidationError as e:
+        return jsonify({"error": "stored diagram is not a valid dfd_v1 document", "detail": str(e)}), 500
+    return jsonify(minimal)
 
 
 @app.route("/api/layout", methods=["POST"])
