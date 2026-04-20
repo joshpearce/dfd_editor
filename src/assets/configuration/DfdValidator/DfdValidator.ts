@@ -1,6 +1,6 @@
 import { FileValidator } from "@/assets/scripts/Application";
-import { DiagramModelFile, SemanticAnalyzer } from "@OpenChart/DiagramModel";
-import type { SemanticGraphEdge, SemanticGraphNode } from "@OpenChart/DiagramModel";
+import { DiagramModelFile, ListProperty, SemanticAnalyzer } from "@OpenChart/DiagramModel";
+import type { Canvas, SemanticGraphEdge, SemanticGraphNode } from "@OpenChart/DiagramModel";
 
 const PRIVILEGE_RANK: Record<string, number> = {
     internet: 0,
@@ -20,6 +20,7 @@ class DfdValidator extends FileValidator {
 
     protected validate(file: DiagramModelFile): void {
         const graph = SemanticAnalyzer.toGraph(file.canvas);
+        const knownDataItemGuids = this.collectDataItemGuids(file.canvas);
 
         for (const [instance, node] of graph.nodes) {
             this.validateNode(instance, node);
@@ -33,6 +34,7 @@ class DfdValidator extends FileValidator {
 
         for (const [id, edge] of graph.edges) {
             this.validateEdge(id, edge);
+            this.validateDataItemRefs(id, edge, knownDataItemGuids);
         }
     }
 
@@ -65,6 +67,51 @@ class DfdValidator extends FileValidator {
                         "Out-of-scope external entity is inside a restricted trust boundary."
                     );
                 }
+            }
+        }
+    }
+
+    /**
+     * Collects all data-item GUIDs declared in the canvas's `data_items`
+     * ListProperty.  Returns an empty Set for legacy diagrams that have no
+     * such property.
+     */
+    private collectDataItemGuids(canvas: Canvas): Set<string> {
+        const guids = new Set<string>();
+        const dataItemsProp = canvas.properties.value.get("data_items");
+        if (!(dataItemsProp instanceof ListProperty)) {
+            return guids;
+        }
+        for (const [guid] of dataItemsProp.value) {
+            guids.add(guid);
+        }
+        return guids;
+    }
+
+    /**
+     * Warns when a flow's `data_item_refs` list contains a GUID that doesn't
+     * correspond to any canvas data item.  Does not block save/publish.
+     */
+    private validateDataItemRefs(
+        id: string,
+        edge: SemanticGraphEdge,
+        knownGuids: Set<string>
+    ): void {
+        if (knownGuids.size === 0) {
+            // No data items defined — nothing to check.
+            return;
+        }
+        const refsProp = edge.props.value.get("data_item_refs");
+        if (!(refsProp instanceof ListProperty)) {
+            return;
+        }
+        for (const [, entry] of refsProp.value) {
+            const val = entry.toJson();
+            if (typeof val === "string" && val.length > 0 && !knownGuids.has(val)) {
+                this.addWarning(
+                    id,
+                    `Data flow references unknown data item '${val}'.`
+                );
             }
         }
     }
