@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from schema import Diagram
+from schema import DataItem, Diagram
 
 # Template ids that represent diagram nodes (blocks).
 _NODE_IDS: frozenset[str] = frozenset({"process", "external_entity", "data_store"})
@@ -59,10 +59,11 @@ _FLOW_PROP_ORDER: tuple[str, ...] = (
     "protocol",
     "authenticated",
     "encrypted_in_transit",
+    "data_item_refs",
 )
 
 # Ordered property keys for the canvas (dfd) object.
-_CANVAS_PROP_ORDER: tuple[str, ...] = ("name", "description", "author", "created")
+_CANVAS_PROP_ORDER: tuple[str, ...] = ("name", "description", "author", "created", "data_items")
 
 # Anchor angle → anchor type mapping (12 anchors at 30° steps).
 _ANCHOR_TYPES: dict[int, str] = {
@@ -150,8 +151,12 @@ def to_minimal(native: dict) -> dict:
         if obj.get("id") == "data_flow":
             data_flows.append(_emit_data_flow(obj, latch_to_block))
 
-    # --- Step 8: extract data_items from native top-level field ---------------
-    data_items: list[dict] = native.get("data_items", [])
+    # --- Step 8: extract data_items from canvas properties -------------------
+    # data_items are stored inside the canvas object's properties list (key
+    # "data_items") so they survive the OpenChart native round-trip.  When Step
+    # 2 adds data_items as a ListProperty on the canvas, the engine serialises
+    # it into the same canvas properties array automatically.
+    data_items: list[dict] = _extract_canvas_data_items(canvas)
 
     # --- Step 9: wrap result ---------------------------------------------------
     result: dict[str, Any] = {
@@ -214,7 +219,7 @@ def to_native(minimal: dict) -> dict:
 
     # --- Step 4: canvas object -------------------------------------------------
     meta = diagram.meta
-    canvas_props = _build_canvas_props(meta)
+    canvas_props = _build_canvas_props(meta, diagram.data_items)
     canvas_instance = str(uuid.uuid4())
     objects.append(
         {
@@ -306,15 +311,7 @@ def to_native(minimal: dict) -> dict:
         objects.append({"id": "generic_latch", "instance": target_latch_inst})
         objects.append({"id": "generic_handle", "instance": handle_inst})
 
-    native_doc: dict[str, Any] = {"schema": "dfd_v1", "theme": "dark_theme", "objects": objects}
-
-    # Persist data_items as a top-level field so to_minimal can recover them.
-    if diagram.data_items:
-        native_doc["data_items"] = [
-            _data_item_to_dict(item) for item in diagram.data_items
-        ]
-
-    return native_doc
+    return {"schema": "dfd_v1", "theme": "dark_theme", "objects": objects}
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +401,30 @@ def _extract_meta(canvas: dict | None) -> dict | None:
     if created is not None:
         meta["created"] = created
     return meta
+
+
+def _extract_canvas_data_items(canvas: dict | None) -> list[dict]:
+    """Extract data_items from the canvas object's properties list.
+
+    Returns an empty list when the canvas is absent or has no data_items entry.
+    Raises InvalidNativeError if the stored value is present but not a list of
+    dicts (structural invariant violation).
+    """
+    if canvas is None:
+        return []
+    raw_pairs = canvas.get("properties", [])
+    try:
+        raw_props = {pair[0]: pair[1] for pair in raw_pairs if len(pair) == 2}
+    except TypeError:
+        return []
+    raw_items = raw_props.get("data_items")
+    if raw_items is None:
+        return []
+    if not isinstance(raw_items, list) or any(not isinstance(e, dict) for e in raw_items):
+        raise InvalidNativeError(
+            "canvas data_items property is malformed: expected a list of dicts"
+        )
+    return raw_items
 
 
 def _assert_single_parent(objects: list[dict], by_instance: dict[str, dict]) -> None:
@@ -568,10 +589,12 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
         if converted is not None:
             flow_props["encrypted"] = converted
 
-    # Recover data_item_refs if stored in native properties.
+    # Recover data_item_refs from native properties.
+    # Coerce each entry to UUID explicitly; Diagram.model_validate would do
+    # this implicitly, but being explicit avoids silent string pass-through.
     refs = raw_props.get("data_item_refs")
     if refs:
-        flow_props["data_item_refs"] = refs
+        flow_props["data_item_refs"] = [uuid.UUID(r) if isinstance(r, str) else r for r in refs]
 
     return {
         "guid": instance,
@@ -600,7 +623,7 @@ def _bool_to_native(value: bool) -> str:
     return "true" if value else "false"
 
 
-def _data_item_to_dict(item: Any) -> dict[str, Any]:
+def _data_item_to_dict(item: DataItem) -> dict[str, Any]:
     """Serialize a DataItem model to a plain dict for native storage."""
     result: dict[str, Any] = {
         "guid": str(item.guid),
@@ -615,8 +638,14 @@ def _data_item_to_dict(item: Any) -> dict[str, Any]:
     return result
 
 
-def _build_canvas_props(meta: Any) -> list[list]:
-    """Build the canvas (dfd) object's properties list from the meta model."""
+def _build_canvas_props(meta: Any, data_items: list[DataItem] | None = None) -> list[list]:
+    """Build the canvas (dfd) object's properties list from the meta model.
+
+    data_items are stored here (as a list of plain dicts) rather than as a
+    top-level sibling of objects[] in the native document.  This keeps them
+    inside the canvas object so OpenChart's generic property serialiser can
+    round-trip them without loss when Step 2 adds data_items as a ListProperty.
+    """
     name = meta.name if meta else None
     description = meta.description if meta else None
     author = meta.author if meta else None
@@ -632,12 +661,19 @@ def _build_canvas_props(meta: Any) -> list[list]:
             tz_name = "UTC"
         created_val = {"time": iso, "zone": tz_name}
 
-    return [
+    items_val: list[dict] | None = None
+    if data_items:
+        items_val = [_data_item_to_dict(item) for item in data_items]
+
+    props: list[list] = [
         ["name", name],
         ["description", description],
         ["author", author],
         ["created", created_val],
     ]
+    if items_val is not None:
+        props.append(["data_items", items_val])
+    return props
 
 
 def _build_container_props(container: Any) -> list[list]:
@@ -698,13 +734,13 @@ def _build_flow_props(flow: Any) -> list[list]:
         elif key == "authenticated":
             val = props.authenticated
             result.append([key, _bool_to_native(val if val is not None else False)])
+        elif key == "data_item_refs":
+            # Emit as a list of UUID strings (always present; empty list when none).
+            result.append([key, [str(ref) for ref in props.data_item_refs]])
         else:
             val = getattr(props, key, None)
             if val is None:
                 result.append([key, None])
             else:
                 result.append([key, str(val)])
-    # Persist data_item_refs if present (as a list of UUID strings).
-    if props.data_item_refs:
-        result.append(["data_item_refs", [str(ref) for ref in props.data_item_refs]])
     return result

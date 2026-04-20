@@ -5,6 +5,12 @@ Covers:
   preserves both fields exactly.
 - Legacy payloads (no data_items, no data_item_refs) import and GET without
   error; both fields default to empty list / absent.
+- Arbitrary classification strings (free-form, not enum-restricted) survive
+  the round-trip unchanged.
+- extra="forbid" rejects unknown keys on DataItem.
+- Missing required fields on DataItem return 400.
+- Multiple data_item_refs on one flow round-trip with ordering preserved.
+- Exported data_items list length matches imported length exactly.
 """
 
 from __future__ import annotations
@@ -137,8 +143,8 @@ class TestDataItemsRoundTrip:
         assert item1["identifier"] == "D1"
         assert item1["name"] == "Customer PII"
         assert item1["classification"] == "pii"
-        # description was not set; must not appear or be None
-        assert item1.get("description") is None
+        # description was not set; key must be absent (not just None)
+        assert "description" not in item1
 
         assert _DATA_ITEM_2_GUID in exported_items
         item2 = exported_items[_DATA_ITEM_2_GUID]
@@ -223,3 +229,211 @@ class TestLegacyPayloadCompatibility:
         assert _FLOW_GUID in flows
         refs = flows[_FLOW_GUID]["properties"].get("data_item_refs", [])
         assert refs == []
+
+
+# ---------------------------------------------------------------------------
+# Additional GUIDs for multi-ref tests
+# ---------------------------------------------------------------------------
+
+_DATA_ITEM_3_GUID = "bbbbbbbb-0000-0000-0000-000000000003"
+
+
+# ---------------------------------------------------------------------------
+# Test 3: arbitrary classification string round-trips unchanged
+# ---------------------------------------------------------------------------
+
+
+class TestArbitraryClassification:
+    def test_free_form_classification_preserved(self, client):
+        """An arbitrary classification string (not in any enum) survives round-trip."""
+        payload = {
+            "nodes": [
+                {
+                    "type": "process",
+                    "guid": _PROCESS_GUID,
+                    "properties": {"name": "P"},
+                },
+                {
+                    "type": "data_store",
+                    "guid": _DATA_STORE_GUID,
+                    "properties": {"name": "DS"},
+                },
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_GUID,
+                    "source": _PROCESS_GUID,
+                    "target": _DATA_STORE_GUID,
+                    "properties": {"data_item_refs": [_DATA_ITEM_1_GUID]},
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "D1",
+                    "name": "Personal Info",
+                    "classification": "pii",
+                }
+            ],
+        }
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        items = {item["guid"]: item for item in exported["data_items"]}
+        assert items[_DATA_ITEM_1_GUID]["classification"] == "pii"
+
+
+# ---------------------------------------------------------------------------
+# Test 4: extra="forbid" rejects unknown keys on DataItem
+# ---------------------------------------------------------------------------
+
+
+class TestDataItemValidation:
+    def test_extra_key_rejected(self, client):
+        """A DataItem with an unrecognised key is rejected with 400."""
+        payload = {
+            "nodes": [
+                {
+                    "type": "process",
+                    "guid": _PROCESS_GUID,
+                    "properties": {"name": "P"},
+                },
+                {
+                    "type": "data_store",
+                    "guid": _DATA_STORE_GUID,
+                    "properties": {"name": "DS"},
+                },
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_GUID,
+                    "source": _PROCESS_GUID,
+                    "target": _DATA_STORE_GUID,
+                    "properties": {},
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "D1",
+                    "name": "PII Data",
+                    "color": "red",  # bogus key
+                }
+            ],
+        }
+        _id, resp = _import(client, payload)
+        assert resp.status_code == 400
+
+    def test_missing_required_field_rejected(self, client):
+        """A DataItem missing `identifier` is rejected with 400."""
+        payload = {
+            "nodes": [
+                {
+                    "type": "process",
+                    "guid": _PROCESS_GUID,
+                    "properties": {"name": "P"},
+                },
+                {
+                    "type": "data_store",
+                    "guid": _DATA_STORE_GUID,
+                    "properties": {"name": "DS"},
+                },
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_GUID,
+                    "source": _PROCESS_GUID,
+                    "target": _DATA_STORE_GUID,
+                    "properties": {},
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _PROCESS_GUID,
+                    # "identifier" deliberately omitted
+                    "name": "PII Data",
+                }
+            ],
+        }
+        _id, resp = _import(client, payload)
+        assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Test 5: multiple data_item_refs on one flow preserve ordering
+# ---------------------------------------------------------------------------
+
+
+class TestMultipleDataItemRefs:
+    def test_multiple_refs_ordering_preserved(self, client):
+        """Two data_item_refs on one flow round-trip with ordering preserved."""
+        payload = {
+            "nodes": [
+                {
+                    "type": "process",
+                    "guid": _PROCESS_GUID,
+                    "properties": {"name": "P"},
+                },
+                {
+                    "type": "data_store",
+                    "guid": _DATA_STORE_GUID,
+                    "properties": {"name": "DS"},
+                },
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_GUID,
+                    "source": _PROCESS_GUID,
+                    "target": _DATA_STORE_GUID,
+                    "properties": {
+                        "data_item_refs": [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
+                    },
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "D1",
+                    "name": "Item One",
+                },
+                {
+                    "guid": _DATA_ITEM_2_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "D2",
+                    "name": "Item Two",
+                },
+            ],
+        }
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        refs = flows[_FLOW_GUID]["properties"]["data_item_refs"]
+        assert refs == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
+
+
+# ---------------------------------------------------------------------------
+# Test 6: exported data_items list length matches imported length exactly
+# ---------------------------------------------------------------------------
+
+
+class TestDataItemsListLength:
+    def test_exported_length_matches_imported(self, client):
+        """Exported data_items list length equals imported list length exactly."""
+        diagram_id, resp = _import(client, _PAYLOAD_WITH_DATA_ITEMS)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        imported_items = _PAYLOAD_WITH_DATA_ITEMS["data_items"]
+        exported_items = exported.get("data_items", [])
+        assert len(exported_items) == len(imported_items)
