@@ -1,5 +1,17 @@
-import { DiagramModelFile, SemanticAnalyzer } from "@OpenChart/DiagramModel";
+import { DiagramModelFile, ListProperty, DictionaryProperty, SemanticAnalyzer } from "@OpenChart/DiagramModel";
 import type { FilePublisher } from "@/assets/scripts/Application";
+
+/**
+ * Minimal-format data item shape (mirrors server schema.py DataItem).
+ */
+type DataItemMinimal = {
+    guid: string;
+    parent: string;
+    identifier: string;
+    name: string;
+    description?: string;
+    classification?: string;
+};
 
 class DfdPublisher implements FilePublisher {
 
@@ -25,15 +37,92 @@ class DfdPublisher implements FilePublisher {
         }
 
         for (const [id, edge] of graph.edges) {
-            edges.push({
+            const dataItemRefs = this.projectDataItemRefs(edge.props.value.get("data_item_refs"));
+            const edgeRecord: Record<string, unknown> = {
                 id,
                 source: edge.source?.instance ?? null,
                 target: edge.target?.instance ?? null,
                 crosses: edge.crossings.map(n => n.instance)
-            });
+            };
+            if (dataItemRefs.length > 0) {
+                edgeRecord["data_item_refs"] = dataItemRefs;
+            }
+            edges.push(edgeRecord);
         }
 
-        return JSON.stringify({ nodes, edges }, null, 2);
+        // Project canvas-level data_items.
+        const dataItems = this.projectCanvasDataItems(file.canvas.properties.value.get("data_items"));
+
+        const result: Record<string, unknown> = { nodes, edges };
+        if (dataItems.length > 0) {
+            result["data_items"] = dataItems;
+        }
+
+        return JSON.stringify(result, null, 2);
+    }
+
+    /**
+     * Projects the canvas data_items ListProperty to the minimal-format array.
+     * Each ListProperty entry is a DictionaryProperty keyed by the item's guid.
+     * @param prop
+     *  The data_items property (may be undefined for legacy canvases).
+     * @returns
+     *  Array of minimal DataItem records.
+     */
+    private projectCanvasDataItems(prop: unknown): DataItemMinimal[] {
+        if (!(prop instanceof ListProperty)) {
+            return [];
+        }
+        const result: DataItemMinimal[] = [];
+        for (const [guid, entry] of prop.value) {
+            if (!(entry instanceof DictionaryProperty)) {
+                continue;
+            }
+            const fields = entry.value;
+            const parent = fields.get("parent")?.toJson();
+            const identifier = fields.get("identifier")?.toJson();
+            const name = fields.get("name")?.toJson();
+            // Only emit items with the three required fields populated.
+            if (
+                typeof parent !== "string" || parent === null ||
+                typeof identifier !== "string" || identifier === null ||
+                typeof name !== "string" || name === null
+            ) {
+                continue;
+            }
+            const item: DataItemMinimal = { guid, parent, identifier, name };
+            const description = fields.get("description")?.toJson();
+            if (typeof description === "string" && description !== null) {
+                item.description = description;
+            }
+            const classification = fields.get("classification")?.toJson();
+            if (typeof classification === "string" && classification !== null) {
+                item.classification = classification;
+            }
+            result.push(item);
+        }
+        return result;
+    }
+
+    /**
+     * Projects a flow's data_item_refs ListProperty to a string[] of GUIDs.
+     * @param prop
+     *  The data_item_refs property (may be undefined for legacy flows).
+     * @returns
+     *  Ordered list of data-item GUIDs; empty array if none.
+     */
+    private projectDataItemRefs(prop: unknown): string[] {
+        if (!(prop instanceof ListProperty)) {
+            return [];
+        }
+        const refs: string[] = [];
+        for (const [, entry] of prop.value) {
+            const val = entry.toJson();
+            if (typeof val === "string" && val !== null) {
+                refs.push(val);
+            }
+        }
+        return refs;
     }
 
     /**

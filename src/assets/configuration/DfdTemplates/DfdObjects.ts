@@ -205,6 +205,13 @@ export const DfdObjects: DiagramObjectTemplate[] = [
                     ]
                 },
                 default: "false"
+            },
+            // GUIDs of canvas-level data items that flow through this edge.
+            // Each entry's key is opaque (auto-generated); the value is the
+            // data-item guid as a plain string.
+            data_item_refs: {
+                type: PropertyType.List,
+                form: { type: PropertyType.String }
             }
         }
     },
