@@ -136,6 +136,8 @@ class TestDataItemsRoundTrip:
 
         # data_items top-level list must be present and match
         assert "data_items" in exported
+        # Outer ListProperty order must be preserved
+        assert [i["guid"] for i in exported["data_items"]] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
         exported_items = {item["guid"]: item for item in exported["data_items"]}
 
         assert _DATA_ITEM_1_GUID in exported_items
@@ -631,5 +633,5 @@ class TestNativeShape:
             "instance": "some-uuid",
             "properties": [["data_items", [["some-guid", "not-a-list"]]]],
         }
-        with pytest.raises(InvalidNativeError):
+        with pytest.raises(InvalidNativeError, match="sub-pairs"):
             _extract_canvas_data_items(canvas)

@@ -423,8 +423,8 @@ def _extract_canvas_data_items(canvas: dict | None) -> list[dict]:
     raw_pairs = canvas.get("properties", [])
     try:
         raw_props = _props_to_dict(raw_pairs, drop_nulls=False)
-    except InvalidNativeError:
-        raise InvalidNativeError("canvas properties malformed: expected [key, value] pairs")
+    except InvalidNativeError as exc:
+        raise InvalidNativeError("canvas properties malformed: expected [key, value] pairs") from exc
 
     raw_items = raw_props.get("data_items")
     if raw_items is None:
@@ -679,6 +679,9 @@ def _data_item_to_pairs(item: DataItem) -> list[list]:
     DictionaryProperty.toOrderedJson() would emit null for absent optional
     string fields, but our import path drops null entries anyway — so omitting
     is both cleaner and round-trip-safe.
+
+    Step 2 note: Step 2's DictionaryProperty loader must tolerate absent sub-keys
+    (not just explicit null values) so this omit-on-None emission round-trips correctly.
     """
     pairs: list[list] = [
         ["parent", str(item.parent)],
