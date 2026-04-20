@@ -7,11 +7,12 @@ import {
     calculateAnchorPositions,
     DrawTextInstructionSet
 } from "./Layout";
-import { dataItemsForParent } from "@OpenChart/DiagramModel/DataItemLookup";
+import { dataItemsForParent, hashDataItems } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Enumeration } from "../Enumeration";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
 import type { DictionaryBlockStyle } from "../Styles";
+import type { DiagramObjectView } from "../../Views";
 
 /**
  * A single data-item pill chip, as computed in calculateLayout() and
@@ -138,14 +139,7 @@ export class DictionaryBlock extends BlockFace {
         // own properties haven't changed.
         const canvas = DictionaryBlock.findCanvas(this.view);
         const dataItems = canvas ? dataItemsForParent(canvas, this.view.instance) : [];
-        const itemsHashSource = dataItems.map(
-            i => `${i.guid}:${i.identifier}:${i.classification ?? ""}`
-        ).join("|");
-        // Simple djb2-style fold — good enough for a changed-detection hash.
-        let itemsHash = 0;
-        for (let ci = 0; ci < itemsHashSource.length; ci++) {
-            itemsHash = (itemsHash * 31 + itemsHashSource.charCodeAt(ci)) >>> 0;
-        }
+        const itemsHash = hashDataItems(dataItems);
         const lastContentHash = this.contentHash;
         const nextContentHash = (props.toHashValue() * 31 + itemsHash) >>> 0;
         this.contentHash = nextContentHash;
@@ -313,17 +307,18 @@ export class DictionaryBlock extends BlockFace {
             const chipH  = body.fieldValueText.units * blockGrid[1];
             // Horizontal padding inside each chip, derived from chip height so
             // it scales with the theme's body-line size.  This local constant
-            // is private to this section; it does not need a theme token.
+            // is private to this section.
+            // TODO: consider promoting to `pillChipHorizontalPaddingUnits` theme token if chip padding ever needs per-theme control
             const chipPadX = chipH * 0.5;
             const vPad    = blockGrid[1] * this.style.pillRowVerticalPaddingUnits;
+            // Horizontal and vertical spacing are resolved from their respective
+            // grid axes so they scale independently with theme geometry.
             const hSpacing = blockGrid[0] * this.style.pillSpacingUnits;
+            const vSpacing = blockGrid[1] * this.style.pillSpacingUnits;
 
-            // The content width available for chip layout.  We use the same
-            // rounding as the block-width finalisation below so the wrapping
-            // math stays consistent.  We also apply the maxUnitWidth floor so
-            // that the content width is never 0 (which would happen in the
-            // Vitest environment where NodeFont.measureWidth() always returns
-            // 0).
+            // Content width is never below (maxUnitWidth × blockGrid[0]) —
+            // prevents degenerate zero-width layouts when the text metrics
+            // source hasn't populated measurements yet.
             const contentWidth = Math.max(
                 ceilNearestMultiple(this.width, blockGrid[0]),
                 blockGrid[0] * this.style.maxUnitWidth
@@ -335,6 +330,7 @@ export class DictionaryBlock extends BlockFace {
             // Y position of the top of the first sub-row of chips
             let chipY = y + vPad;
             let chipX = x;
+            let subRow = 0;
 
             for (const item of dataItems) {
                 const textWidth = body.fieldValueText.font.measureWidth(item.identifier);
@@ -342,7 +338,8 @@ export class DictionaryBlock extends BlockFace {
 
                 // Wrap to a new sub-row when the next chip would overflow
                 if (chipX > x && chipX + chipW > x + contentWidth) {
-                    chipY += chipH + hSpacing;
+                    subRow++;
+                    chipY += chipH + vSpacing;
                     chipX = x;
                 }
 
@@ -369,11 +366,9 @@ export class DictionaryBlock extends BlockFace {
                 chipX += chipW + hSpacing;
             }
 
-            // Compute total pill-row height from the sub-rows used
-            const numSubRows = this._pillChips.length > 0
-                ? (this._pillChips[this._pillChips.length - 1].y - this._pillChips[0].y) / (chipH + hSpacing) + 1
-                : 0;
-            this._pillRowHeight = numSubRows * chipH + Math.max(0, numSubRows - 1) * hSpacing + 2 * vPad;
+            // Total sub-row count tracked directly from the layout loop.
+            const numSubRows = subRow + 1;
+            this._pillRowHeight = numSubRows * chipH + Math.max(0, numSubRows - 1) * vSpacing + 2 * vPad;
             y += this._pillRowHeight;
         }
         // ── End pill-row section ─────────────────────────────────────────────
@@ -410,7 +405,6 @@ export class DictionaryBlock extends BlockFace {
         this.xOffset = renderX - bb.xMin;
         this.yOffset = renderY - bb.yMin;
 
-        // Update parent's bounding box
         return true;
 
     }
@@ -536,7 +530,29 @@ export class DictionaryBlock extends BlockFace {
 
 
     ///////////////////////////////////////////////////////////////////////////
-    //  2. Cloning  ///////////////////////////////////////////////////////////
+    //  2. Layout Debug  //////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+
+    /**
+     * Returns a read-only snapshot of the face's current pill-row layout
+     * state for testing purposes.  Prefer behavior-level assertions where
+     * possible; this accessor exists so tests don't have to pierce private
+     * fields via `as any`.
+     */
+    public get layoutDebug(): {
+        pillChips: ReadonlyArray<PillChipDescriptor>;
+        pillRowHeight: number;
+    } {
+        return {
+            pillChips: this._pillChips,
+            pillRowHeight: this._pillRowHeight
+        };
+    }
+
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  4. Cloning  ///////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////
 
 
@@ -551,26 +567,26 @@ export class DictionaryBlock extends BlockFace {
 
 
     ///////////////////////////////////////////////////////////////////////////
-    //  3. Internal Helpers  ///////////////////////////////////////////////////
+    //  5. Internal Helpers  ///////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////
 
 
     /**
-     * Walks the view's parent chain and returns the first {@link Canvas}
-     * ancestor.  Returns `null` when the block is not yet attached to a
-     * canvas (e.g. during a clone that hasn't been grafted into the tree).
+     * Walks the view's parent chain using the public {@link DiagramObjectView.parent}
+     * accessor and returns the first {@link Canvas} ancestor.  Returns `null`
+     * when the block is not yet attached to a canvas (e.g. during a clone that
+     * hasn't been grafted into the tree).
      *
      * The walk is O(depth) — typically 2–3 hops for a block inside at most
      * one trust-boundary group.
      */
-    private static findCanvas(view: { parent: { parent: unknown } | null }): Canvas | null {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let node: any = view;
-        while (node !== null && node !== undefined) {
-            if (node instanceof Canvas) {
-                return node;
+    private static findCanvas(view: DiagramObjectView): Canvas | null {
+        let cursor: DiagramObjectView | null = view;
+        while (cursor !== null) {
+            if (cursor instanceof Canvas) {
+                return cursor;
             }
-            node = node._parent ?? null;
+            cursor = cursor.parent;
         }
         return null;
     }

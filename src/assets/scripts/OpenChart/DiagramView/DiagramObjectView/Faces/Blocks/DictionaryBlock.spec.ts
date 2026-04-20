@@ -6,8 +6,9 @@
  *
  * COVERAGE NOTE: renderTo is a canvas-rendering method that requires a live
  * CanvasRenderingContext2D. It is excluded here (same convention as
- * GroupFace.spec.ts). The layout geometry and stored pill descriptors are
- * the observable surface being tested. Visual rendering is validated manually.
+ * GroupFace.spec.ts). The layoutDebug accessor on the face provides the
+ * observable surface for pill-row state, tested via calculateLayout().
+ * Visual rendering is validated manually.
  *
  * Test-environment note: The NodeFont used in Vitest returns 0 for
  * measureWidth(), so every chip's text width is 0.  Chip width is therefore
@@ -33,38 +34,6 @@ import {
 import type { DiagramThemeConfiguration } from "@OpenChart/ThemeLoader";
 import type { DiagramSchemaConfiguration } from "@OpenChart/DiagramModel";
 import type { DictionaryBlock } from "./DictionaryBlock";
-
-// ---------------------------------------------------------------------------
-// Helpers to introspect the pill-row state stored on the face
-// ---------------------------------------------------------------------------
-
-/**
- * Accesses the private `pillChips` field via type assertion so tests can
- * verify layout geometry without triggering a real canvas render.
- *
- * We cast through `unknown` to avoid TS complaining about accessing a
- * private field. This is the minimal introspection surface — we only
- * inspect what is produced by calculateLayout().
- */
-function getPillChips(face: DictionaryBlock): PillChipDescriptor[] {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (face as any)._pillChips ?? [];
-}
-
-function getPillRowHeight(face: DictionaryBlock): number {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (face as any)._pillRowHeight ?? 0;
-}
-
-type PillChipDescriptor = {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    fill: string;
-    text: string;
-    textColor: string;
-};
 
 // ---------------------------------------------------------------------------
 // Minimal schema — canvas canvas with data_items, one block template
@@ -186,27 +155,26 @@ function makeCanvasWithItems(
 }
 
 /**
- * Creates a BlockView using the given factory, attaches it to a canvas (so
- * the face can traverse up to find it), and returns both.
+ * Creates a BlockView using the given factory with the specified instance id
+ * so data-item parent references match, then attaches it to the canvas via
+ * the public `canvas.addObject()` path (which sets the block's parent).
  *
- * We directly manipulate `_parent` on the block because the normal graph-
- * wiring path (`canvas.addObject`) triggers layout cascades that we don't
- * need here.
+ * Uses `createBaseDiagramObject` to set the instance id at construction time.
+ * The block has no anchors (that's what `createNewDiagramObject` adds), but
+ * the pill-row layout does not require anchors.
  */
 function makeBlockOnCanvas(
     factory: DiagramObjectViewFactory,
     canvas: Canvas,
     blockInstance = "block-instance-1"
 ): BlockView {
-    const block = factory.createNewDiagramObject("generic_block", BlockView);
+    // createBaseDiagramObject accepts an instance id as its second argument,
+    // giving us a properly constructed object without any `as any` casts.
+    const block = factory.createBaseDiagramObject("generic_block", blockInstance, undefined, BlockView);
 
-    // Override the block's instance id so data-item parent references match
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (block as any).instance = blockInstance;
-
-    // Wire block → canvas without triggering the full canvas addObject path
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (block as any)._parent = canvas;
+    // Wire block → canvas using the public Group.addObject() API, which
+    // calls makeChild() internally to set block._parent = canvas.
+    canvas.addObject(block);
 
     return block;
 }
@@ -238,21 +206,16 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
         it("pill chips array is empty and pill row height is 0", () => {
             const canvas = makeCanvasWithItems([]);
             const block = makeBlockOnCanvas(darkFactory, canvas);
-
-            // Force content-hash miss on first call by clearing it
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            expect(getPillChips(block.face as DictionaryBlock)).toHaveLength(0);
-            expect(getPillRowHeight(block.face as DictionaryBlock)).toBe(0);
+            const { pillChips, pillRowHeight } = (block.face as DictionaryBlock).layoutDebug;
+            expect(pillChips).toHaveLength(0);
+            expect(pillRowHeight).toBe(0);
         });
 
         it("block height equals the pre-pill baseline with no data items", () => {
             const emptyCanvas = makeCanvasWithItems([]);
             const blockA = makeBlockOnCanvas(darkFactory, emptyCanvas, "block-a");
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (blockA.face as any).contentHash = undefined;
             blockA.face.calculateLayout();
             const baseHeight = blockA.face.height;
 
@@ -261,12 +224,10 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g1", parent: "other-block", identifier: "D1", name: "Item 1" }
             ]);
             const blockB = makeBlockOnCanvas(darkFactory, canvas, "block-b");
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (blockB.face as any).contentHash = undefined;
             blockB.face.calculateLayout();
 
             expect(blockB.face.height).toBe(baseHeight);
-            expect(getPillChips(blockB.face as DictionaryBlock)).toHaveLength(0);
+            expect((blockB.face as DictionaryBlock).layoutDebug.pillChips).toHaveLength(0);
         });
 
     });
@@ -285,12 +246,10 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g3", parent: blockInstance, identifier: "D3", name: "Default item", classification: undefined }
             ]);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            const chips = getPillChips(block.face as DictionaryBlock);
-            expect(chips).toHaveLength(3);
+            const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
+            expect(pillChips).toHaveLength(3);
         });
 
         it("resolves pii, secret, and default fills from the dark theme", () => {
@@ -305,14 +264,12 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g3", parent: blockInstance, identifier: "D3", name: "None", classification: undefined }
             ]);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            const chips = getPillChips(block.face as DictionaryBlock);
-            expect(chips[0].fill).toBe(config.data_pill.pii.fill);
-            expect(chips[1].fill).toBe(config.data_pill.secret.fill);
-            expect(chips[2].fill).toBe(config.data_pill.default.fill);
+            const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
+            expect(pillChips[0].fill).toBe(config.data_pill.pii.fill);
+            expect(pillChips[1].fill).toBe(config.data_pill.secret.fill);
+            expect(pillChips[2].fill).toBe(config.data_pill.default.fill);
         });
 
         it("renders bare identifiers as chip text (owner view)", () => {
@@ -323,12 +280,10 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g3", parent: blockInstance, identifier: "CARD-NUM", name: "None", classification: undefined }
             ]);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            const chips = getPillChips(block.face as DictionaryBlock);
-            expect(chips.map(c => c.text)).toEqual(["D1", "D2", "CARD-NUM"]);
+            const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
+            expect(pillChips.map(c => c.text)).toEqual(["D1", "D2", "CARD-NUM"]);
         });
 
         it("all 3 chips share the same y (single sub-row)", () => {
@@ -339,15 +294,13 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g3", parent: blockInstance, identifier: "D3", name: "C", classification: undefined }
             ]);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            const chips = getPillChips(block.face as DictionaryBlock);
-            expect(chips.length).toBe(3);
+            const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
+            expect(pillChips.length).toBe(3);
             // All chips on the same row → same y
-            const firstY = chips[0].y;
-            for (const chip of chips) {
+            const firstY = pillChips[0].y;
+            for (const chip of pillChips) {
                 expect(chip.y).toBe(firstY);
             }
         });
@@ -376,14 +329,12 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
             }));
             const canvas = makeCanvasWithItems(items);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            const chips = getPillChips(block.face as DictionaryBlock);
-            expect(chips.length).toBe(20);
+            const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
+            expect(pillChips.length).toBe(20);
 
-            const uniqueYValues = new Set(chips.map(c => c.y));
+            const uniqueYValues = new Set(pillChips.map(c => c.y));
 
             // We expect wrapping when chip count is high enough.
             // If chipPadX > 0, the chips will wrap; if not, they'll all be on one row.
@@ -403,8 +354,6 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
             // First measure baseline height with no items
             const emptyCanvas = makeCanvasWithItems([]);
             const baseBlock = makeBlockOnCanvas(darkFactory, emptyCanvas, "base-block-h");
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (baseBlock.face as any).contentHash = undefined;
             baseBlock.face.calculateLayout();
             const baseHeight = baseBlock.face.height;
 
@@ -418,15 +367,12 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
             }));
             const canvas = makeCanvasWithItems(items);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            const chips = getPillChips(block.face as DictionaryBlock);
-            const pillRowH = getPillRowHeight(block.face as DictionaryBlock);
+            const { pillChips, pillRowHeight } = (block.face as DictionaryBlock).layoutDebug;
 
             // Count actual sub-rows from the computed chip y positions
-            const uniqueYValues = new Set(chips.map(c => c.y));
+            const uniqueYValues = new Set(pillChips.map(c => c.y));
             const numRows = uniqueYValues.size;
 
             // Re-derive expected pill-row height from style tokens
@@ -435,7 +381,7 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
             const spacing = blockGridY * config.pill_spacing_units;
             const expectedPillRowH = numRows * chipH + Math.max(0, numRows - 1) * spacing + 2 * vPad;
 
-            expect(pillRowH).toBeCloseTo(expectedPillRowH, 3);
+            expect(pillRowHeight).toBeCloseTo(expectedPillRowH, 3);
             expect(block.face.height).toBeCloseTo(baseHeight + expectedPillRowH, 3);
         });
 
@@ -454,14 +400,12 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g1", parent: blockInstance, identifier: "D1", name: "Classified", classification: "confidential" }
             ]);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            const chips = getPillChips(block.face as DictionaryBlock);
-            expect(chips).toHaveLength(1);
-            expect(chips[0].fill).toBe(config.data_pill.default.fill);
-            expect(chips[0].textColor).toBe(config.data_pill.default.text);
+            const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
+            expect(pillChips).toHaveLength(1);
+            expect(pillChips[0].fill).toBe(config.data_pill.default.fill);
+            expect(pillChips[0].textColor).toBe(config.data_pill.default.text);
         });
 
         it("null classification resolves to default fill", () => {
@@ -471,13 +415,11 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g1", parent: blockInstance, identifier: "D1", name: "NoClass", classification: undefined }
             ]);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
-            const chips = getPillChips(block.face as DictionaryBlock);
-            expect(chips).toHaveLength(1);
-            expect(chips[0].fill).toBe(config.data_pill.default.fill);
+            const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
+            expect(pillChips).toHaveLength(1);
+            expect(pillChips[0].fill).toBe(config.data_pill.default.fill);
         });
 
     });
@@ -497,17 +439,13 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
             ]);
 
             const lightBlock = makeBlockOnCanvas(lightFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (lightBlock.face as any).contentHash = undefined;
             lightBlock.face.calculateLayout();
 
             const darkBlock = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (darkBlock.face as any).contentHash = undefined;
             darkBlock.face.calculateLayout();
 
-            const lightChips = getPillChips(lightBlock.face as DictionaryBlock);
-            const darkChips = getPillChips(darkBlock.face as DictionaryBlock);
+            const lightChips = (lightBlock.face as DictionaryBlock).layoutDebug.pillChips;
+            const darkChips = (darkBlock.face as DictionaryBlock).layoutDebug.pillChips;
 
             expect(lightChips[0].fill).toBe(lightConfig.data_pill.pii.fill);
             expect(darkChips[0].fill).toBe(darkConfig.data_pill.pii.fill);
@@ -528,8 +466,6 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
             // for a block that has not been moved from origin.
             const baseCanvas = makeCanvasWithItems([]);
             const baseBlock = makeBlockOnCanvas(darkFactory, baseCanvas, "base-rt");
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (baseBlock.face as any).contentHash = undefined;
             baseBlock.face.calculateLayout();
             const baseXOffset = baseBlock.face.xOffset;
 
@@ -539,8 +475,6 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g2", parent: blockInstance, identifier: "D2", name: "Secret", classification: "secret" }
             ]);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
             expect(block.face.xOffset).toBe(baseXOffset);
@@ -549,8 +483,6 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
         it("pill row adds height but does not change block width", () => {
             const baseCanvas = makeCanvasWithItems([]);
             const baseBlock = makeBlockOnCanvas(darkFactory, baseCanvas, "base-w");
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (baseBlock.face as any).contentHash = undefined;
             baseBlock.face.calculateLayout();
             const baseWidth = baseBlock.face.width;
 
@@ -560,8 +492,6 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
                 { guid: "g2", parent: blockInstance, identifier: "D2", name: "Secret", classification: "secret" }
             ]);
             const block = makeBlockOnCanvas(darkFactory, canvas, blockInstance);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (block.face as any).contentHash = undefined;
             block.face.calculateLayout();
 
             // Pill row should not widen the block

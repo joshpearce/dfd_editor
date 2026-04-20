@@ -191,3 +191,26 @@ export function truncate(str: string, maxLength: number): string {
     }
     return codePoints.slice(0, maxLength).join("") + "…";
 }
+
+/**
+ * Computes a lightweight change-detection hash over a list of data items.
+ *
+ * Intentionally cheap (djb2-style fold over guid + identifier + classification)
+ * so that the layout-invalidation check in DictionaryBlock.calculateLayout()
+ * stays fast.  Not cryptographically strong — collision resistance is not
+ * required here.
+ *
+ * @param items  The data items to hash (typically the result of
+ *               {@link dataItemsForParent} for a single node).
+ * @returns  A 32-bit unsigned integer hash.
+ */
+export function hashDataItems(items: DataItem[]): number {
+    const source = items.map(
+        i => `${i.guid}:${i.identifier}:${i.classification ?? ""}`
+    ).join("|");
+    let hash = 0;
+    for (let i = 0; i < source.length; i++) {
+        hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
+    }
+    return hash;
+}
