@@ -1,5 +1,30 @@
 import { StyleGenerator } from "./StyleGenerator";
 
+// ─── Dark theme pill tokens ───────────────────────────────────────────────────
+const darkDataPill = {
+    pii:      { fill: "#92400e", text: "#fcd34d" },
+    secret:   { fill: "#7f1d1d", text: "#fca5a5" },
+    public:   { fill: "#1e3a5f", text: "#93c5fd" },
+    internal: { fill: "#1a3d2b", text: "#86efac" },
+    default:  { fill: "#2f2f2f", text: "#a0a0a0" }
+} as const;
+const darkPillRowVerticalPaddingUnits = 1;
+const darkPillSpacingUnits = 1;
+
+// ─── Light / Blog theme pill tokens ──────────────────────────────────────────
+// Fills chosen so each clears WCAG AA normal-text 4.5:1 against #ffffff:
+//   pii #b45309 5.02:1 | secret #b91c1c 6.47:1 | public #1d4ed8 6.70:1
+//   internal #166534 7.13:1 | default #525252 7.81:1
+const lightDataPill = {
+    pii:      { fill: "#b45309", text: "#ffffff" },
+    secret:   { fill: "#b91c1c", text: "#ffffff" },
+    public:   { fill: "#1d4ed8", text: "#ffffff" },
+    internal: { fill: "#166534", text: "#ffffff" },
+    default:  { fill: "#525252", text: "#ffffff" }
+} as const;
+const lightPillRowVerticalPaddingUnits = 1;
+const lightPillSpacingUnits = 1;
+
 /**
  * Dark Style
  */
@@ -67,15 +92,9 @@ export const DarkStyle = new StyleGenerator({
         },
         border_radius: 5,
         horizontal_padding_units: 2,
-        data_pill: {
-            pii:      { fill: "#92400e", text: "#fcd34d" },
-            secret:   { fill: "#7f1d1d", text: "#fca5a5" },
-            public:   { fill: "#1e3a5f", text: "#93c5fd" },
-            internal: { fill: "#1a3d2b", text: "#86efac" },
-            default:  { fill: "#2f2f2f", text: "#a0a0a0" }
-        },
-        pill_row_vertical_padding_units: 1,
-        pill_spacing_units: 1
+        data_pill: darkDataPill,
+        pill_row_vertical_padding_units: darkPillRowVerticalPaddingUnits,
+        pill_spacing_units: darkPillSpacingUnits
     },
 
     blockDictionary: {
@@ -134,15 +153,9 @@ export const DarkStyle = new StyleGenerator({
         },
         border_radius: 5,
         horizontal_padding_units: 2,
-        data_pill: {
-            pii:      { fill: "#92400e", text: "#fcd34d" },
-            secret:   { fill: "#7f1d1d", text: "#fca5a5" },
-            public:   { fill: "#1e3a5f", text: "#93c5fd" },
-            internal: { fill: "#1a3d2b", text: "#86efac" },
-            default:  { fill: "#2f2f2f", text: "#a0a0a0" }
-        },
-        pill_row_vertical_padding_units: 1,
-        pill_spacing_units: 1
+        data_pill: darkDataPill,
+        pill_row_vertical_padding_units: darkPillRowVerticalPaddingUnits,
+        pill_spacing_units: darkPillSpacingUnits
     },
 
     blockText: {
@@ -264,15 +277,9 @@ export const LightStyle = new StyleGenerator({
         },
         border_radius: 5,
         horizontal_padding_units: 2,
-        data_pill: {
-            pii:      { fill: "#d97706", text: "#ffffff" },
-            secret:   { fill: "#dc2626", text: "#ffffff" },
-            public:   { fill: "#5286e7", text: "#ffffff" },
-            internal: { fill: "#4a7c59", text: "#ffffff" },
-            default:  { fill: "#8c8c8c", text: "#ffffff" }
-        },
-        pill_row_vertical_padding_units: 1,
-        pill_spacing_units: 1
+        data_pill: lightDataPill,
+        pill_row_vertical_padding_units: lightPillRowVerticalPaddingUnits,
+        pill_spacing_units: lightPillSpacingUnits
     },
 
     blockDictionary: {
@@ -331,15 +338,9 @@ export const LightStyle = new StyleGenerator({
         },
         border_radius: 5,
         horizontal_padding_units: 2,
-        data_pill: {
-            pii:      { fill: "#d97706", text: "#ffffff" },
-            secret:   { fill: "#dc2626", text: "#ffffff" },
-            public:   { fill: "#5286e7", text: "#ffffff" },
-            internal: { fill: "#4a7c59", text: "#ffffff" },
-            default:  { fill: "#8c8c8c", text: "#ffffff" }
-        },
-        pill_row_vertical_padding_units: 1,
-        pill_spacing_units: 1
+        data_pill: lightDataPill,
+        pill_row_vertical_padding_units: lightPillRowVerticalPaddingUnits,
+        pill_spacing_units: lightPillSpacingUnits
     },
 
     blockText: {
@@ -395,7 +396,8 @@ export const LightStyle = new StyleGenerator({
 });
 
 /**
- * Blog Style
+ * Blog Style — carry-over from the attack_flow_builder scaffold; not wired
+ * into any DFD theme and not used in production.
  */
 export const BlogStyle = new StyleGenerator({
 
@@ -461,15 +463,9 @@ export const BlogStyle = new StyleGenerator({
         },
         border_radius: 5,
         horizontal_padding_units: 2,
-        data_pill: {
-            pii:      { fill: "#d97706", text: "#ffffff" },
-            secret:   { fill: "#dc2626", text: "#ffffff" },
-            public:   { fill: "#5286e7", text: "#ffffff" },
-            internal: { fill: "#4a7c59", text: "#ffffff" },
-            default:  { fill: "#8c8c8c", text: "#ffffff" }
-        },
-        pill_row_vertical_padding_units: 1,
-        pill_spacing_units: 1
+        data_pill: lightDataPill,
+        pill_row_vertical_padding_units: lightPillRowVerticalPaddingUnits,
+        pill_spacing_units: lightPillSpacingUnits
     },
 
     blockDictionary: {
@@ -528,15 +524,9 @@ export const BlogStyle = new StyleGenerator({
         },
         border_radius: 5,
         horizontal_padding_units: 2,
-        data_pill: {
-            pii:      { fill: "#d97706", text: "#ffffff" },
-            secret:   { fill: "#dc2626", text: "#ffffff" },
-            public:   { fill: "#5286e7", text: "#ffffff" },
-            internal: { fill: "#4a7c59", text: "#ffffff" },
-            default:  { fill: "#8c8c8c", text: "#ffffff" }
-        },
-        pill_row_vertical_padding_units: 1,
-        pill_spacing_units: 1
+        data_pill: lightDataPill,
+        pill_row_vertical_padding_units: lightPillRowVerticalPaddingUnits,
+        pill_spacing_units: lightPillSpacingUnits
     },
 
     blockText: {
