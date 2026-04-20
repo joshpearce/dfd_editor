@@ -2,6 +2,7 @@ export * from "./Anchors";
 export * from "./Bases";
 export * from "./Blocks";
 export * from "./Canvases";
+export * from "./faceCanvasLookup";
 export * from "./Handles";
 export * from "./Latches";
 export * from "./Lines";

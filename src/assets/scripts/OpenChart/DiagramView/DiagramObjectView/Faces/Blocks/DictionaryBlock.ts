@@ -1,5 +1,5 @@
 import { BlockFace } from "../Bases";
-import { Canvas, TupleProperty } from "@OpenChart/DiagramModel";
+import { TupleProperty } from "@OpenChart/DiagramModel";
 import { drawRect, drawChip, ceilNearestMultiple } from "@OpenChart/Utilities";
 import {
     addTextCell,
@@ -7,12 +7,12 @@ import {
     calculateAnchorPositions,
     DrawTextInstructionSet
 } from "./Layout";
+import { findCanvas } from "../faceCanvasLookup";
 import { dataItemsForParent, hashDataItems } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Enumeration } from "../Enumeration";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
 import type { DictionaryBlockStyle } from "../Styles";
-import type { DiagramObjectView } from "../../Views";
 
 /**
  * A single data-item pill chip, as computed in calculateLayout() and
@@ -137,7 +137,7 @@ export class DictionaryBlock extends BlockFace {
         // hash and a lightweight hash of the canvas's data-item list so that
         // adding/removing a data item triggers re-layout even when the block's
         // own properties haven't changed.
-        const canvas = DictionaryBlock.findCanvas(this.view);
+        const canvas = findCanvas(this.view);
         const dataItems = canvas ? dataItemsForParent(canvas, this.view.instance) : [];
         const itemsHash = hashDataItems(dataItems);
         const lastContentHash = this.contentHash;
@@ -565,30 +565,5 @@ export class DictionaryBlock extends BlockFace {
         return new DictionaryBlock(this.style, this.grid, this.scale, this.properties);
     }
 
-
-    ///////////////////////////////////////////////////////////////////////////
-    //  5. Internal Helpers  ///////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////
-
-
-    /**
-     * Walks the view's parent chain using the public {@link DiagramObjectView.parent}
-     * accessor and returns the first {@link Canvas} ancestor.  Returns `null`
-     * when the block is not yet attached to a canvas (e.g. during a clone that
-     * hasn't been grafted into the tree).
-     *
-     * The walk is O(depth) — typically 2–3 hops for a block inside at most
-     * one trust-boundary group.
-     */
-    private static findCanvas(view: DiagramObjectView): Canvas | null {
-        let cursor: DiagramObjectView | null = view;
-        while (cursor !== null) {
-            if (cursor instanceof Canvas) {
-                return cursor;
-            }
-            cursor = cursor.parent;
-        }
-        return null;
-    }
 
 }
