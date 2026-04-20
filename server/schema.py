@@ -164,6 +164,20 @@ Container = Annotated[
 
 
 # ---------------------------------------------------------------------------
+# Data item model
+# ---------------------------------------------------------------------------
+
+
+class DataItem(_Base):
+    guid: UUID
+    parent: UUID
+    identifier: str
+    name: str
+    description: str | None = None
+    classification: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Data flow model
 # ---------------------------------------------------------------------------
 
@@ -174,6 +188,7 @@ class DataFlowProps(_Base):
     protocol: str | None = None
     authenticated: StrictBool = False
     encrypted: StrictBool = False
+    data_item_refs: list[UUID] = Field(default_factory=list)
 
 
 class DataFlow(_Base):
@@ -200,3 +215,4 @@ class Diagram(_Base):
     nodes: list[Node] = []
     containers: list[Container] = []
     data_flows: list[DataFlow] = []
+    data_items: list[DataItem] = Field(default_factory=list)

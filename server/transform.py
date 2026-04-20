@@ -150,7 +150,10 @@ def to_minimal(native: dict) -> dict:
         if obj.get("id") == "data_flow":
             data_flows.append(_emit_data_flow(obj, latch_to_block))
 
-    # --- Step 8: wrap result ---------------------------------------------------
+    # --- Step 8: extract data_items from native top-level field ---------------
+    data_items: list[dict] = native.get("data_items", [])
+
+    # --- Step 9: wrap result ---------------------------------------------------
     result: dict[str, Any] = {
         "nodes": nodes,
         "containers": containers,
@@ -158,8 +161,10 @@ def to_minimal(native: dict) -> dict:
     }
     if meta is not None:
         result["meta"] = meta
+    if data_items:
+        result["data_items"] = data_items
 
-    # --- Step 9: validate via pydantic (construction-only; return original) ----
+    # --- Step 10: validate via pydantic (construction-only; return original) ---
     Diagram.model_validate(result)
 
     return result
@@ -301,7 +306,15 @@ def to_native(minimal: dict) -> dict:
         objects.append({"id": "generic_latch", "instance": target_latch_inst})
         objects.append({"id": "generic_handle", "instance": handle_inst})
 
-    return {"schema": "dfd_v1", "theme": "dark_theme", "objects": objects}
+    native_doc: dict[str, Any] = {"schema": "dfd_v1", "theme": "dark_theme", "objects": objects}
+
+    # Persist data_items as a top-level field so to_minimal can recover them.
+    if diagram.data_items:
+        native_doc["data_items"] = [
+            _data_item_to_dict(item) for item in diagram.data_items
+        ]
+
+    return native_doc
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +568,11 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
         if converted is not None:
             flow_props["encrypted"] = converted
 
+    # Recover data_item_refs if stored in native properties.
+    refs = raw_props.get("data_item_refs")
+    if refs:
+        flow_props["data_item_refs"] = refs
+
     return {
         "guid": instance,
         "source": source_block,
@@ -580,6 +598,21 @@ def _assert_single_parent_minimal(diagram: Diagram) -> None:
 def _bool_to_native(value: bool) -> str:
     """Convert a Python bool to a native string-encoded boolean."""
     return "true" if value else "false"
+
+
+def _data_item_to_dict(item: Any) -> dict[str, Any]:
+    """Serialize a DataItem model to a plain dict for native storage."""
+    result: dict[str, Any] = {
+        "guid": str(item.guid),
+        "parent": str(item.parent),
+        "identifier": item.identifier,
+        "name": item.name,
+    }
+    if item.description is not None:
+        result["description"] = item.description
+    if item.classification is not None:
+        result["classification"] = item.classification
+    return result
 
 
 def _build_canvas_props(meta: Any) -> list[list]:
@@ -671,4 +704,7 @@ def _build_flow_props(flow: Any) -> list[list]:
                 result.append([key, None])
             else:
                 result.append([key, str(val)])
+    # Persist data_item_refs if present (as a list of UUID strings).
+    if props.data_item_refs:
+        result.append(["data_item_refs", [str(ref) for ref in props.data_item_refs]])
     return result
