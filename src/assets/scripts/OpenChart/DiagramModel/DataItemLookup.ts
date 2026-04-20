@@ -6,7 +6,9 @@
  * contexts and in Vitest without a browser environment.
  */
 
-import { ListProperty, DictionaryProperty } from "./DiagramObject";
+// pattern: Functional Core
+
+import { ListProperty, DictionaryProperty, RootProperty } from "./DiagramObject";
 import type { Canvas } from "./DiagramObject";
 import { traverse } from "./DiagramNavigators";
 
@@ -99,6 +101,37 @@ export function dataItemsForParent(canvas: Canvas, nodeGuid: string): DataItem[]
 }
 
 /**
+ * Returns the filtered, non-empty GUID strings from a `data_item_refs`
+ * ListProperty held in the supplied `RootProperty`.  Returns an empty array
+ * when the property does not exist or has no entries.
+ *
+ * This is the single authoritative place to extract ref GUIDs — avoids
+ * duplicating the ListProperty-iteration pattern in LabeledDynamicLine,
+ * DfdValidator, and any future caller.
+ *
+ * Accepts a `RootProperty` rather than a full `DiagramObject` so that it
+ * works for both model objects (`DiagramObject.properties`) and semantic-graph
+ * wrappers (`SemanticGraphEdge.props`), which share the same `RootProperty`
+ * type but differ in their containing class API.
+ *
+ * @param props  The root property bag of the object to inspect.
+ */
+export function readDataItemRefs(props: RootProperty): string[] {
+    const refsProp = props.value.get("data_item_refs");
+    if (!(refsProp instanceof ListProperty)) {
+        return [];
+    }
+    const guids: string[] = [];
+    for (const [, entry] of refsProp.value) {
+        const val = entry.toJson();
+        if (typeof val === "string" && val.length > 0) {
+            guids.push(val);
+        }
+    }
+    return guids;
+}
+
+/**
  * Maps an ordered list of GUIDs to their corresponding DataItem records.
  * Unknown GUIDs (items deleted since the ref was recorded) are silently
  * skipped — validator-surface concerns belong in Step 5.
@@ -127,19 +160,25 @@ export function resolveRefs(canvas: Canvas, guids: string[]): DataItem[] {
  * Returns the display label for a data item as seen from a specific node.
  *
  * - **Owner view** (`viewedFromGuid === item.parent`): bare identifier, e.g. `"D1"`.
- * - **Non-owner view**: qualified as `"ParentName.D1"` where the parent name
- *   is truncated to 12 characters with a trailing `…` when longer.
+ * - **Non-owner / no-owner view** (`viewedFromGuid === null` or differs from
+ *   `item.parent`): qualified as `"ParentName.D1"` where the parent name is
+ *   truncated to 12 characters with a trailing `…` when longer.
+ *
+ * Pass `null` when there is no "viewing from" node (e.g. a data flow, which
+ * can never own a data item).  The `null` sentinel replaces the previous
+ * `""` empty-string convention and makes intent explicit at every call site.
  *
  * @param item           The data item to label.
- * @param viewedFromGuid The GUID of the node requesting the label.
+ * @param viewedFromGuid The GUID of the node requesting the label, or `null`
+ *                       to always produce the qualified form.
  * @param canvas         The diagram canvas (used to look up the parent name).
  */
 export function pillLabel(
     item: DataItem,
-    viewedFromGuid: string,
+    viewedFromGuid: string | null,
     canvas: Canvas
 ): string {
-    if (viewedFromGuid === item.parent) {
+    if (viewedFromGuid !== null && viewedFromGuid === item.parent) {
         // Owner view — bare identifier.
         return item.identifier;
     }

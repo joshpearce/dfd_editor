@@ -1,22 +1,36 @@
+// pattern: Mixed (unavoidable)
+// Reason: renderTo() is a rendering callback that receives a CanvasRenderingContext2D
+// (side-effectful I/O surface); the pure chip-layout logic is isolated in computeChips()
+// which is fully testable without a real canvas context.
+
 import { DynamicLine } from "./DynamicLine";
-import { ListProperty } from "@OpenChart/DiagramModel";
 import { drawRect } from "@OpenChart/Utilities";
 import { findCanvas } from "../faceCanvasLookup";
-import { pillLabel, resolveRefs } from "@OpenChart/DiagramModel/DataItemLookup";
+import { pillLabel, resolveRefs, readDataItemRefs } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { DataItem } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Canvas } from "@OpenChart/DiagramModel";
 import type { LabeledLineStyle } from "../Styles";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
 
-/**
- * Sentinel `viewedFromGuid` value used when calling `pillLabel` from a flow
- * context.  A data flow never owns a data item — ownership lives on nodes —
- * so any non-matching string guarantees the qualified `"Parent.Identifier"`
- * branch is always taken.  The empty string is chosen because it can never
- * equal a valid UUID-format parent guid.
- */
-const FLOW_VIEWER_GUID = "";
+// ---------------------------------------------------------------------------
+// Chip layout constants
+// ---------------------------------------------------------------------------
+
+/** Chip height as a multiple of the vertical grid unit. */
+const CHIP_HEIGHT_GRID_UNITS = 2.8;
+
+/** Horizontal padding inside each chip as a fraction of chip height. */
+const CHIP_PAD_X_OF_HEIGHT = 0.5;
+
+/** Font size as a fraction of chip height. */
+const CHIP_FONT_SIZE_OF_HEIGHT = 0.65;
+
+/** Text baseline offset as a fraction of chip height (top-to-baseline). */
+const CHIP_BASELINE_OF_HEIGHT = 0.75;
+
+/** Stroke width for the background plate border (px). */
+const PLATE_STROKE_WIDTH = 1;
 
 /**
  * A single pill chip descriptor, computed per render from the resolved
@@ -131,19 +145,20 @@ export class LabeledDynamicLine extends DynamicLine {
         const plateH = plateYMax - plateYMin;
         const plateRadius = Math.min(chipRadius + 2, plateH / 2);
 
-        // Draw plate (use a solid neutral background for readability over the
-        // line, regardless of canvas color — consistent with block-style chips)
-        const strokeW = 1;
-        drawRect(ctx, plateXMin, plateYMin, plateW, plateH, plateRadius, strokeW);
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
-        ctx.strokeStyle = "rgba(0,0,0,0.08)";
+        // Draw plate: theme-sourced colours ensure readability on both light and
+        // dark canvases (avoids hardcoded near-white that breaks dark mode).
+        const plate = this.labeledStyle.plate;
+        ctx.lineWidth = PLATE_STROKE_WIDTH;
+        drawRect(ctx, plateXMin, plateYMin, plateW, plateH, plateRadius, PLATE_STROKE_WIDTH);
+        ctx.fillStyle = plate.fill;
+        ctx.strokeStyle = plate.stroke;
         ctx.fill();
         ctx.stroke();
 
         // ── Pill chips ────────────────────────────────────────────────────
         for (const chip of chips) {
             // Background
-            drawRect(ctx, chip.x, chip.y, chip.w, chip.h, chipRadius, strokeW);
+            drawRect(ctx, chip.x, chip.y, chip.w, chip.h, chipRadius, PLATE_STROKE_WIDTH);
             ctx.fillStyle = chip.fill;
             ctx.strokeStyle = chip.fill;
             ctx.fill();
@@ -161,6 +176,7 @@ export class LabeledDynamicLine extends DynamicLine {
 
     /**
      * Returns a clone of the face.
+     * Style is treated as immutable; shared reference matches DynamicLine.clone() precedent.
      */
     public override clone(): LabeledDynamicLine {
         return new LabeledDynamicLine(this.labeledStyle, this.labeledGrid);
@@ -168,7 +184,60 @@ export class LabeledDynamicLine extends DynamicLine {
 
 
     ///////////////////////////////////////////////////////////////////////////
-    //  3. Internal helpers  ///////////////////////////////////////////////////
+    //  3. Test seam  //////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+
+    /**
+     * Returns the computed chip descriptors for the current frame along with
+     * the canvas used for the computation.  Intended for test inspection.
+     *
+     * In tests, pass a recording stub CanvasRenderingContext2D (or the minimal
+     * `{ font: "", measureText: (s) => ({ width: s.length * 7 }) }` mock).
+     * Production code calls `computeChips` directly through `renderTo`.
+     *
+     * @param ctx     The context used for `measureText` (must have `font` writable).
+     * @param canvas  The canvas to resolve data items from (null → empty result).
+     */
+    public get layoutDebug(): {
+        chips: ReadonlyArray<PillChipDescriptor>;
+        midX: number;
+        midY: number;
+    } {
+        // layoutDebug operates without a real ctx; use a zero-width stub so
+        // callers that need non-zero widths should supply their own ctx via
+        // computeChipsWithCtx().
+        const stub: Pick<CanvasRenderingContext2D, "measureText" | "font"> = {
+            font: "",
+            measureText: (_s: string) => ({ width: 0 } as TextMetrics)
+        };
+        const canvas = findCanvas(this.view);
+        const chips = this.computeChips(stub, canvas);
+        const handle = this.view.handles[0];
+        return {
+            chips,
+            midX: handle.face.boundingBox.xMid,
+            midY: handle.face.boundingBox.yMid
+        };
+    }
+
+    /**
+     * Computes the pill chip descriptors for the current frame with an explicit
+     * context.  Useful in tests that need non-zero `measureText` widths.
+     *
+     * @param ctx     The rendering context (used for `measureText`).
+     * @param canvas  The nearest Canvas ancestor (null → returns []).
+     */
+    public computeChipsWithCtx(
+        ctx: Pick<CanvasRenderingContext2D, "measureText" | "font">,
+        canvas: Canvas | null
+    ): ReadonlyArray<PillChipDescriptor> {
+        return this.computeChips(ctx, canvas);
+    }
+
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  4. Internal helpers  ///////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////
 
 
@@ -184,7 +253,7 @@ export class LabeledDynamicLine extends DynamicLine {
      * @param ctx     The rendering context (used for `measureText`).
      * @param canvas  The nearest Canvas ancestor (null → returns []).
      */
-    public computeChips(
+    private computeChips(
         ctx: Pick<CanvasRenderingContext2D, "measureText" | "font">,
         canvas: Canvas | null
     ): PillChipDescriptor[] {
@@ -192,18 +261,10 @@ export class LabeledDynamicLine extends DynamicLine {
             return [];
         }
 
-        // Read ref GUIDs from the line's data_item_refs property.
-        const refsProp = this.view.properties.value.get("data_item_refs");
-        if (!(refsProp instanceof ListProperty)) {
-            return [];
-        }
-        const guids: string[] = [];
-        for (const [, entry] of refsProp.value) {
-            const val = entry.toJson();
-            if (typeof val === "string" && val.length > 0) {
-                guids.push(val);
-            }
-        }
+        // Read ref GUIDs from the line's data_item_refs property
+        // via the shared readDataItemRefs helper (avoids duplicating the
+        // ListProperty-iteration pattern across callers).
+        const guids = readDataItemRefs(this.view.properties);
         if (guids.length === 0) {
             return [];
         }
@@ -226,18 +287,22 @@ export class LabeledDynamicLine extends DynamicLine {
         const gridX = this.labeledGrid[0];
         const gridY = this.labeledGrid[1];
 
-        // Chip height: one text line (~14px at 2× scale with 5-unit grid).
-        const chipH = gridY * 2.8;
-        const chipPadX = chipH * 0.5;
+        /** Chip height (px) — CHIP_HEIGHT_GRID_UNITS vertical grid units. */
+        const chipH = gridY * CHIP_HEIGHT_GRID_UNITS;
+        /** Horizontal padding inside each chip (px). */
+        const chipPadX = chipH * CHIP_PAD_X_OF_HEIGHT;
+        /** Gap between adjacent chips (px). */
         const hSpacing = gridX * style.pillSpacingUnits;
 
         // Set font for measuring chip label widths.
-        const fontSize = Math.round(chipH * 0.65);
-        ctx.font = `600 ${fontSize}px Inter, sans-serif`;
+        // Font size is derived from chip height; family sourced from theme token.
+        const fontSize = Math.round(chipH * CHIP_FONT_SIZE_OF_HEIGHT);
+        ctx.font = `${fontSize}px ${style.chipFont.replace(/^\d+px\s*/, "")}`;
 
         // Pre-compute labels and widths.
+        // Passing null as viewedFromGuid means "no owner view — always qualify".
         const labels: string[] = items.map(item =>
-            pillLabel(item, FLOW_VIEWER_GUID, canvas)
+            pillLabel(item, null, canvas)
         );
         const chipWidths: number[] = labels.map(label =>
             ctx.measureText(label).width + 2 * chipPadX
@@ -248,7 +313,8 @@ export class LabeledDynamicLine extends DynamicLine {
         // Lay out chips left-to-right, strip centred on midX.
         let chipX = midX - totalWidth / 2;
         const chipTopY = midY - chipH / 2;
-        const textBaselineOffsetY = chipH * 0.75;
+        /** Baseline offset: CHIP_BASELINE_OF_HEIGHT of chip height from top edge. */
+        const textBaselineOffsetY = chipH * CHIP_BASELINE_OF_HEIGHT;
 
         const chips: PillChipDescriptor[] = [];
         for (let i = 0; i < items.length; i++) {

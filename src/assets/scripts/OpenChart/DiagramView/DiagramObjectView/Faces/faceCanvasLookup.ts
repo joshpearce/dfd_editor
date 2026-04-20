@@ -1,5 +1,5 @@
 /**
- * @file lineCanvasLookup.ts
+ * @file faceCanvasLookup.ts
  *
  * Shared helper for walking a view's parent chain to find the nearest Canvas
  * ancestor.  Extracted so that line faces (e.g. LabeledDynamicLine) and block

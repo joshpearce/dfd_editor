@@ -1,5 +1,6 @@
 import { FileValidator } from "@/assets/scripts/Application";
 import { DiagramModelFile, ListProperty, SemanticAnalyzer } from "@OpenChart/DiagramModel";
+import { readDataItemRefs } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Canvas, SemanticGraphEdge, SemanticGraphNode } from "@OpenChart/DiagramModel";
 
 const PRIVILEGE_RANK: Record<string, number> = {
@@ -91,26 +92,23 @@ class DfdValidator extends FileValidator {
     /**
      * Warns when a flow's `data_item_refs` list contains a GUID that doesn't
      * correspond to any canvas data item.  Does not block save/publish.
+     *
+     * NOTE: the early-return for `knownGuids.size === 0` was intentionally
+     * removed.  A flow that holds refs when the canvas has zero data items is
+     * a dangling-ref condition that should warn — the canvas may have had items
+     * that were later deleted.
      */
     private validateDataItemRefs(
         id: string,
         edge: SemanticGraphEdge,
         knownGuids: Set<string>
     ): void {
-        if (knownGuids.size === 0) {
-            // No data items defined — nothing to check.
-            return;
-        }
-        const refsProp = edge.props.value.get("data_item_refs");
-        if (!(refsProp instanceof ListProperty)) {
-            return;
-        }
-        for (const [, entry] of refsProp.value) {
-            const val = entry.toJson();
-            if (typeof val === "string" && val.length > 0 && !knownGuids.has(val)) {
+        const guids = readDataItemRefs(edge.props);
+        for (const guid of guids) {
+            if (!knownGuids.has(guid)) {
                 this.addWarning(
                     id,
-                    `Data flow references unknown data item '${val}'.`
+                    `Data flow references unknown data item '${guid}'.`
                 );
             }
         }

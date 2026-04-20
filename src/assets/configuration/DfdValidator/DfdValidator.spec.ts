@@ -196,12 +196,16 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
     });
 
     // -----------------------------------------------------------------------
-    // 3. No data items on canvas — no warning (nothing to check against)
+    // 3. No data items on canvas — dangling refs still warn
     // -----------------------------------------------------------------------
 
     describe("no canvas data items", () => {
 
-        it("does not warn about refs when canvas has no data items at all", () => {
+        it("warns about refs even when canvas has no data items at all", () => {
+            // Previously, the validator skipped the ref check when knownGuids was
+            // empty.  That masked the strongest dangling-ref case: a flow that holds
+            // refs to data items that were subsequently deleted (leaving the canvas
+            // with zero items).  The early-return was removed (M8).
             const file = new DiagramModelFile(factory);
             const canvas = file.canvas;
             const procA = factory.createNewDiagramObject("process", Block);
@@ -213,7 +217,7 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             canvas.addObject(flow);
             connect(flow, procA, procB);
 
-            // No data items on canvas; add a ref that would normally be dangling
+            // No data items on canvas; add a ref that is dangling by definition
             addDataItemRef(flow, "some-guid");
 
             setName(procA, "ProcA");
@@ -225,7 +229,32 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             const danglingWarnings = validator.getWarnings().filter(
                 w => w.reason.includes("unknown data item")
             );
-            // When knownGuids is empty, the validator skips the check entirely
+            // Now warns even when knownGuids is empty — dangling ref is dangling.
+            expect(danglingWarnings).toHaveLength(1);
+            expect(danglingWarnings[0].reason).toContain("some-guid");
+        });
+
+        it("does not warn when the flow has no refs (zero-ref flow on empty canvas)", () => {
+            const file = new DiagramModelFile(factory);
+            const canvas = file.canvas;
+            const procA = factory.createNewDiagramObject("process", Block);
+            const procB = factory.createNewDiagramObject("process", Block);
+            canvas.addObject(procA);
+            canvas.addObject(procB);
+
+            const flow = factory.createNewDiagramObject("data_flow", Line);
+            canvas.addObject(flow);
+            connect(flow, procA, procB);
+            // No data items on canvas; no refs on the flow
+            setName(procA, "ProcA");
+            setName(procB, "ProcB");
+            setName(flow, "Flow1");
+
+            validator.run(file);
+
+            const danglingWarnings = validator.getWarnings().filter(
+                w => w.reason.includes("unknown data item")
+            );
             expect(danglingWarnings).toHaveLength(0);
         });
 

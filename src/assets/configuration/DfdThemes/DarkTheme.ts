@@ -72,12 +72,7 @@ const DfdObjects: DesignMap = {
     data_flow: {
         type: FaceType.LabeledDynamicLine,
         attributes: Alignment.Grid,
-        style: {
-            ...DarkStyle.Line(),
-            data_pill:                       DarkStyle.DictionaryBlock().data_pill,
-            pill_row_vertical_padding_units: DarkStyle.DictionaryBlock().pill_row_vertical_padding_units,
-            pill_spacing_units:              DarkStyle.DictionaryBlock().pill_spacing_units
-        }
+        style: DarkStyle.LabeledLine()
     },
     trust_boundary: {
         type: FaceType.Group,

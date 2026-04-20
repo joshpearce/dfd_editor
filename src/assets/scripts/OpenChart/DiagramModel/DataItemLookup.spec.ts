@@ -9,12 +9,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
     dataItemsForParent,
     resolveRefs,
+    readDataItemRefs,
     pillLabel,
     truncate
 } from "./DataItemLookup";
 import type { DataItem } from "./DataItemLookup";
 import { DiagramObjectFactory, DiagramModelFile } from "./";
-import { Block, Canvas, StringProperty } from "./DiagramObject";
+import { Block, Canvas, Line, ListProperty, StringProperty } from "./DiagramObject";
 import { DfdCanvas } from "@/assets/configuration/DfdTemplates/DfdCanvas";
 import { DfdObjects } from "@/assets/configuration/DfdTemplates/DfdObjects";
 import { BaseTemplates } from "@/assets/configuration/DfdTemplates/BaseTemplates";
@@ -225,6 +226,83 @@ describe("pillLabel", () => {
         // "unknown-node" is 12 chars → no truncation-within-truncation.
         expect(label).toContain(".D1");
         expect(label.startsWith("unknown-node….D1")).toBe(true);
+    });
+
+    it("null viewedFromGuid always produces the qualified form (no-owner view)", () => {
+        // Passing null means "no owner" — always qualify, even if the GUID would
+        // accidentally match (not possible with null, but the contract is explicit).
+        addDataItem(canvas, ITEM_A1_GUID, NODE_A, "D1", "Token");
+        const item = dataItemsForParent(canvas, NODE_A)[0];
+
+        // null → qualified form (parent not in canvas object tree → raw guid prefix)
+        const label = pillLabel(item, null, canvas);
+        expect(label).toContain("D1");
+        // Should NOT be bare "D1" — must be qualified
+        expect(label).not.toBe("D1");
+        expect(label).toMatch(/^.+\.D1$/);
+    });
+
+});
+
+// ---------------------------------------------------------------------------
+// Tests: readDataItemRefs
+// ---------------------------------------------------------------------------
+
+describe("readDataItemRefs", () => {
+
+    beforeEach(() => {
+        factory = new DiagramObjectFactory(dfdSchema);
+        canvas = new DiagramModelFile(factory).canvas;
+    });
+
+    it("returns empty array when object has no data_item_refs property", () => {
+        // A block template has no data_item_refs, so the helper should return [].
+        const block = factory.createNewDiagramObject("process", Block);
+        canvas.addObject(block);
+        expect(readDataItemRefs(block.properties)).toHaveLength(0);
+    });
+
+    it("returns all non-empty guid strings from data_item_refs", () => {
+        const flow = factory.createNewDiagramObject("data_flow", Line);
+        canvas.addObject(flow);
+        const refsProp = flow.properties.value.get("data_item_refs");
+        if (!(refsProp instanceof ListProperty)) {
+            throw new Error("data_item_refs not a ListProperty");
+        }
+        // Add two entries
+        const e1 = refsProp.createListItem() as StringProperty;
+        e1.setValue("guid-1");
+        refsProp.addProperty(e1);
+        const e2 = refsProp.createListItem() as StringProperty;
+        e2.setValue("guid-2");
+        refsProp.addProperty(e2);
+
+        const guids = readDataItemRefs(flow.properties);
+        expect(guids).toEqual(["guid-1", "guid-2"]);
+    });
+
+    it("filters out empty-string entries", () => {
+        const flow = factory.createNewDiagramObject("data_flow", Line);
+        canvas.addObject(flow);
+        const refsProp = flow.properties.value.get("data_item_refs");
+        if (!(refsProp instanceof ListProperty)) {
+            throw new Error("data_item_refs not a ListProperty");
+        }
+        const e1 = refsProp.createListItem() as StringProperty;
+        e1.setValue("");
+        refsProp.addProperty(e1);
+        const e2 = refsProp.createListItem() as StringProperty;
+        e2.setValue("guid-real");
+        refsProp.addProperty(e2);
+
+        const guids = readDataItemRefs(flow.properties);
+        expect(guids).toEqual(["guid-real"]);
+    });
+
+    it("returns empty array when data_item_refs list is empty", () => {
+        const flow = factory.createNewDiagramObject("data_flow", Line);
+        canvas.addObject(flow);
+        expect(readDataItemRefs(flow.properties)).toHaveLength(0);
     });
 
 });

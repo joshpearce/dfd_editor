@@ -9,6 +9,7 @@ import type {
     PointStyleConfiguration,
     TextBlockStyleConfiguration
 } from "../ThemeConfigurations";
+import type { LabeledLineStyleConfiguration } from "../ThemeConfigurations";
 
 export class StyleGenerator {
 
@@ -111,6 +112,33 @@ export class StyleGenerator {
         style: DeepPartial<CanvasStyleConfiguration> = {}
     ): CanvasStyleConfiguration {
         return merge(style, structuredClone(this.styles.canvas));
+    }
+
+    /**
+     * Returns a {@link LabeledLineStyleConfiguration} (snake_case) that merges
+     * the base line style with the shared pill-palette tokens stored on this
+     * StyleGenerator.
+     *
+     * Prefer this over reaching into `DictionaryBlock().data_pill` from the
+     * theme file — that pattern couples the line style to the block style type.
+     * The ThemeLoader converts the returned snake_case object to the camelCase
+     * {@link LabeledLineStyle} at runtime.
+     *
+     * @param style  Optional overrides applied on top of the generated base.
+     */
+    public LabeledLine(
+        style: DeepPartial<LabeledLineStyleConfiguration> = {}
+    ): LabeledLineStyleConfiguration {
+        const s = this.styles;
+        const base: LabeledLineStyleConfiguration = {
+            ...structuredClone(s.line),
+            data_pill: structuredClone(s.blockDictionary.data_pill),
+            pill_row_vertical_padding_units: s.blockDictionary.pill_row_vertical_padding_units,
+            pill_spacing_units: s.blockDictionary.pill_spacing_units,
+            plate: structuredClone(s.plate),
+            chip_font: s.chipFont
+        };
+        return merge(style as Partial<LabeledLineStyleConfiguration>, base) as LabeledLineStyleConfiguration;
     }
 
 }
