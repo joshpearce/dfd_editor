@@ -1,14 +1,21 @@
 /**
  * @file DfdFilePreprocessor.spec.ts
  *
- * Verifies that DfdFilePreprocessor normalises incoming native dfd_v1 files:
- *   - Backend-emitted `data_item_refs` plain-string arrays are converted to
- *     the JsonEntries [[key, guid], ...] format the OpenChart factory expects.
- *   - Canvas `data_items` in the correct [[guid, [[k,v],...]], ...] format
- *     pass through untouched.
- *   - Legacy files (no data_items / data_item_refs) pass through without error.
+ * Verifies that DfdFilePreprocessor correctly passes through native dfd_v1
+ * files.  Since the backend now emits `data_item_refs` in the correct
+ * ListProperty<StringProperty> wire shape ([[key, guid], ...]), the
+ * preprocessor is pass-through and needs no normalization logic.
+ *
+ * Coverage:
+ *   - Legacy files (no data_items / no data_item_refs) pass through without error.
+ *   - Canvas data_items in [[guid, [[k,v],...]],...] format pass through and load.
+ *   - Flow data_item_refs in [[key, guid],...] format (backend shape) load correctly.
+ *   - Empty data_item_refs resolves to a well-formed empty ListProperty.
+ *   - Non-flow objects (process, etc.) pass through unchanged.
  *   - Round-trip: minimal-format input → preprocessor + factory → publisher
  *     re-emits the same minimal shape (identity).
+ *   - DictionaryProperty with description sub-key absent entirely (not explicit null)
+ *     round-trips identically.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -20,6 +27,7 @@ import { DfdCanvas } from "../DfdTemplates/DfdCanvas";
 import { DfdObjects } from "../DfdTemplates/DfdObjects";
 import { BaseTemplates } from "../DfdTemplates/BaseTemplates";
 import type { DiagramSchemaConfiguration } from "@OpenChart/DiagramModel";
+import { traverse } from "@OpenChart/DiagramModel/DiagramNavigators";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -129,6 +137,18 @@ describe("DfdFilePreprocessor", () => {
     });
 
     // -----------------------------------------------------------------------
+    // Pass-through identity
+    // -----------------------------------------------------------------------
+
+    describe("pass-through identity", () => {
+        it("returns the exact same object reference (pure pass-through)", () => {
+            const native = makeNativeFile({});
+            const processed = preprocessor.process(native);
+            expect(processed).toBe(native);
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // Legacy / no data_items / no refs
     // -----------------------------------------------------------------------
 
@@ -153,53 +173,49 @@ describe("DfdFilePreprocessor", () => {
             const native = makeNativeFile({});
             const processed = preprocessor.process(native);
             const file = new DiagramModelFile(factory, processed);
-            // Find the flow object.
-            const flowObj = [...(file.canvas as unknown as { objects: Set<{ id: string, properties: { value: Map<string, unknown> } }> }).objects]
+
+            // Use traverse navigator to find the flow object.
+            const flowObj = [...traverse(file.canvas)]
                 .find(o => o.id === "data_flow");
             expect(flowObj).toBeDefined();
             const refsProp = flowObj!.properties.value.get("data_item_refs");
             expect(refsProp).toBeInstanceOf(ListProperty);
+            // Empty refs — resolves to well-formed empty ListProperty.
             expect((refsProp as ListProperty).value.size).toBe(0);
         });
     });
 
     // -----------------------------------------------------------------------
-    // Backend-emitted plain string list for data_item_refs
+    // Non-flow objects pass through unchanged  [I5]
     // -----------------------------------------------------------------------
 
-    describe("flow data_item_refs — backend plain-string-list format", () => {
-        it("normalises plain string array to loadable JsonEntries", () => {
-            const guid1 = "aaaa-0001";
-            const guid2 = "aaaa-0002";
-            const native = makeNativeFile({ flowDataItemRefsValue: [guid1, guid2] });
+    describe("non-flow objects pass through unchanged", () => {
+        it("a process object's properties are unchanged after preprocessing", () => {
+            const native = makeNativeFile({});
+            // The process object (src-block) should survive untouched.
+            const srcBefore = native.objects.find(o => o.instance === "src-block");
             const processed = preprocessor.process(native);
-
-            // After processing, the data_flow properties should have
-            // data_item_refs as [[key, guid], ...].
-            const flowExport = processed.objects.find(o => o.id === "data_flow");
-            const refsEntry = (flowExport!.properties as [string, unknown][])
-                ?.find(([k]) => k === "data_item_refs");
-            expect(refsEntry).toBeDefined();
-            const refsValue = refsEntry![1] as unknown[][];
-            expect(Array.isArray(refsValue)).toBe(true);
-            // Each sub-entry should be [string, string].
-            for (const entry of refsValue) {
-                expect(Array.isArray(entry)).toBe(true);
-                expect(typeof (entry as string[])[0]).toBe("string");
-                expect(typeof (entry as string[])[1]).toBe("string");
-            }
-            // Values in order.
-            expect(refsValue.map(([, v]) => v)).toEqual([guid1, guid2]);
+            const srcAfter = processed.objects.find(o => o.instance === "src-block");
+            // Same reference — preprocessor returns file unchanged.
+            expect(srcAfter).toBe(srcBefore);
         });
+    });
 
-        it("loads normalised refs into a ListProperty<StringProperty> correctly", () => {
+    // -----------------------------------------------------------------------
+    // Flow data_item_refs — backend [[key, guid], ...] format
+    // -----------------------------------------------------------------------
+
+    describe("flow data_item_refs — backend [[key, guid], ...] format", () => {
+        it("loads backend-shape [[key, guid], ...] refs into a ListProperty<StringProperty>", () => {
             const guid1 = "aaaa-0001";
             const guid2 = "aaaa-0002";
-            const native = makeNativeFile({ flowDataItemRefsValue: [guid1, guid2] });
+            // Backend now emits [[syntheticKey, guidStr], ...] directly.
+            const refsValue = [["key0", guid1], ["key1", guid2]];
+            const native = makeNativeFile({ flowDataItemRefsValue: refsValue });
             const processed = preprocessor.process(native);
             const file = new DiagramModelFile(factory, processed);
 
-            const flowObj = [...(file.canvas as unknown as { objects: Set<{ id: string, properties: { value: Map<string, unknown> } }> }).objects]
+            const flowObj = [...traverse(file.canvas)]
                 .find(o => o.id === "data_flow");
             const refsProp = flowObj!.properties.value.get("data_item_refs") as ListProperty;
             expect(refsProp).toBeInstanceOf(ListProperty);
@@ -208,25 +224,18 @@ describe("DfdFilePreprocessor", () => {
             expect(vals).toEqual([guid1, guid2]);
         });
 
-        it("passes through an already-JsonEntries data_item_refs untouched", () => {
-            // Simulate frontend-saved format: [[key, guid], ...].
-            const guid1 = "aaaa-0001";
-            const guid2 = "aaaa-0002";
-            const alreadyNormalized = [["key0", guid1], ["key1", guid2]];
-            const native = makeNativeFile({ flowDataItemRefsValue: alreadyNormalized });
-            const processed = preprocessor.process(native);
-
-            const flowExport = processed.objects.find(o => o.id === "data_flow");
-            const refsEntry = (flowExport!.properties as [string, unknown][])
-                ?.find(([k]) => k === "data_item_refs");
-            // Should be unchanged.
-            expect(refsEntry![1]).toEqual(alreadyNormalized);
-        });
-
-        it("handles empty data_item_refs list without error", () => {
+        it("loads empty data_item_refs into a well-formed empty ListProperty", () => {
+            // Empty array — must result in a valid empty ListProperty (not an error).
             const native = makeNativeFile({ flowDataItemRefsValue: [] });
             const processed = preprocessor.process(native);
             expect(() => new DiagramModelFile(factory, processed)).not.toThrow();
+
+            const file = new DiagramModelFile(factory, processed);
+            const flowObj = [...traverse(file.canvas)]
+                .find(o => o.id === "data_flow");
+            const refsProp = flowObj!.properties.value.get("data_item_refs") as ListProperty;
+            expect(refsProp).toBeInstanceOf(ListProperty);
+            expect(refsProp.value.size).toBe(0);
         });
     });
 
@@ -263,6 +272,32 @@ describe("DfdFilePreprocessor", () => {
             expect(e2.value.get("identifier")?.toJson()).toBe("D2");
             expect(e2.value.get("classification")?.toJson()).toBeNull();
         });
+
+        it("absent description sub-key in a data item round-trips to the same minimal shape  [M5]", () => {
+            // This covers the Step 1 → Step 2 handoff from transform.py:678-682:
+            // optional sub-keys are omitted entirely (not emitted as null) and the
+            // engine must tolerate absent sub-keys on load.
+            const itemGuid = "item-absent-desc";
+            const parentGuid = "proc-abs-1";
+
+            // description is deliberately absent (not even null).
+            const dataItemsValue = [
+                [itemGuid, [["parent", parentGuid], ["identifier", "D1"], ["name", "NoDesc"]]]
+            ];
+
+            const native = makeNativeFile({ canvasDataItemsValue: dataItemsValue });
+            const file = new DiagramModelFile(factory, preprocessor.process(native));
+            const publisher = new DfdPublisher();
+            const output = JSON.parse(publisher.publish(file));
+
+            // Round-trip: description should remain absent from the published output.
+            expect(output.data_items).toHaveLength(1);
+            const item = output.data_items[0];
+            expect(item.description).toBeUndefined();
+            expect(item.classification).toBeUndefined();
+            expect(item.identifier).toBe("D1");
+            expect(item.name).toBe("NoDesc");
+        });
     });
 
     // -----------------------------------------------------------------------
@@ -278,9 +313,12 @@ describe("DfdFilePreprocessor", () => {
                 [itemGuid, [["parent", parentGuid], ["identifier", "D1"], ["name", "Token"]]]
             ];
 
+            // Backend-shape: [[key, guid], ...] for data_item_refs.
+            const refsValue = [["some-key", itemGuid]];
+
             const native = makeNativeFile({
                 canvasDataItemsValue: dataItemsValue,
-                flowDataItemRefsValue: [itemGuid]   // backend plain-list format
+                flowDataItemRefsValue: refsValue
             });
 
             const processed = preprocessor.process(native);
