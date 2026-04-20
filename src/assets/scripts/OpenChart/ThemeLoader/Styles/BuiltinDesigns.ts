@@ -66,7 +66,16 @@ export const DarkStyle = new StyleGenerator({
             size: 3
         },
         border_radius: 5,
-        horizontal_padding_units: 2
+        horizontal_padding_units: 2,
+        data_pill: {
+            pii:      { fill: "#92400e", text: "#fcd34d" },
+            secret:   { fill: "#7f1d1d", text: "#fca5a5" },
+            public:   { fill: "#1e3a5f", text: "#93c5fd" },
+            internal: { fill: "#1a3d2b", text: "#86efac" },
+            default:  { fill: "#2f2f2f", text: "#a0a0a0" }
+        },
+        pill_row_vertical_padding_units: 1,
+        pill_spacing_units: 1
     },
 
     blockDictionary: {
@@ -124,7 +133,16 @@ export const DarkStyle = new StyleGenerator({
             size: 3
         },
         border_radius: 5,
-        horizontal_padding_units: 2
+        horizontal_padding_units: 2,
+        data_pill: {
+            pii:      { fill: "#92400e", text: "#fcd34d" },
+            secret:   { fill: "#7f1d1d", text: "#fca5a5" },
+            public:   { fill: "#1e3a5f", text: "#93c5fd" },
+            internal: { fill: "#1a3d2b", text: "#86efac" },
+            default:  { fill: "#2f2f2f", text: "#a0a0a0" }
+        },
+        pill_row_vertical_padding_units: 1,
+        pill_spacing_units: 1
     },
 
     blockText: {
@@ -245,7 +263,16 @@ export const LightStyle = new StyleGenerator({
             size: 3
         },
         border_radius: 5,
-        horizontal_padding_units: 2
+        horizontal_padding_units: 2,
+        data_pill: {
+            pii:      { fill: "#d97706", text: "#ffffff" },
+            secret:   { fill: "#dc2626", text: "#ffffff" },
+            public:   { fill: "#5286e7", text: "#ffffff" },
+            internal: { fill: "#4a7c59", text: "#ffffff" },
+            default:  { fill: "#8c8c8c", text: "#ffffff" }
+        },
+        pill_row_vertical_padding_units: 1,
+        pill_spacing_units: 1
     },
 
     blockDictionary: {
@@ -303,7 +330,16 @@ export const LightStyle = new StyleGenerator({
             size: 3
         },
         border_radius: 5,
-        horizontal_padding_units: 2
+        horizontal_padding_units: 2,
+        data_pill: {
+            pii:      { fill: "#d97706", text: "#ffffff" },
+            secret:   { fill: "#dc2626", text: "#ffffff" },
+            public:   { fill: "#5286e7", text: "#ffffff" },
+            internal: { fill: "#4a7c59", text: "#ffffff" },
+            default:  { fill: "#8c8c8c", text: "#ffffff" }
+        },
+        pill_row_vertical_padding_units: 1,
+        pill_spacing_units: 1
     },
 
     blockText: {
@@ -424,7 +460,16 @@ export const BlogStyle = new StyleGenerator({
             size: 3
         },
         border_radius: 5,
-        horizontal_padding_units: 2
+        horizontal_padding_units: 2,
+        data_pill: {
+            pii:      { fill: "#d97706", text: "#ffffff" },
+            secret:   { fill: "#dc2626", text: "#ffffff" },
+            public:   { fill: "#5286e7", text: "#ffffff" },
+            internal: { fill: "#4a7c59", text: "#ffffff" },
+            default:  { fill: "#8c8c8c", text: "#ffffff" }
+        },
+        pill_row_vertical_padding_units: 1,
+        pill_spacing_units: 1
     },
 
     blockDictionary: {
@@ -482,7 +527,16 @@ export const BlogStyle = new StyleGenerator({
             size: 3
         },
         border_radius: 5,
-        horizontal_padding_units: 2
+        horizontal_padding_units: 2,
+        data_pill: {
+            pii:      { fill: "#d97706", text: "#ffffff" },
+            secret:   { fill: "#dc2626", text: "#ffffff" },
+            public:   { fill: "#5286e7", text: "#ffffff" },
+            internal: { fill: "#4a7c59", text: "#ffffff" },
+            default:  { fill: "#8c8c8c", text: "#ffffff" }
+        },
+        pill_row_vertical_padding_units: 1,
+        pill_spacing_units: 1
     },
 
     blockText: {

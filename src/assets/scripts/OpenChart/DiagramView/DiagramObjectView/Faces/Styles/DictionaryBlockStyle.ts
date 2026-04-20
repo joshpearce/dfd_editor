@@ -242,4 +242,33 @@ export type DictionaryBlockStyle = {
      */
     horizontalPaddingUnits: number;
 
+    /**
+     * Per-classification fill and text colours for data pills.
+     * Keys correspond to the `classification` field on a DataItem, plus
+     * `"default"` which is used when classification is null or unknown.
+     */
+    dataPill: Record<"pii" | "secret" | "public" | "internal" | "default", {
+
+        /**
+         * The pill's background fill colour.
+         */
+        fill: string;
+
+        /**
+         * The pill's text colour (must meet WCAG contrast against fill).
+         */
+        text: string;
+
+    }>;
+
+    /**
+     * Vertical padding above and below the pill row (in units).
+     */
+    pillRowVerticalPaddingUnits: number;
+
+    /**
+     * Horizontal spacing between adjacent pills in a row (in units).
+     */
+    pillSpacingUnits: number;
+
 };
