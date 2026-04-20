@@ -632,11 +632,28 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
             flow_props["encrypted"] = converted
 
     # Recover data_item_refs from native properties.
-    # Coerce each entry to UUID explicitly; Diagram.model_validate would do
-    # this implicitly, but being explicit avoids silent string pass-through.
-    refs = raw_props.get("data_item_refs")
-    if refs:
-        flow_props["data_item_refs"] = [uuid.UUID(r) if isinstance(r, str) else r for r in refs]
+    # Native shape (post I3): [[syntheticKey, guidStr], ...] — a ListProperty
+    # wire format where each sub-entry is [opaqueKey, guidStr].  We flatten to
+    # a list of UUIDs for the minimal format.
+    # Legacy native files that stored a plain string list are also handled
+    # gracefully: if an entry is a plain string rather than a [k, v] pair,
+    # treat it directly as the guid string.
+    refs_raw = raw_props.get("data_item_refs")
+    if refs_raw:
+        ref_guids = []
+        for entry in refs_raw:
+            if isinstance(entry, list) and len(entry) == 2:
+                # [[key, guidStr], ...] — standard post-I3 shape.
+                guid_str = entry[1]
+            else:
+                # Plain string — legacy pre-I3 shape; accept gracefully.
+                guid_str = entry
+            if isinstance(guid_str, str):
+                ref_guids.append(uuid.UUID(guid_str))
+            elif isinstance(guid_str, uuid.UUID):
+                ref_guids.append(guid_str)
+        if ref_guids:
+            flow_props["data_item_refs"] = ref_guids
 
     return {
         "guid": instance,
@@ -797,8 +814,16 @@ def _build_flow_props(flow: Any) -> list[list]:
             val = props.authenticated
             result.append([key, _bool_to_native(val if val is not None else False)])
         elif key == "data_item_refs":
-            # Emit as a list of UUID strings (always present; empty list when none).
-            result.append([key, [str(ref) for ref in props.data_item_refs]])
+            # Emit in the OpenChart ListProperty<StringProperty> wire shape:
+            # [[syntheticKey, guidStr], ...].  This mirrors
+            # CollectionProperty.toOrderedJson() so that DfdFilePreprocessor
+            # can be pass-through and the frontend factory receives the shape it
+            # expects without any normalization step.
+            pairs = [
+                [str(uuid.uuid4()), str(ref)]
+                for ref in props.data_item_refs
+            ]
+            result.append([key, pairs])
         else:
             val = getattr(props, key, None)
             if val is None:

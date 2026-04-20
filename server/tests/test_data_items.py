@@ -635,3 +635,101 @@ class TestNativeShape:
         }
         with pytest.raises(InvalidNativeError, match="sub-pairs"):
             _extract_canvas_data_items(canvas)
+
+    def test_to_native_flow_data_item_refs_list_of_pairs_shape(self):
+        """to_native emits data_item_refs as [[syntheticKey, guidStr], ...] in flow props.
+
+        This mirrors CollectionProperty.toOrderedJson() for a
+        ListProperty<StringProperty> so the frontend factory can deserialize
+        it directly without any normalization step.
+        """
+        minimal = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P"}},
+                {"type": "data_store", "guid": _DATA_STORE_GUID, "properties": {"name": "DS"}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_GUID,
+                    "source": _PROCESS_GUID,
+                    "target": _DATA_STORE_GUID,
+                    "properties": {
+                        "data_item_refs": [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
+                    },
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "D1",
+                    "name": "Item One",
+                },
+                {
+                    "guid": _DATA_ITEM_2_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "D2",
+                    "name": "Item Two",
+                },
+            ],
+        }
+        native = to_native(minimal)
+
+        # Find the data_flow object
+        flow_obj = next(
+            (o for o in native["objects"] if o.get("id") == "data_flow"),
+            None,
+        )
+        assert flow_obj is not None, "data_flow object not found in native"
+
+        # Locate the data_item_refs entry in the flow's properties
+        refs_pair = next(
+            (pair for pair in flow_obj["properties"] if pair[0] == "data_item_refs"),
+            None,
+        )
+        assert refs_pair is not None, "data_item_refs pair missing from flow properties"
+        refs_value = refs_pair[1]
+
+        # Must be a list of [syntheticKey, guidStr] pairs.
+        assert isinstance(refs_value, list)
+        assert len(refs_value) == 2
+        for entry in refs_value:
+            assert isinstance(entry, list) and len(entry) == 2, (
+                f"Expected [key, guidStr], got {entry!r}"
+            )
+            key, guid_str = entry
+            assert isinstance(key, str) and len(key) > 0
+            assert isinstance(guid_str, str)
+
+        # Values must be the original GUIDs in order.
+        assert [entry[1] for entry in refs_value] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
+
+    def test_to_minimal_recovers_data_item_refs_from_pairs_shape(self):
+        """native (post-I3 pairs shape) → to_minimal recovers data_item_refs correctly."""
+        minimal = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P"}},
+                {"type": "data_store", "guid": _DATA_STORE_GUID, "properties": {"name": "DS"}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_GUID,
+                    "source": _PROCESS_GUID,
+                    "target": _DATA_STORE_GUID,
+                    "properties": {
+                        "data_item_refs": [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
+                    },
+                }
+            ],
+            "data_items": [],
+        }
+        native = to_native(minimal)
+        recovered = to_minimal(native)
+
+        flows = {f["guid"]: f for f in recovered["data_flows"]}
+        assert _FLOW_GUID in flows
+        refs = flows[_FLOW_GUID]["properties"]["data_item_refs"]
+        # to_minimal returns UUID objects; stringify for comparison.
+        assert [str(r) for r in refs] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
