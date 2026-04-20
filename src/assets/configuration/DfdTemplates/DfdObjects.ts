@@ -211,7 +211,8 @@ export const DfdObjects: DiagramObjectTemplate[] = [
             // data-item guid as a plain string.
             data_item_refs: {
                 type: PropertyType.List,
-                form: { type: PropertyType.String }
+                form: { type: PropertyType.String },
+                default: []
             }
         }
     },

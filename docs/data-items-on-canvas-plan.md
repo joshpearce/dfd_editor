@@ -49,7 +49,7 @@ frontend has somewhere to read/write from. Piggybacks on existing
 serialization — no new storage primitive.
 
 - `DfdTemplates/DfdCanvas.ts`: add a `data_items` `ListProperty`. Each entry
-  is a `DictionaryProperty` with `parent_guid`, `identifier`, `name`,
+  is a `DictionaryProperty` with `parent`, `identifier`, `name`,
   `description`, `classification`.
 - `DfdTemplates/DfdObjects.ts`: add `data_item_refs` (`ListProperty` of GUID
   strings) to the flow template. Do **not** add to node templates yet

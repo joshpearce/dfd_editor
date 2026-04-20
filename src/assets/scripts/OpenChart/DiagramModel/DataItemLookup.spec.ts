@@ -14,11 +14,12 @@ import {
 } from "./DataItemLookup";
 import type { DataItem } from "./DataItemLookup";
 import { DiagramObjectFactory, DiagramModelFile } from "./";
-import { Block, Canvas, ListProperty, DictionaryProperty, StringProperty } from "./DiagramObject";
+import { Block, Canvas, StringProperty } from "./DiagramObject";
 import { DfdCanvas } from "@/assets/configuration/DfdTemplates/DfdCanvas";
 import { DfdObjects } from "@/assets/configuration/DfdTemplates/DfdObjects";
 import { BaseTemplates } from "@/assets/configuration/DfdTemplates/BaseTemplates";
 import type { DiagramSchemaConfiguration } from "./DiagramObjectFactory";
+import { addDataItem } from "@/assets/configuration/DfdTemplates/dataItems.test-utils";
 
 // ---------------------------------------------------------------------------
 // Schema + factory shared by all tests
@@ -29,36 +30,6 @@ const dfdSchema: DiagramSchemaConfiguration = {
     canvas: DfdCanvas,
     templates: [...BaseTemplates, ...DfdObjects]
 };
-
-// ---------------------------------------------------------------------------
-// Helper to add a data item directly to a canvas's data_items ListProperty
-// ---------------------------------------------------------------------------
-
-function addDataItem(
-    canvas: Canvas,
-    guid: string,
-    parent: string,
-    identifier: string,
-    name: string,
-    description?: string,
-    classification?: string
-): void {
-    const dataProp = canvas.properties.value.get("data_items");
-    if (!(dataProp instanceof ListProperty)) {
-        throw new Error("canvas.data_items is not a ListProperty");
-    }
-    const entry = dataProp.createListItem() as DictionaryProperty;
-    (entry.value.get("parent") as StringProperty).setValue(parent);
-    (entry.value.get("identifier") as StringProperty).setValue(identifier);
-    (entry.value.get("name") as StringProperty).setValue(name);
-    if (description !== undefined) {
-        (entry.value.get("description") as StringProperty).setValue(description);
-    }
-    if (classification !== undefined) {
-        (entry.value.get("classification") as StringProperty).setValue(classification);
-    }
-    dataProp.addProperty(entry, guid);
-}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -292,4 +263,15 @@ describe("truncate", () => {
         expect(truncate("abc", 0)).toBe("…");
     });
 
+    it("counts emoji as single code points (surrogate-pair safety)", () => {
+        // "👋" is one code point but two UTF-16 code units; it must not be
+        // split.  A 5-char string where char 1 is an emoji: "A👋BCD" (5 code
+        // points) truncated to 4 yields "A👋BC…".
+        const str = "A\uD83D\uDC4BBCD"; // A + 👋 + BCD = 5 code points
+        expect(truncate(str, 4)).toBe("A👋BC…");
+        // Confirm the full string is not truncated at exactly 5 code points.
+        expect(truncate(str, 5)).toBe("A👋BCD");
+    });
+
 });
+

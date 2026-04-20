@@ -9,12 +9,12 @@ import { describe, it, expect, beforeEach } from "vitest";
 import DfdPublisher from "./DfdPublisher";
 import { DiagramObjectFactory } from "@OpenChart/DiagramModel";
 import { DiagramModelFile } from "@OpenChart/DiagramModel";
-import { Block, Line, ListProperty, DictionaryProperty, StringProperty } from "@OpenChart/DiagramModel";
-import type { Canvas } from "@OpenChart/DiagramModel";
+import { Block, Line } from "@OpenChart/DiagramModel";
 import { DfdCanvas } from "../DfdTemplates/DfdCanvas";
 import { DfdObjects } from "../DfdTemplates/DfdObjects";
 import { BaseTemplates } from "../DfdTemplates/BaseTemplates";
 import type { DiagramSchemaConfiguration } from "@OpenChart/DiagramModel";
+import { addDataItem, addDataItemRef } from "../DfdTemplates/dataItems.test-utils";
 
 // ---------------------------------------------------------------------------
 // Schema + factory shared by all tests
@@ -29,57 +29,6 @@ const dfdSchema: DiagramSchemaConfiguration = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Adds a data item entry to a canvas's data_items ListProperty.
- *
- * @param canvas      The canvas to mutate.
- * @param guid        The item guid (used as the ListProperty entry key).
- * @param parent      The parent node guid.
- * @param identifier  Display token, e.g. "D1".
- * @param name        Human-readable name.
- * @param description Optional description.
- * @param classification Optional classification.
- */
-function addDataItem(
-    canvas: Canvas,
-    guid: string,
-    parent: string,
-    identifier: string,
-    name: string,
-    description?: string,
-    classification?: string
-): void {
-    const dataItemsProp = canvas.properties.value.get("data_items");
-    if (!(dataItemsProp instanceof ListProperty)) {
-        throw new Error("canvas.properties.data_items is not a ListProperty");
-    }
-    const entry = dataItemsProp.createListItem() as DictionaryProperty;
-    const fields = entry.value;
-    (fields.get("parent") as StringProperty).setValue(parent);
-    (fields.get("identifier") as StringProperty).setValue(identifier);
-    (fields.get("name") as StringProperty).setValue(name);
-    if (description !== undefined) {
-        (fields.get("description") as StringProperty).setValue(description);
-    }
-    if (classification !== undefined) {
-        (fields.get("classification") as StringProperty).setValue(classification);
-    }
-    dataItemsProp.addProperty(entry, guid);
-}
-
-/**
- * Adds a data_item_ref GUID to a flow's data_item_refs ListProperty.
- */
-function addDataItemRef(line: Line, refGuid: string): void {
-    const refsProp = line.properties.value.get("data_item_refs");
-    if (!(refsProp instanceof ListProperty)) {
-        throw new Error("line.properties.data_item_refs is not a ListProperty");
-    }
-    const entry = refsProp.createListItem() as StringProperty;
-    entry.setValue(refGuid);
-    refsProp.addProperty(entry);
-}
 
 /**
  * Connects a Line's source to blockA's first anchor and target to blockB's

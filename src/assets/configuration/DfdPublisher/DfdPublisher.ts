@@ -1,17 +1,6 @@
 import { DiagramModelFile, ListProperty, DictionaryProperty, SemanticAnalyzer } from "@OpenChart/DiagramModel";
+import type { DataItem } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { FilePublisher } from "@/assets/scripts/Application";
-
-/**
- * Minimal-format data item shape (mirrors server schema.py DataItem).
- */
-type DataItemMinimal = {
-    guid: string;
-    parent: string;
-    identifier: string;
-    name: string;
-    description?: string;
-    classification?: string;
-};
 
 class DfdPublisher implements FilePublisher {
 
@@ -69,11 +58,11 @@ class DfdPublisher implements FilePublisher {
      * @returns
      *  Array of minimal DataItem records.
      */
-    private projectCanvasDataItems(prop: unknown): DataItemMinimal[] {
+    private projectCanvasDataItems(prop: unknown): DataItem[] {
         if (!(prop instanceof ListProperty)) {
             return [];
         }
-        const result: DataItemMinimal[] = [];
+        const result: DataItem[] = [];
         for (const [guid, entry] of prop.value) {
             if (!(entry instanceof DictionaryProperty)) {
                 continue;
@@ -83,20 +72,26 @@ class DfdPublisher implements FilePublisher {
             const identifier = fields.get("identifier")?.toJson();
             const name = fields.get("name")?.toJson();
             // Only emit items with the three required fields populated.
+            // `typeof x === "string"` already excludes null (typeof null === "object").
             if (
-                typeof parent !== "string" || parent === null ||
-                typeof identifier !== "string" || identifier === null ||
-                typeof name !== "string" || name === null
+                typeof parent !== "string" ||
+                typeof identifier !== "string" ||
+                typeof name !== "string"
             ) {
+                console.warn(
+                    `DfdPublisher: skipping data item ${guid} — required fields ` +
+                    "(parent, identifier, name) are missing or not strings. " +
+                    "This item will be dropped from the published output."
+                );
                 continue;
             }
-            const item: DataItemMinimal = { guid, parent, identifier, name };
+            const item: DataItem = { guid, parent, identifier, name };
             const description = fields.get("description")?.toJson();
-            if (typeof description === "string" && description !== null) {
+            if (typeof description === "string") {
                 item.description = description;
             }
             const classification = fields.get("classification")?.toJson();
-            if (typeof classification === "string" && classification !== null) {
+            if (typeof classification === "string") {
                 item.classification = classification;
             }
             result.push(item);
@@ -118,7 +113,7 @@ class DfdPublisher implements FilePublisher {
         const refs: string[] = [];
         for (const [, entry] of prop.value) {
             const val = entry.toJson();
-            if (typeof val === "string" && val !== null) {
+            if (typeof val === "string") {
                 refs.push(val);
             }
         }

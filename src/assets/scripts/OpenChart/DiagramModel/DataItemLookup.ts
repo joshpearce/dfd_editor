@@ -7,8 +7,8 @@
  */
 
 import { ListProperty, DictionaryProperty } from "./DiagramObject";
-import { traverse } from "./DiagramNavigators";
 import type { Canvas } from "./DiagramObject";
+import { traverse } from "./DiagramNavigators";
 
 // ---------------------------------------------------------------------------
 // Public type
@@ -60,7 +60,12 @@ function readDataItems(canvas: Canvas): DataItem[] {
             typeof identifier !== "string" ||
             typeof name !== "string"
         ) {
-            // Required fields missing — skip silently (validator handles this).
+            // Required fields missing — skip and warn; the validator surfaces
+            // this as a user-visible error so we don't throw here.
+            console.warn(
+                `DataItemLookup: skipping data item ${guid} — required fields ` +
+                "(parent, identifier, name) are missing or not strings."
+            );
             continue;
         }
         const item: DataItem = { guid, parent, identifier, name };
@@ -147,15 +152,21 @@ export function pillLabel(
 /**
  * Looks up the `name` property of the canvas node whose instance id is
  * `parentGuid`. Falls back to the raw GUID when the node is not found.
+ *
+ * TODO(Step 4/5): the face builder should memoize parent-name lookups per
+ * render frame once pill rendering lands; this O(N) traversal is fine for
+ * the current Step 2 / lookup context but will become a hot path.
  */
 function resolveParentName(canvas: Canvas, parentGuid: string): string {
     for (const obj of traverse(canvas)) {
         if (obj.instance === parentGuid) {
             const nameProp = obj.properties?.value.get("name");
             if (nameProp) {
-                const nameStr = nameProp.toString();
-                // StringProperty.toString() returns "None" for null values.
-                return nameStr === "None" ? "" : nameStr;
+                // toJson() returns null for an unset StringProperty; fall
+                // back to "" so we produce a qualifying prefix like ".D1"
+                // rather than "None.D1".
+                const nameVal = nameProp.toJson();
+                return typeof nameVal === "string" ? nameVal : "";
             }
         }
     }
@@ -164,14 +175,19 @@ function resolveParentName(canvas: Canvas, parentGuid: string): string {
 }
 
 /**
- * Truncates `str` to `maxLength` characters, appending `…` when truncation
- * occurs. The `…` character is added on top — the result is at most
- * `maxLength + 1` grapheme-clusters long when truncation occurs, matching
- * the spec's "~12 chars with ellipsis" language.
+ * Truncates `str` to `maxLength` Unicode code points, appending `…` when
+ * truncation occurs. Uses spread (`[...str]`) to count code points rather
+ * than UTF-16 code units, which avoids splitting surrogate pairs for emoji
+ * or non-BMP characters.
+ *
+ * The `…` character is added on top — the result is at most
+ * `maxLength + 1` code points long when truncation occurs, matching the
+ * spec's "~12 chars with ellipsis" language.
  */
 export function truncate(str: string, maxLength: number): string {
-    if (str.length <= maxLength) {
+    const codePoints = [...str];
+    if (codePoints.length <= maxLength) {
         return str;
     }
-    return str.slice(0, maxLength) + "…";
+    return codePoints.slice(0, maxLength).join("") + "…";
 }

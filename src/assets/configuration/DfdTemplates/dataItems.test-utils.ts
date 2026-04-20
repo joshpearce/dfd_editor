@@ -1,0 +1,65 @@
+/**
+ * @file dataItems.test-utils.ts
+ *
+ * Shared test helper for data-item operations on a canvas's `data_items`
+ * ListProperty.  Consumed by DfdPublisher, DataItemLookup, and preprocessor
+ * specs to avoid duplicating the same mutation logic in every test file.
+ */
+
+import { ListProperty, DictionaryProperty, StringProperty } from "@OpenChart/DiagramModel";
+import type { Canvas } from "@OpenChart/DiagramModel";
+import type { Line } from "@OpenChart/DiagramModel";
+
+/**
+ * Adds a data item entry to a canvas's data_items ListProperty.
+ *
+ * @param canvas         The canvas to mutate.
+ * @param guid           The item guid (used as the ListProperty entry key).
+ * @param parent         The parent node guid.
+ * @param identifier     Display token, e.g. "D1".
+ * @param name           Human-readable name.
+ * @param description    Optional description.
+ * @param classification Optional classification.
+ */
+export function addDataItem(
+    canvas: Canvas,
+    guid: string,
+    parent: string,
+    identifier: string,
+    name: string,
+    description?: string,
+    classification?: string
+): void {
+    const dataItemsProp = canvas.properties.value.get("data_items");
+    if (!(dataItemsProp instanceof ListProperty)) {
+        throw new Error("canvas.properties.data_items is not a ListProperty");
+    }
+    const entry = dataItemsProp.createListItem() as DictionaryProperty;
+    const fields = entry.value;
+    (fields.get("parent") as StringProperty).setValue(parent);
+    (fields.get("identifier") as StringProperty).setValue(identifier);
+    (fields.get("name") as StringProperty).setValue(name);
+    if (description !== undefined) {
+        (fields.get("description") as StringProperty).setValue(description);
+    }
+    if (classification !== undefined) {
+        (fields.get("classification") as StringProperty).setValue(classification);
+    }
+    dataItemsProp.addProperty(entry, guid);
+}
+
+/**
+ * Adds a data_item_ref GUID to a flow's data_item_refs ListProperty.
+ *
+ * @param line    The data_flow Line to mutate.
+ * @param refGuid The GUID of the data item to reference.
+ */
+export function addDataItemRef(line: Line, refGuid: string): void {
+    const refsProp = line.properties.value.get("data_item_refs");
+    if (!(refsProp instanceof ListProperty)) {
+        throw new Error("line.properties.data_item_refs is not a ListProperty");
+    }
+    const entry = refsProp.createListItem() as StringProperty;
+    entry.setValue(refGuid);
+    refsProp.addProperty(entry);
+}

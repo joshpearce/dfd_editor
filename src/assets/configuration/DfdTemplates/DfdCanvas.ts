@@ -22,20 +22,25 @@ export const DfdCanvas: CanvasTemplate = {
         },
         // Canvas-level data items.  Each entry is keyed by the item's guid;
         // the DictionaryProperty sub-fields mirror the DataItem schema shape.
-        // description and classification are optional — absent keys are treated
-        // identically to explicit null on load (StringProperty.setValue accepts
-        // null and the DiagramObjectFactory skips absent optional keys).
+        // description and classification are optional; the backend omits them
+        // entirely (not emitting null) and the engine tolerates absent sub-keys.
+        // Round-trip behaviour is verified by
+        // DfdFilePreprocessor.spec.ts: "absent description sub-key … round-trips".
         data_items: {
             type: PropertyType.List,
             form: {
                 type: PropertyType.Dictionary,
                 form: {
                     parent: {
-                        type: PropertyType.String,
-                        is_representative: true
+                        type: PropertyType.String
                     },
                     identifier: {
-                        type: PropertyType.String
+                        type: PropertyType.String,
+                        // The display token (e.g. "D1") is what a user reads;
+                        // using `identifier` as the representative field produces
+                        // a human-readable label rather than exposing the raw GUID
+                        // that lives in `parent`.
+                        is_representative: true
                     },
                     name: {
                         type: PropertyType.String
