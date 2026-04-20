@@ -1,6 +1,6 @@
 # dfd_editor
 
-Last verified: 2026-04-19
+Last verified: 2026-04-20
 
 Browser-based Data Flow Diagram (DFD) editor. Scaffolded from MITRE's
 Apache-2.0 [attack-flow](https://github.com/center-for-threat-informed-defense/attack-flow)
@@ -129,7 +129,8 @@ endpoints are then rebound via an `AnchorStrategy` (default `"geometric"`;
   `trust-boundary-integration-plan.md`, `flask-backend-plan.md`,
   `tala-layout-integration-plan.md`, `tala-layout-integration-notes.md`,
   `auto-layout-boundary-overlap-plan.md`,
-  `auto-layout-connector-anchoring-plan.md`) are historical records of
+  `auto-layout-connector-anchoring-plan.md`,
+  `data-items-on-canvas-plan.md`) are historical records of
   completed work; treat as background, not as current-state documentation.
 - `src/assets/scripts/StixToAttackFlow/` — upstream vestige; safe to ignore
   but don't delete without confirming no stray imports.

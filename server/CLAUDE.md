@@ -1,6 +1,6 @@
 # Flask Backend
 
-Last verified: 2026-04-19
+Last verified: 2026-04-20
 
 ## Purpose
 Hosts DFD diagram files for the browser editor: the "API creates diagram,
@@ -44,7 +44,18 @@ persistence surface.)
 - **Schema contract** — the minimal import/export format is codified by pydantic
   v2 models in `schema.py`; enum parity with `DfdObjects.ts` is enforced by
   `tests/test_drift.py`. `schema.py` is the single source of truth for what a
-  valid minimal doc looks like.
+  valid minimal doc looks like. As of the `data-items-on-canvas` branch:
+  - `DataFlowProps` carries an optional `data_item_refs: list[UUID]` (default `[]`).
+  - `DataItem` is a top-level pydantic model (`guid`, `parent`, `identifier`,
+    `name`; optional `description`, `classification`).
+  - `Diagram` has `data_items: list[DataItem]` (default `[]`).
+  - Import (`to_native`) wires `data_item_refs` as an OpenChart
+    `ListProperty<StringProperty>` wire shape (`[[syntheticKey, guidStr], ...]`)
+    and embeds `data_items` in the canvas `properties` list as a
+    `ListProperty<DictionaryProperty>` structure (`[[guid, [[k,v],...]], ...]`).
+  - Export (`to_minimal`) reads `data_items` back from the canvas properties
+    list and emits them only when non-empty; `data_item_refs` flows through the
+    normal `_FLOW_PROP_ORDER`-driven loop.
 - **Expects** — PUT bodies must be valid JSON. Payload schema is owned by the
   frontend (`DfdFilePreprocessor` and friends); this server does not validate
   or interpret diagram contents beyond reading an optional top-level `name`.
@@ -81,9 +92,9 @@ persistence surface.)
 
 ## Key Files
 - `app.py` — the HTTP surface (8 routes, ~145 lines)
-- `schema.py` — pydantic v2 models for the minimal DFD format; single source of truth for the import payload shape
-- `transform.py` — native `dfd_v1` ↔ minimal format converter used by the import/export endpoints
-- `tests/` — pytest suites covering endpoints, schema, import/export, and enum-drift vs. `DfdObjects.ts`
+- `schema.py` — pydantic v2 models for the minimal DFD format; includes `DataItem`, `DataFlowProps.data_item_refs`, and `Diagram.data_items`
+- `transform.py` — native `dfd_v1` ↔ minimal format converter; `_build_canvas_props` now accepts `data_items`; `_data_item_to_pairs` serializes items; `_extract_canvas_data_items` reads them back
+- `tests/` — pytest suites covering endpoints, schema, import/export, and enum-drift vs. `DfdObjects.ts`; `tests/test_data_items.py` covers data-item round-trip end-to-end
 - `requirements.txt` — pinned floor versions of flask / flask-cors (plus `pydantic` for schema validation)
 - `data/` — persistence directory; auto-created on startup. Contents are
   local-only and should not be committed.

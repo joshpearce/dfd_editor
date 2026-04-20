@@ -1,6 +1,6 @@
 # Configuration (DFD Fork Point)
 
-Last verified: 2026-04-19
+Last verified: 2026-04-20
 
 ## Purpose
 This directory is what turns the upstream attack-flow builder scaffold into a DFD editor. Everything DFD-specific (schema, themes, export format, validation, incoming-file handling) lives here; the rest of the app is domain-agnostic and consumes what this directory declares.
@@ -12,9 +12,12 @@ This directory is what turns the upstream attack-flow builder scaffold into a DF
   - Templates: `process`, `external_entity`, `data_store` (Blocks); `data_flow` (Line); `trust_boundary`, `container` (Groups); plus base `horizontal_anchor` / `vertical_anchor` / `generic_latch` / `generic_handle`.
   - Every non-base template has exactly one `is_representative: true` property (currently `name`).
   - Every template name referenced by a theme `designs` map corresponds to a real template (and vice versa for renderable types).
+  - `DfdCanvas` carries a `data_items` `ListProperty<DictionaryProperty>` keyed by item GUID; each sub-dict has `parent`, `identifier`, `name` (required) plus optional `description` and `classification`.
+  - `data_flow` template carries `data_item_refs`: `ListProperty<StringProperty>` (default `[]`), holding GUIDs of canvas-level data items that flow through the edge.
   - `DfdPublisher` emits `{ nodes, edges }` JSON via `SemanticAnalyzer.toGraph`, with node `parent` and edge `crosses` preserved — so trust-boundary containment and crossings round-trip.
   - `DfdFilePreprocessor` is currently pass-through (no legacy migration).
   - `DfdCommandProcessor` is currently pass-through (returns `undefined`).
+  - Both themes assign `FaceType.LabeledDynamicLine` (not `DynamicLine`) to `data_flow` so the pill strip renders.
 - **Expects**: OpenChart's `DiagramObjectType`, `PropertyType`, `FaceType`, `FaceDesign`, `CanvasTemplate`, `DiagramObjectTemplate`, `DiagramThemeConfiguration` contracts from `@OpenChart/*`; `AppConfiguration`, `FilePublisher`, `FilePreprocessor`, `FileValidator` from `src/assets/scripts/Application/`.
 
 ## Dependencies
@@ -33,6 +36,8 @@ This directory is what turns the upstream attack-flow builder scaffold into a DF
 - Every `name` appearing in `DfdObjects` / `BaseTemplates` / `DfdCanvas` must have a matching entry in each theme's `designs` map.
 - `data_flow.handle_template` and `latch_template` names must resolve to entries in `BaseTemplates`.
 - `DfdValidator.PRIVILEGE_RANK` keys must stay in sync with the `trust_boundary.privilege_level` enum options.
+- `data_item_refs` GUIDs must resolve to entries in the canvas `data_items` list; dangling refs produce validator warnings (non-blocking). `DfdValidator.validateDataItemRefs` enforces this.
+- `DataPill` style tokens (`pii`, `secret`, `public`, `internal`, `default`) must be present in both `LightTheme` and `DarkTheme` under the `data_flow` design's `LabeledLineStyle`.
 
 ## Key Files
 - `app.configuration.ts` — single plug-in point assembling schema, themes, and processor factories into the exported `AppConfiguration`.
@@ -53,3 +58,4 @@ This directory is what turns the upstream attack-flow builder scaffold into a DF
 - Publisher output is derived from `SemanticAnalyzer.toGraph`, not the raw view; changes to semantic graph shape change the on-disk contract.
 - `DfdValidator.validateBoundary` only inspects direct children for the out-of-scope rule; nested boundaries are not recursed (documented in code comment, intentional for now).
 - `DfdFilePreprocessor` being pass-through is a contract: if/when a server-driven `?src=<url>` workflow needs shape mapping, this is the single place to add it.
+- The `data_flow` design in both themes must use `FaceType.LabeledDynamicLine` and supply a `LabeledLineStyle` (not the simpler `LineStyle`). Using `DynamicLine` will compile but silently drop the pill strip.

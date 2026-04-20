@@ -1,6 +1,6 @@
 # OpenChart (Diagram Engine — Forked)
 
-Last verified: 2026-04-19
+Last verified: 2026-04-20
 
 ## Purpose
 
@@ -17,7 +17,7 @@ has been abandoned; treat this directory as first-party code.
 - **Exposes**: `DiagramObjectType` (7 core types — Canvas, Block, Line,
   Group, Anchor, Latch, Handle); `DiagramSchemaConfiguration`; the Face
   system (`DictionaryBlock`, `BranchBlock`, `TextBlock`, `DynamicLine`,
-  `DotGridCanvas`/`LineGridCanvas`, `GroupFace`,
+  `LabeledDynamicLine`, `DotGridCanvas`/`LineGridCanvas`, `GroupFace`,
   `AnchorPoint`/`LatchPoint`/`HandlePoint`); `DiagramEditor` commands +
   interface plugins; `AutomaticLayoutEngine` (sync); `NewAutoLayoutEngine`
   (async, implements `AsyncDiagramLayoutEngine`, takes a `LayoutSource`
@@ -27,7 +27,12 @@ has been abandoned; treat this directory as first-party code.
   endpoint rebinding after layout); `AnchorStrategy` (`"none"` /
   `"geometric"` / `"tala"`, default `"geometric"`); `DiagramLayoutEngine`
   (sync interface) and `AsyncDiagramLayoutEngine` (async interface);
-  `computeFitCamera` (viewport-fit helper used by `MoveCameraToObjects`).
+  `computeFitCamera` (viewport-fit helper used by `MoveCameraToObjects`);
+  `DataItemLookup` helpers (`dataItemsForParent`, `readDataItemRefs`,
+  `resolveRefs`, `pillLabel`, `hashDataItems`, `truncate`, `DataItem` type)
+  from `DiagramModel/DataItemLookup.ts` — pure model helpers, no DOM/View
+  imports; `faceCanvasLookup.findCanvas` shared helper for walking a view's
+  parent chain to the nearest `Canvas` ancestor.
 - **Guarantees**: Group is a first-class model object (not an overlay)
   that owns children, supports nesting, and persists via the same file
   format as blocks/lines. `GroupBoundsEngine` persists user-set group
@@ -66,12 +71,17 @@ has been abandoned; treat this directory as first-party code.
 ## Key Files / Subdirs
 
 - `DiagramModel/` — model classes (Canvas, Block, Line, Group, Anchor,
-  Latch, Handle), factory, serializer, schema config, semantic analysis.
+  Latch, Handle), factory, serializer, schema config, semantic analysis;
+  `DataItemLookup.ts` — pure helpers for reading canvas `data_items` and
+  resolving `data_item_refs` (no DOM/View imports).
 - `DiagramView/` — Face system, renderers, view factory,
   `DiagramLayoutEngine/` (incl. `GroupBoundsEngine` and
   `NewAutoLayoutEngine/` — the async TALA/D2 engine), style-aware
-  `GroupFace` (dashed / translucent), `FitCamera.ts` (pure
-  viewport-fit math).
+  `GroupFace` (dashed / translucent), `FitCamera.ts` (pure viewport-fit
+  math); `DiagramObjectView/Faces/Lines/LabeledDynamicLine.ts` — extends
+  `DynamicLine` to render an axis-aligned data-item pill strip at the line
+  midpoint; `DiagramObjectView/Faces/faceCanvasLookup.ts` — shared
+  `findCanvas` helper used by both line and block faces.
 - `DiagramEditor/` — commands, `SynchronousCommandProcessor`,
   `AutosaveController`, `InterfacePlugins/PowerEditPlugin/` (incl.
   `ObjectMovers/` — Block / Group / Generic / Latch Movers) and
