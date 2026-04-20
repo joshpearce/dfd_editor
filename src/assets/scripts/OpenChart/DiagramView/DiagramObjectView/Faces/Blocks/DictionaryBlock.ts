@@ -8,11 +8,55 @@ import {
     DrawTextInstructionSet
 } from "./Layout";
 import { findCanvas } from "../faceCanvasLookup";
-import { dataItemsForParent, hashDataItems } from "@OpenChart/DiagramModel/DataItemLookup";
+import { dataItemsForParent, hashDataItems, narrowClassification, CHIP_PAD_X_OF_HEIGHT, CHIP_BASELINE_OF_HEIGHT } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Enumeration } from "../Enumeration";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
 import type { DictionaryBlockStyle } from "../Styles";
+
+// ---------------------------------------------------------------------------
+// Module-private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Truncates a chip label so it fits within `maxWidth` pixels, appending "…"
+ * if truncation is needed.  The truncation is measured using the same font
+ * that `measureWidth` uses, so the result always fits.
+ *
+ * @param measureWidth  A function that measures text width in the current font.
+ * @param label         The full chip label to truncate.
+ * @param maxWidth      Maximum allowed rendered width in pixels.
+ * @param padX          Horizontal padding on each side of the chip text.
+ * @returns             `{ text, width }` — the (possibly truncated) label and
+ *                      its rendered text width (excluding padding).
+ */
+function truncateChipLabel(
+    measureWidth: (s: string) => number,
+    label: string,
+    maxWidth: number,
+    padX: number
+): { text: string, width: number } {
+    const available = maxWidth - 2 * padX;
+    const fullWidth = measureWidth(label);
+    if (fullWidth <= available) {
+        return { text: label, width: fullWidth };
+    }
+    // Binary-search the longest prefix that fits once "…" is appended.
+    const chars = [...label]; // code-point–safe split
+    let lo = 0;
+    let hi = chars.length - 1;
+    while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        const candidate = chars.slice(0, mid).join("") + "…";
+        if (measureWidth(candidate) <= available) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    const truncated = chars.slice(0, lo).join("") + "…";
+    return { text: truncated, width: measureWidth(truncated) };
+}
 
 /**
  * A single data-item pill chip, as computed in calculateLayout() and
@@ -85,6 +129,16 @@ export class DictionaryBlock extends BlockFace {
      */
     private _pillRowHeight: number;
 
+    /**
+     * Cached canvas reference, populated lazily on the first `calculateLayout`
+     * call and held for the face's lifetime.  Blocks do not move between
+     * canvases, so the reference is stable once set.  Avoids an O(depth)
+     * `findCanvas` walk on every layout invalidation.
+     *
+     * Set to `null` on construction; the first layout call populates it.
+     */
+    private _cachedCanvas: import("@OpenChart/DiagramModel").Canvas | null;
+
 
     /**
      * Creates a new {@link DictionaryBlock}.
@@ -112,6 +166,7 @@ export class DictionaryBlock extends BlockFace {
         this.headHeight = 0;
         this._pillChips = [];
         this._pillRowHeight = 0;
+        this._cachedCanvas = null;
     }
 
 
@@ -133,11 +188,18 @@ export class DictionaryBlock extends BlockFace {
         const body = this.style.body;
         const props = this.view.properties;
 
+        // Resolve the canvas reference.  Blocks do not move between canvases,
+        // so the result is cached after the first successful lookup to avoid
+        // an O(depth) parent-chain walk on every layout invalidation.
+        if (this._cachedCanvas === null) {
+            this._cachedCanvas = findCanvas(this.view);
+        }
+        const canvas = this._cachedCanvas;
+
         // Recalculate content hash.  We include both the block's own property
         // hash and a lightweight hash of the canvas's data-item list so that
         // adding/removing a data item triggers re-layout even when the block's
         // own properties haven't changed.
-        const canvas = findCanvas(this.view);
         const dataItems = canvas ? dataItemsForParent(canvas, this.view.instance) : [];
         const itemsHash = hashDataItems(dataItems);
         const lastContentHash = this.contentHash;
@@ -305,11 +367,9 @@ export class DictionaryBlock extends BlockFace {
         if (dataItems.length > 0) {
             // Chip height = one body-line (fieldValueText.units * blockGrid[1])
             const chipH  = body.fieldValueText.units * blockGrid[1];
-            // Horizontal padding inside each chip, derived from chip height so
-            // it scales with the theme's body-line size.  This local constant
-            // is private to this section.
-            // TODO: consider promoting to `pillChipHorizontalPaddingUnits` theme token if chip padding ever needs per-theme control
-            const chipPadX = chipH * 0.5;
+            // Horizontal padding inside each chip — shared constant with
+            // LabeledDynamicLine so both faces use consistent chip geometry.
+            const chipPadX = chipH * CHIP_PAD_X_OF_HEIGHT;
             const vPad    = blockGrid[1] * this.style.pillRowVerticalPaddingUnits;
             // Horizontal and vertical spacing are resolved from their respective
             // grid axes so they scale independently with theme geometry.
@@ -324,8 +384,12 @@ export class DictionaryBlock extends BlockFace {
                 blockGrid[0] * this.style.maxUnitWidth
             );
 
-            // Text baseline offset within a chip (vertically centred)
-            const textBaselineOffsetY = chipH * 0.75;
+            // Text baseline offset within a chip (vertically centred) —
+            // shared constant with LabeledDynamicLine.
+            const textBaselineOffsetY = chipH * CHIP_BASELINE_OF_HEIGHT;
+
+            // Convenience wrapper for truncateChipLabel.
+            const mw = (s: string) => body.fieldValueText.font.measureWidth(s);
 
             // Y position of the top of the first sub-row of chips
             let chipY = y + vPad;
@@ -333,7 +397,15 @@ export class DictionaryBlock extends BlockFace {
             let subRow = 0;
 
             for (const item of dataItems) {
-                const textWidth = body.fieldValueText.font.measureWidth(item.identifier);
+                // Truncate the chip label when a single chip is wider than the
+                // available content width.  This prevents overflow on blocks
+                // whose labels are very long (e.g. a UUID-length identifier).
+                const { text: chipText, width: textWidth } = truncateChipLabel(
+                    mw,
+                    item.identifier,
+                    contentWidth,
+                    chipPadX
+                );
                 const chipW = textWidth + 2 * chipPadX;
 
                 // Wrap to a new sub-row when the next chip would overflow
@@ -344,11 +416,7 @@ export class DictionaryBlock extends BlockFace {
                 }
 
                 // Resolve classification → dataPill key (narrow-or-default)
-                const cls = item.classification;
-                const pillKey = (
-                    cls === "pii" || cls === "secret" ||
-                    cls === "public" || cls === "internal"
-                ) ? cls : "default";
+                const pillKey = narrowClassification(item.classification);
                 const pill = this.style.dataPill[pillKey];
 
                 this._pillChips.push({
@@ -358,7 +426,7 @@ export class DictionaryBlock extends BlockFace {
                     h:         chipH,
                     fill:      pill.fill,
                     textColor: pill.text,
-                    text:      item.identifier,
+                    text:      chipText,
                     textX:     chipX + chipPadX,
                     textY:     chipY + textBaselineOffsetY
                 });

@@ -195,6 +195,10 @@ class DataItem(_Base):
     identifier: str
     name: str
     description: str | None = None
+    # classification is intentionally a free-form string rather than an enum.
+    # Known vocabulary: "pii", "secret", "public", "internal".  Unknown values
+    # fall back to a "default" visual style on the canvas (no server-side
+    # enforcement) so that user-authored classifications forward-compat cleanly.
     classification: str | None = None
 
 

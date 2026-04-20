@@ -6,7 +6,15 @@
 import { DynamicLine } from "./DynamicLine";
 import { drawRect } from "@OpenChart/Utilities";
 import { findCanvas } from "../faceCanvasLookup";
-import { pillLabel, resolveRefs, readDataItemRefs } from "@OpenChart/DiagramModel/DataItemLookup";
+import {
+    pillLabel,
+    resolveRefs,
+    readDataItemRefs,
+    narrowClassification,
+    CHIP_PAD_X_OF_HEIGHT,
+    CHIP_FONT_SIZE_OF_HEIGHT,
+    CHIP_BASELINE_OF_HEIGHT
+} from "@OpenChart/DiagramModel/DataItemLookup";
 import type { DataItem } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Canvas } from "@OpenChart/DiagramModel";
 import type { LabeledLineStyle } from "../Styles";
@@ -19,15 +27,6 @@ import type { RenderSettings } from "../../RenderSettings";
 
 /** Chip height as a multiple of the vertical grid unit. */
 const CHIP_HEIGHT_GRID_UNITS = 2.8;
-
-/** Horizontal padding inside each chip as a fraction of chip height. */
-const CHIP_PAD_X_OF_HEIGHT = 0.5;
-
-/** Font size as a fraction of chip height. */
-const CHIP_FONT_SIZE_OF_HEIGHT = 0.65;
-
-/** Text baseline offset as a fraction of chip height (top-to-baseline). */
-const CHIP_BASELINE_OF_HEIGHT = 0.75;
 
 /** Stroke width for the background plate border (px). */
 const PLATE_STROKE_WIDTH = 1;
@@ -197,6 +196,9 @@ export class LabeledDynamicLine extends DynamicLine {
      * `{ font: "", measureText: (s) => ({ width: s.length * 7 }) }` mock).
      * Production code calls `computeChips` directly through `renderTo`.
      *
+     * @internal This method exists as a test seam.  It is not part of the
+     * public face API and may be removed or renamed without notice.
+     *
      * @param ctx     The rendering context (used for `measureText`).
      * @param canvas  The nearest Canvas ancestor (null → returns []).
      */
@@ -317,17 +319,12 @@ export class LabeledDynamicLine extends DynamicLine {
 
 /**
  * Returns the `{ fill, textColor }` pair for a data item from the given style.
- * Narrows `classification` to the known key union with a fallback to `"default"`.
+ * Delegates narrowing to {@link narrowClassification} (shared with DictionaryBlock).
  */
 function resolvePillChipStyle(
     item: DataItem,
     style: LabeledLineStyle
 ): { fill: string, textColor: string } {
-    const cls = item.classification;
-    const pillKey = (
-        cls === "pii" || cls === "secret" ||
-        cls === "public" || cls === "internal"
-    ) ? cls : "default";
-    const pill = style.dataPill[pillKey];
+    const pill = style.dataPill[narrowClassification(item.classification)];
     return { fill: pill.fill, textColor: pill.text };
 }

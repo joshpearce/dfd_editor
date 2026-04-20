@@ -13,6 +13,31 @@ import type { Canvas } from "./DiagramObject";
 import { traverse } from "./DiagramNavigators";
 
 // ---------------------------------------------------------------------------
+// Shared chip-geometry constants
+// ---------------------------------------------------------------------------
+// Exported so that both DictionaryBlock and LabeledDynamicLine share the
+// same numeric values, keeping chip geometry visually consistent across
+// block faces and line faces without coupling the two modules directly.
+
+/**
+ * Horizontal padding inside each chip as a fraction of chip height.
+ * Used by both DictionaryBlock and LabeledDynamicLine.
+ */
+export const CHIP_PAD_X_OF_HEIGHT = 0.5;
+
+/**
+ * Font size as a fraction of chip height.
+ * Used by LabeledDynamicLine for its dynamic font-size calculation.
+ */
+export const CHIP_FONT_SIZE_OF_HEIGHT = 0.65;
+
+/**
+ * Text baseline offset as a fraction of chip height (top-to-baseline).
+ * Used by both DictionaryBlock and LabeledDynamicLine.
+ */
+export const CHIP_BASELINE_OF_HEIGHT = 0.75;
+
+// ---------------------------------------------------------------------------
 // Public type
 // ---------------------------------------------------------------------------
 
@@ -35,6 +60,40 @@ export type DataItem = {
     classification?: string;
 };
 
+/**
+ * The set of known pill-classification keys.  Any value outside this set
+ * falls back to `"default"` via {@link narrowClassification}.
+ */
+export type PillClassificationKey = "pii" | "secret" | "public" | "internal" | "default";
+
+// ---------------------------------------------------------------------------
+// Shared classification helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Narrows an arbitrary `classification` string to the known
+ * {@link PillClassificationKey} union.  Values not in the known set fall back
+ * to `"default"`.
+ *
+ * Used by both DictionaryBlock and LabeledDynamicLine so the narrowing logic
+ * is not duplicated between the two faces.
+ *
+ * @param classification  The raw classification string (may be null/undefined).
+ * @returns               A PillClassificationKey safe to index into a dataPill
+ *                        style object.
+ */
+export function narrowClassification(classification: string | null | undefined): PillClassificationKey {
+    if (
+        classification === "pii" ||
+        classification === "secret" ||
+        classification === "public" ||
+        classification === "internal"
+    ) {
+        return classification;
+    }
+    return "default";
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -42,8 +101,12 @@ export type DataItem = {
 /**
  * Reads all data items from a canvas's `data_items` ListProperty.
  * Returns an empty array for canvases without the property (legacy diagrams).
+ *
+ * Items with missing required fields (`parent`, `identifier`, `name`) are
+ * included with those fields set to empty string rather than silently dropped.
+ * Validation responsibility belongs to `DfdValidator`, not here.
  */
-function readDataItems(canvas: Canvas): DataItem[] {
+export function readDataItems(canvas: Canvas): DataItem[] {
     const prop = canvas.properties.value.get("data_items");
     if (!(prop instanceof ListProperty)) {
         return [];
@@ -54,23 +117,18 @@ function readDataItems(canvas: Canvas): DataItem[] {
             continue;
         }
         const fields = entry.value;
-        const parent = fields.get("parent")?.toJson();
-        const identifier = fields.get("identifier")?.toJson();
-        const name = fields.get("name")?.toJson();
-        if (
-            typeof parent !== "string" ||
-            typeof identifier !== "string" ||
-            typeof name !== "string"
-        ) {
-            // Required fields missing — skip and warn; the validator surfaces
-            // this as a user-visible error so we don't throw here.
-            console.warn(
-                `DataItemLookup: skipping data item ${guid} — required fields ` +
-                "(parent, identifier, name) are missing or not strings."
-            );
-            continue;
-        }
-        const item: DataItem = { guid, parent, identifier, name };
+        const parentVal = fields.get("parent")?.toJson();
+        const identifierVal = fields.get("identifier")?.toJson();
+        const nameVal = fields.get("name")?.toJson();
+        // Emit the item with whatever required fields are available; use empty
+        // string for missing ones.  DfdValidator surfaces the missing-field
+        // condition as a user-visible warning.
+        const item: DataItem = {
+            guid,
+            parent:     typeof parentVal     === "string" ? parentVal     : "",
+            identifier: typeof identifierVal === "string" ? identifierVal : "",
+            name:       typeof nameVal       === "string" ? nameVal       : ""
+        };
         const description = fields.get("description")?.toJson();
         if (typeof description === "string") {
             item.description = description;
@@ -157,6 +215,26 @@ export function resolveRefs(canvas: Canvas, guids: string[]): DataItem[] {
 }
 
 /**
+ * Builds a guid → name index by making a single traversal of the canvas.
+ * Pass the result to {@link pillLabel} as `parentNameIndex` to avoid one
+ * O(N) traversal per chip when rendering multiple items.
+ *
+ * @param canvas  The diagram canvas to traverse.
+ * @returns       A Map from object instance guid to the object's `name` field.
+ */
+export function buildParentNameIndex(canvas: Canvas): Map<string, string> {
+    const index = new Map<string, string>();
+    for (const obj of traverse(canvas)) {
+        const nameProp = obj.properties?.value.get("name");
+        if (nameProp) {
+            const nameVal = nameProp.toJson();
+            index.set(obj.instance, typeof nameVal === "string" ? nameVal : "");
+        }
+    }
+    return index;
+}
+
+/**
  * Returns the display label for a data item as seen from a specific node.
  *
  * - **Owner view** (`viewedFromGuid === item.parent`): bare identifier, e.g. `"D1"`.
@@ -168,22 +246,31 @@ export function resolveRefs(canvas: Canvas, guids: string[]): DataItem[] {
  * can never own a data item).  The `null` sentinel replaces the previous
  * `""` empty-string convention and makes intent explicit at every call site.
  *
- * @param item           The data item to label.
- * @param viewedFromGuid The GUID of the node requesting the label, or `null`
- *                       to always produce the qualified form.
- * @param canvas         The diagram canvas (used to look up the parent name).
+ * @param item             The data item to label.
+ * @param viewedFromGuid   The GUID of the node requesting the label, or `null`
+ *                         to always produce the qualified form.
+ * @param canvas           The diagram canvas (used to look up the parent name
+ *                         when `parentNameIndex` is not supplied).
+ * @param parentNameIndex  Optional precomputed guid→name map from
+ *                         {@link buildParentNameIndex}.  When provided, the
+ *                         canvas traversal is skipped — pass this when
+ *                         resolving labels for multiple items to amortise the
+ *                         O(N) walk across all chips.
  */
 export function pillLabel(
     item: DataItem,
     viewedFromGuid: string | null,
-    canvas: Canvas
+    canvas: Canvas,
+    parentNameIndex?: Map<string, string>
 ): string {
     if (viewedFromGuid !== null && viewedFromGuid === item.parent) {
         // Owner view — bare identifier.
         return item.identifier;
     }
     // Non-owner view — qualified with (possibly truncated) parent name.
-    const parentName = resolveParentName(canvas, item.parent);
+    const parentName = parentNameIndex !== undefined
+        ? (parentNameIndex.get(item.parent) ?? item.parent)
+        : resolveParentName(canvas, item.parent);
     const truncated = truncate(parentName, 12);
     return `${truncated}.${item.identifier}`;
 }
@@ -238,6 +325,14 @@ export function truncate(str: string, maxLength: number): string {
  * so that the layout-invalidation check in DictionaryBlock.calculateLayout()
  * stays fast.  Not cryptographically strong — collision resistance is not
  * required here.
+ *
+ * Hash used only for layout invalidation: folds guid + identifier + classification
+ * of items visible on a given block.  `name` and `parent` are intentionally
+ * excluded — the pill row renders neither (DictionaryBlock shows bare
+ * `identifier` in owner view; the parent is always `this.view.instance`), and
+ * name/parent changes don't alter chip width or color.  If pill labels ever
+ * start displaying `name` or `parent` (e.g. on hover), those fields must join
+ * the hash.
  *
  * @param items  The data items to hash (typically the result of
  *               {@link dataItemsForParent} for a single node).

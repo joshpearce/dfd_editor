@@ -207,4 +207,34 @@ describe("DfdPublisher", () => {
         });
     });
 
+    // -----------------------------------------------------------------------
+    // I2: Partial items are published rather than silently dropped
+    // -----------------------------------------------------------------------
+
+    describe("publish — partial items (I2)", () => {
+
+        it("emits an item with an empty identifier instead of dropping it", () => {
+            const file = new DiagramModelFile(factory);
+            const canvas = file.canvas;
+
+            // Add a data item with a missing identifier (empty string)
+            const itemGuid = "partial-item-guid";
+            const parentGuid = "some-parent-guid";
+            addDataItem(canvas, itemGuid, parentGuid, "", "A partial item");
+
+            const output = JSON.parse(publisher.publish(file));
+
+            // Item must be present in the published output — not silently dropped
+            expect(output.data_items).toHaveLength(1);
+            const emitted = output.data_items[0];
+            expect(emitted.guid).toBe(itemGuid);
+            expect(emitted.parent).toBe(parentGuid);
+            // Identifier is empty string — emitted as-is
+            expect(emitted.identifier).toBe("");
+            expect(emitted.name).toBe("A partial item");
+        });
+
+    });
+
 });
+

@@ -1,6 +1,6 @@
 import { FileValidator } from "@/assets/scripts/Application";
-import { DiagramModelFile, ListProperty, SemanticAnalyzer } from "@OpenChart/DiagramModel";
-import { readDataItemRefs } from "@OpenChart/DiagramModel/DataItemLookup";
+import { DiagramModelFile, SemanticAnalyzer } from "@OpenChart/DiagramModel";
+import { readDataItems, readDataItemRefs } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Canvas, SemanticGraphEdge, SemanticGraphNode } from "@OpenChart/DiagramModel";
 
 const PRIVILEGE_RANK: Record<string, number> = {
@@ -22,6 +22,8 @@ class DfdValidator extends FileValidator {
     protected validate(file: DiagramModelFile): void {
         const graph = SemanticAnalyzer.toGraph(file.canvas);
         const knownDataItemGuids = this.collectDataItemGuids(file.canvas);
+
+        this.validateDataItemFields(file.canvas);
 
         for (const [instance, node] of graph.nodes) {
             this.validateNode(instance, node);
@@ -74,19 +76,36 @@ class DfdValidator extends FileValidator {
 
     /**
      * Collects all data-item GUIDs declared in the canvas's `data_items`
-     * ListProperty.  Returns an empty Set for legacy diagrams that have no
+     * property.  Returns an empty Set for legacy diagrams that have no
      * such property.
+     *
+     * Delegates to {@link readDataItems} to avoid duplicating the
+     * ListProperty-iteration pattern.
      */
     private collectDataItemGuids(canvas: Canvas): Set<string> {
-        const guids = new Set<string>();
-        const dataItemsProp = canvas.properties.value.get("data_items");
-        if (!(dataItemsProp instanceof ListProperty)) {
-            return guids;
+        return new Set(readDataItems(canvas).map(i => i.guid));
+    }
+
+    /**
+     * Warns when a canvas data item is missing a required field (`parent`,
+     * `identifier`, or `name`).  Does not block save/publish — the item is
+     * still persisted and published with its partial state.
+     *
+     * @param canvas  The diagram canvas to inspect.
+     */
+    private validateDataItemFields(canvas: Canvas): void {
+        for (const item of readDataItems(canvas)) {
+            const missingFields: string[] = [];
+            if (!item.parent)     { missingFields.push("parent"); }
+            if (!item.identifier) { missingFields.push("identifier"); }
+            if (!item.name)       { missingFields.push("name"); }
+            if (missingFields.length > 0) {
+                this.addWarning(
+                    item.guid,
+                    `Data item is missing required field(s): ${missingFields.join(", ")}.`
+                );
+            }
         }
-        for (const [guid] of dataItemsProp.value) {
-            guids.add(guid);
-        }
-        return guids;
     }
 
     /**

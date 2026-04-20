@@ -457,11 +457,15 @@ def _extract_canvas_data_items(canvas: dict | None) -> list[dict]:
                 f"canvas data_items entry {id_str!r}: {exc}"
             ) from exc
 
-        # Determine the guid to use for this item.
-        # The DataItem model does not store guid in its DictionaryProperty sub-fields;
-        # the outer id_str IS the item guid (it is the ListProperty item key, which
-        # _build_canvas_props sets to item.guid). There is no inner "guid" field to
-        # cross-check against — the guid lives only at the outer id level.
+        # Guard: the outer id_str IS the guid; a nested "guid" key is
+        # structurally wrong — _data_item_to_pairs never emits one, and
+        # accepting it would silently shadow the outer id.
+        if "guid" in sub:
+            raise InvalidNativeError(
+                f"canvas data_items entry {id_str!r}: sub-dict must not contain "
+                "a 'guid' key — the outer list-entry id is the item guid"
+            )
+
         item: dict = {"guid": id_str}
         item.update(sub)
         result.append(item)
@@ -697,8 +701,9 @@ def _data_item_to_pairs(item: DataItem) -> list[list]:
     string fields, but our import path drops null entries anyway — so omitting
     is both cleaner and round-trip-safe.
 
-    Step 2 note: Step 2's DictionaryProperty loader must tolerate absent sub-keys
-    (not just explicit null values) so this omit-on-None emission round-trips correctly.
+    The preprocessor (DfdFilePreprocessor) is currently pass-through; it does not
+    need to normalise absent sub-keys because OpenChart's DictionaryProperty loader
+    already tolerates missing optional fields.
     """
     pairs: list[list] = [
         ["parent", str(item.parent)],

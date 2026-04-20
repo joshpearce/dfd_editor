@@ -1,4 +1,6 @@
-import { DiagramModelFile, ListProperty, DictionaryProperty, SemanticAnalyzer } from "@OpenChart/DiagramModel";
+import { DiagramModelFile, ListProperty, SemanticAnalyzer } from "@OpenChart/DiagramModel";
+import type { Canvas } from "@OpenChart/DiagramModel";
+import { readDataItems } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { DataItem } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { FilePublisher } from "@/assets/scripts/Application";
 
@@ -40,7 +42,7 @@ class DfdPublisher implements FilePublisher {
         }
 
         // Project canvas-level data_items.
-        const dataItems = this.projectCanvasDataItems(file.canvas.properties.value.get("data_items"));
+        const dataItems = this.projectCanvasDataItems(file.canvas);
 
         const result: Record<string, unknown> = { nodes, edges };
         if (dataItems.length > 0) {
@@ -51,52 +53,17 @@ class DfdPublisher implements FilePublisher {
     }
 
     /**
-     * Projects the canvas data_items ListProperty to the minimal-format array.
-     * Each ListProperty entry is a DictionaryProperty keyed by the item's guid.
-     * @param prop
-     *  The data_items property (may be undefined for legacy canvases).
-     * @returns
-     *  Array of minimal DataItem records.
+     * Projects the canvas data_items to the minimal-format array.
+     * Delegates to {@link readDataItems} so that the same traversal logic is
+     * not duplicated here.  Items with missing required fields are emitted with
+     * their partial state (empty string for absent required fields); the
+     * DfdValidator surfaces missing-field conditions as user-visible warnings.
+     *
+     * @param canvas  The diagram canvas.
+     * @returns       Array of DataItem records (may include partial items).
      */
-    private projectCanvasDataItems(prop: unknown): DataItem[] {
-        if (!(prop instanceof ListProperty)) {
-            return [];
-        }
-        const result: DataItem[] = [];
-        for (const [guid, entry] of prop.value) {
-            if (!(entry instanceof DictionaryProperty)) {
-                continue;
-            }
-            const fields = entry.value;
-            const parent = fields.get("parent")?.toJson();
-            const identifier = fields.get("identifier")?.toJson();
-            const name = fields.get("name")?.toJson();
-            // Only emit items with the three required fields populated.
-            // `typeof x === "string"` already excludes null (typeof null === "object").
-            if (
-                typeof parent !== "string" ||
-                typeof identifier !== "string" ||
-                typeof name !== "string"
-            ) {
-                console.warn(
-                    `DfdPublisher: skipping data item ${guid} — required fields ` +
-                    "(parent, identifier, name) are missing or not strings. " +
-                    "This item will be dropped from the published output."
-                );
-                continue;
-            }
-            const item: DataItem = { guid, parent, identifier, name };
-            const description = fields.get("description")?.toJson();
-            if (typeof description === "string") {
-                item.description = description;
-            }
-            const classification = fields.get("classification")?.toJson();
-            if (typeof classification === "string") {
-                item.classification = classification;
-            }
-            result.push(item);
-        }
-        return result;
+    private projectCanvasDataItems(canvas: Canvas): DataItem[] {
+        return readDataItems(canvas);
     }
 
     /**

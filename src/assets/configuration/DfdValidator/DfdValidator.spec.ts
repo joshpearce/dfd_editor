@@ -298,3 +298,89 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
     });
 
 });
+
+// ---------------------------------------------------------------------------
+// Tests: DfdValidator — data item missing required fields (I2)
+// ---------------------------------------------------------------------------
+
+describe("DfdValidator — data item missing required fields (I2)", () => {
+
+    let factory: DiagramObjectFactory;
+    let validator: DfdValidator;
+
+    beforeEach(() => {
+        factory = new DiagramObjectFactory(dfdSchema);
+        validator = new DfdValidator();
+    });
+
+    it("does not warn when all data items have all required fields", () => {
+        const file = new DiagramModelFile(factory);
+        const canvas = file.canvas;
+        const procA = factory.createNewDiagramObject("process", Block);
+        canvas.addObject(procA);
+        setName(procA, "ProcA");
+
+        addDataItem(canvas, "item-1", procA.instance, "D1", "Full Item");
+
+        validator.run(file);
+
+        const missingWarnings = validator.getWarnings().filter(
+            w => w.reason.includes("missing required field")
+        );
+        expect(missingWarnings).toHaveLength(0);
+    });
+
+    it("emits a warning for a data item missing its identifier", () => {
+        const file = new DiagramModelFile(factory);
+        const canvas = file.canvas;
+        const procA = factory.createNewDiagramObject("process", Block);
+        canvas.addObject(procA);
+        setName(procA, "ProcA");
+
+        // Add item via addDataItem with empty identifier (simulates missing field)
+        addDataItem(canvas, "item-missing-id", procA.instance, "", "Name Without ID");
+
+        validator.run(file);
+
+        const missingWarnings = validator.getWarnings().filter(
+            w => w.reason.includes("missing required field")
+        );
+        expect(missingWarnings).toHaveLength(1);
+        expect(missingWarnings[0].reason).toContain("identifier");
+    });
+
+    it("warning does not block validation — inValidState() is true", () => {
+        const file = new DiagramModelFile(factory);
+        const canvas = file.canvas;
+        const procA = factory.createNewDiagramObject("process", Block);
+        canvas.addObject(procA);
+        setName(procA, "ProcA");
+
+        addDataItem(canvas, "item-partial", procA.instance, "", "");
+
+        validator.run(file);
+
+        expect(validator.inValidState()).toBe(true);
+    });
+
+    it("lists all missing fields in a single warning when multiple are absent", () => {
+        const file = new DiagramModelFile(factory);
+        const canvas = file.canvas;
+        const procA = factory.createNewDiagramObject("process", Block);
+        canvas.addObject(procA);
+        setName(procA, "ProcA");
+
+        // Item with both identifier and name empty
+        addDataItem(canvas, "item-empty", procA.instance, "", "");
+
+        validator.run(file);
+
+        const missingWarnings = validator.getWarnings().filter(
+            w => w.reason.includes("missing required field")
+        );
+        expect(missingWarnings).toHaveLength(1);
+        expect(missingWarnings[0].reason).toContain("identifier");
+        expect(missingWarnings[0].reason).toContain("name");
+    });
+
+});

@@ -636,6 +636,27 @@ class TestNativeShape:
         with pytest.raises(InvalidNativeError, match="sub-pairs"):
             _extract_canvas_data_items(canvas)
 
+    def test_nested_guid_key_raises(self):
+        """I6: a sub-dict containing a 'guid' key is structurally wrong and raises
+        InvalidNativeError — the outer id_str IS the guid; a nested one shadows it."""
+        canvas = {
+            "id": "dfd",
+            "instance": "some-uuid",
+            "properties": [
+                [
+                    "data_items",
+                    [
+                        [
+                            "outer-id-guid",
+                            [["guid", "inner-guid"], ["identifier", "D1"], ["name", "N"]],
+                        ]
+                    ],
+                ]
+            ],
+        }
+        with pytest.raises(InvalidNativeError, match="must not contain"):
+            _extract_canvas_data_items(canvas)
+
     def test_to_native_flow_data_item_refs_list_of_pairs_shape(self):
         """to_native emits data_item_refs as [[syntheticKey, guidStr], ...] in flow props.
 

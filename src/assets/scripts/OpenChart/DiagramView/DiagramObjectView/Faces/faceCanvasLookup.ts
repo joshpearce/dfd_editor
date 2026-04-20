@@ -13,8 +13,11 @@ import type { DiagramObjectView } from "../Views";
 
 /**
  * Walks the view's parent chain and returns the first {@link Canvas} ancestor.
- * Returns `null` when the view is not yet attached to a canvas (e.g. during a
- * clone that hasn't been grafted into the tree).
+ *
+ * Returns `null` when the view is not yet attached to a canvas — for example
+ * during factory construction or a clone that hasn't been grafted into the
+ * tree yet.  **Callers must handle the `null` case** before accessing
+ * canvas-level state (e.g. `data_items`).
  *
  * The walk is O(depth) — typically 2–4 hops for objects inside at most one or
  * two trust-boundary groups.

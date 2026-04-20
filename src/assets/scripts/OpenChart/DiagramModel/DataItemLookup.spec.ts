@@ -13,8 +13,11 @@ import {
     dataItemsForParent,
     resolveRefs,
     readDataItemRefs,
+    readDataItems,
     pillLabel,
-    truncate
+    buildParentNameIndex,
+    truncate,
+    narrowClassification
 } from "./DataItemLookup";
 import type { DataItem } from "./DataItemLookup";
 import {
@@ -433,5 +436,119 @@ describe("truncate", () => {
         // Confirm the full string is not truncated at exactly 5 code points.
         expect(truncate(str, 5)).toBe("A👋BCD");
     });
+
+});
+
+// ---------------------------------------------------------------------------
+// Tests: buildParentNameIndex (I3)
+// ---------------------------------------------------------------------------
+
+describe("buildParentNameIndex", () => {
+
+    beforeEach(() => {
+        factory = new DiagramObjectFactory(dfdSchema);
+        canvas = new DiagramModelFile(factory).canvas;
+    });
+
+    it("returns an empty map for a canvas with no objects", () => {
+        const index = buildParentNameIndex(canvas);
+        expect(index.size).toBe(0);
+    });
+
+    it("indexes a block's name by its instance guid", () => {
+        const block = factory.createNewDiagramObject("process", Block);
+        (block.properties.value.get("name") as StringProperty).setValue("My Process");
+        canvas.addObject(block);
+
+        const index = buildParentNameIndex(canvas);
+        expect(index.get(block.instance)).toBe("My Process");
+    });
+
+    it("index-based pillLabel produces identical results to the eager traversal path", () => {
+        const block = factory.createNewDiagramObject("process", Block);
+        (block.properties.value.get("name") as StringProperty).setValue("Proc Alpha");
+        canvas.addObject(block);
+
+        addDataItem(canvas, ITEM_A1_GUID, block.instance, "D1", "Token");
+        addDataItem(canvas, ITEM_A2_GUID, block.instance, "D2", "Email");
+
+        const items = dataItemsForParent(canvas, block.instance);
+
+        // Eager path (no index)
+        const eagerLabels = items.map(item => pillLabel(item, NODE_B, canvas));
+
+        // Fast path (with precomputed index)
+        const index = buildParentNameIndex(canvas);
+        const fastLabels  = items.map(item => pillLabel(item, NODE_B, canvas, index));
+
+        expect(fastLabels).toEqual(eagerLabels);
+    });
+
+    it("falls back to item.parent when guid is not in the index", () => {
+        // An item whose parent is not an object in the canvas.
+        addDataItem(canvas, ITEM_A1_GUID, "ghost-guid", "D1", "Token");
+        const item = dataItemsForParent(canvas, "ghost-guid")[0];
+
+        const index = buildParentNameIndex(canvas);
+        // With index: not found → uses item.parent as raw guid fallback.
+        const fastLabel  = pillLabel(item, NODE_B, canvas, index);
+        // Eager: resolveParentName also falls back to raw guid.
+        const eagerLabel = pillLabel(item, NODE_B, canvas);
+
+        expect(fastLabel).toBe(eagerLabel);
+    });
+
+});
+
+// ---------------------------------------------------------------------------
+// Tests: readDataItems — partial items are surfaced (I2)
+// ---------------------------------------------------------------------------
+
+describe("readDataItems — partial items are surfaced", () => {
+
+    beforeEach(() => {
+        factory = new DiagramObjectFactory(dfdSchema);
+        canvas = new DiagramModelFile(factory).canvas;
+    });
+
+    it("returns all items including those with missing required fields", () => {
+        // Add a well-formed item
+        addDataItem(canvas, ITEM_A1_GUID, NODE_A, "D1", "Full Item");
+
+        // Add a partial item (missing identifier and name — simulate by adding
+        // only the parent field directly so required fields are unset).
+        const dataItemsProp = canvas.properties.value.get("data_items") as ListProperty;
+        const partialEntry = dataItemsProp.createListItem() as DictionaryProperty;
+        (partialEntry.value.get("parent") as StringProperty).setValue(NODE_B);
+        // Leave identifier and name unset.
+        dataItemsProp.addProperty(partialEntry, "partial-guid");
+
+        const items = readDataItems(canvas);
+        // Both items must be present — no silent skipping.
+        expect(items).toHaveLength(2);
+        const partial = items.find(i => i.guid === "partial-guid");
+        expect(partial).toBeDefined();
+        // Missing fields default to empty string.
+        expect(partial!.identifier).toBe("");
+        expect(partial!.name).toBe("");
+        expect(partial!.parent).toBe(NODE_B);
+    });
+
+});
+
+// ---------------------------------------------------------------------------
+// Tests: narrowClassification (M3)
+// ---------------------------------------------------------------------------
+
+describe("narrowClassification", () => {
+
+    it("returns 'pii' for 'pii'",         () => expect(narrowClassification("pii")).toBe("pii"));
+    it("returns 'secret' for 'secret'",   () => expect(narrowClassification("secret")).toBe("secret"));
+    it("returns 'public' for 'public'",   () => expect(narrowClassification("public")).toBe("public"));
+    it("returns 'internal' for 'internal'", () => expect(narrowClassification("internal")).toBe("internal"));
+    it("returns 'default' for unknown",   () => expect(narrowClassification("top-secret")).toBe("default"));
+    it("returns 'default' for null",      () => expect(narrowClassification(null)).toBe("default"));
+    it("returns 'default' for undefined", () => expect(narrowClassification(undefined)).toBe("default"));
+    it("returns 'default' for empty string", () => expect(narrowClassification("")).toBe("default"));
 
 });

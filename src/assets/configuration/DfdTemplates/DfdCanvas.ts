@@ -28,6 +28,7 @@ export const DfdCanvas: CanvasTemplate = {
         // DfdFilePreprocessor.spec.ts: "absent description sub-key … round-trips".
         data_items: {
             type: PropertyType.List,
+            default: [],
             form: {
                 type: PropertyType.Dictionary,
                 form: {
