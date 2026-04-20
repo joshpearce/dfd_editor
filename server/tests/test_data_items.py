@@ -21,6 +21,7 @@ import pytest
 
 import app as app_module
 from app import app
+from transform import InvalidNativeError, _extract_canvas_data_items, to_minimal, to_native
 
 # ---------------------------------------------------------------------------
 # Fixed GUIDs
@@ -209,26 +210,35 @@ class TestLegacyPayloadCompatibility:
         _id, resp = _import(client, _LEGACY_PAYLOAD)
         assert resp.status_code == 201
 
-    def test_legacy_export_has_empty_or_absent_data_items(self, client):
-        """Legacy diagram export has no data_items (or empty list)."""
+    def test_legacy_export_has_absent_data_items(self, client):
+        """Legacy diagram export omits the data_items key entirely (not even an empty list).
+
+        _build_canvas_props only emits the data_items pair when there are items to
+        store, so a legacy diagram has no data_items property in the canvas object.
+        _extract_canvas_data_items returns [] and to_minimal omits the key from the
+        result dict when the list is empty.
+        """
         diagram_id, _ = _import(client, _LEGACY_PAYLOAD)
 
         exported = _export(client, diagram_id)
 
-        # data_items may be absent or an empty list — both are acceptable.
-        data_items = exported.get("data_items", [])
-        assert data_items == []
+        assert "data_items" not in exported
 
-    def test_legacy_flow_has_empty_or_absent_data_item_refs(self, client):
-        """Legacy flow export has no data_item_refs (or empty list)."""
+    def test_legacy_flow_has_absent_data_item_refs(self, client):
+        """Legacy flow export omits data_item_refs entirely.
+
+        _build_flow_props always emits data_item_refs (as an empty list) in native,
+        but _emit_data_flow only adds the key to the minimal flow properties dict
+        when refs is non-empty — so a flow with no refs produces no data_item_refs
+        key in the exported minimal doc.
+        """
         diagram_id, _ = _import(client, _LEGACY_PAYLOAD)
 
         exported = _export(client, diagram_id)
 
         flows = {f["guid"]: f for f in exported["data_flows"]}
         assert _FLOW_GUID in flows
-        refs = flows[_FLOW_GUID]["properties"].get("data_item_refs", [])
-        assert refs == []
+        assert "data_item_refs" not in flows[_FLOW_GUID]["properties"]
 
 
 # ---------------------------------------------------------------------------
@@ -437,3 +447,189 @@ class TestDataItemsListLength:
         imported_items = _PAYLOAD_WITH_DATA_ITEMS["data_items"]
         exported_items = exported.get("data_items", [])
         assert len(exported_items) == len(imported_items)
+
+
+# ---------------------------------------------------------------------------
+# Test 7: native shape lock-in — ListProperty<DictionaryProperty> wire format
+# ---------------------------------------------------------------------------
+
+
+class TestNativeShape:
+    """Guards against silent shape drift in the canvas data_items property.
+
+    OpenChart serializes a ListProperty<DictionaryProperty> as:
+        [[itemId, [[k, v], ...]], ...]
+    The canvas "data_items" property must use exactly this shape so that
+    OpenChart can round-trip it without loss.
+    """
+
+    def _build_minimal_two_items(self) -> dict:
+        """Return a minimal diagram with two data_items (one full, one required-only)."""
+        return {
+            "nodes": [
+                {
+                    "type": "process",
+                    "guid": _PROCESS_GUID,
+                    "properties": {"name": "P"},
+                },
+                {
+                    "type": "data_store",
+                    "guid": _DATA_STORE_GUID,
+                    "properties": {"name": "DS"},
+                },
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_GUID,
+                    "source": _PROCESS_GUID,
+                    "target": _DATA_STORE_GUID,
+                    "properties": {},
+                }
+            ],
+            "data_items": [
+                {
+                    # All fields present
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "D1",
+                    "name": "Full Item",
+                    "description": "A description",
+                    "classification": "secret",
+                },
+                {
+                    # Only required fields (no description, no classification)
+                    "guid": _DATA_ITEM_2_GUID,
+                    "parent": _DATA_STORE_GUID,
+                    "identifier": "D2",
+                    "name": "Minimal Item",
+                },
+            ],
+        }
+
+    def _find_canvas(self, native: dict) -> dict:
+        for obj in native["objects"]:
+            if obj.get("id") == "dfd":
+                return obj
+        raise AssertionError("No canvas object found in native doc")
+
+    def _find_data_items_pair(self, canvas: dict) -> list | None:
+        for pair in canvas["properties"]:
+            if pair[0] == "data_items":
+                return pair[1]
+        return None
+
+    def test_to_native_produces_list_of_pairs_shape(self):
+        """to_native emits data_items as [[itemGuid, [[k,v],...]],...] in canvas props."""
+        minimal = self._build_minimal_two_items()
+        native = to_native(minimal)
+        canvas = self._find_canvas(native)
+        native_items = self._find_data_items_pair(canvas)
+
+        assert native_items is not None, "data_items pair missing from canvas properties"
+        assert len(native_items) == 2
+
+        # Build lookup: itemGuid → sub-pairs
+        items_by_guid = {}
+        for entry in native_items:
+            assert isinstance(entry, list) and len(entry) == 2, (
+                f"Expected [id, sub_pairs], got {entry!r}"
+            )
+            item_id, sub_pairs = entry
+            assert isinstance(item_id, str)
+            assert isinstance(sub_pairs, list)
+            items_by_guid[item_id] = {k: v for k, v in sub_pairs}
+
+        # Item 1: all fields
+        assert _DATA_ITEM_1_GUID in items_by_guid
+        item1 = items_by_guid[_DATA_ITEM_1_GUID]
+        assert item1["parent"] == _PROCESS_GUID
+        assert item1["identifier"] == "D1"
+        assert item1["name"] == "Full Item"
+        assert item1["description"] == "A description"
+        assert item1["classification"] == "secret"
+        # guid must NOT be in sub-pairs — it is the outer list key
+        assert "guid" not in item1
+
+        # Item 2: required fields only — optional fields omitted entirely
+        assert _DATA_ITEM_2_GUID in items_by_guid
+        item2 = items_by_guid[_DATA_ITEM_2_GUID]
+        assert item2["parent"] == _DATA_STORE_GUID
+        assert item2["identifier"] == "D2"
+        assert item2["name"] == "Minimal Item"
+        assert "description" not in item2
+        assert "classification" not in item2
+
+    def test_to_native_field_emission_order(self):
+        """Sub-pairs are emitted in declaration order: parent, identifier, name, [description], [classification]."""
+        minimal = self._build_minimal_two_items()
+        native = to_native(minimal)
+        canvas = self._find_canvas(native)
+        native_items = self._find_data_items_pair(canvas)
+
+        items_by_guid = {entry[0]: entry[1] for entry in native_items}
+
+        # Full item: all 5 fields in order
+        keys1 = [pair[0] for pair in items_by_guid[_DATA_ITEM_1_GUID]]
+        assert keys1 == ["parent", "identifier", "name", "description", "classification"]
+
+        # Minimal item: 3 required fields in order
+        keys2 = [pair[0] for pair in items_by_guid[_DATA_ITEM_2_GUID]]
+        assert keys2 == ["parent", "identifier", "name"]
+
+    def test_native_round_trip_preserves_data_items(self):
+        """native → minimal → native round-trip preserves data_items list-of-pairs shape."""
+        minimal = self._build_minimal_two_items()
+        native = to_native(minimal)
+
+        # Pass native back through to_minimal
+        recovered_minimal = to_minimal(native)
+
+        assert "data_items" in recovered_minimal
+        recovered_items = {item["guid"]: item for item in recovered_minimal["data_items"]}
+
+        assert _DATA_ITEM_1_GUID in recovered_items
+        item1 = recovered_items[_DATA_ITEM_1_GUID]
+        assert item1["parent"] == _PROCESS_GUID
+        assert item1["identifier"] == "D1"
+        assert item1["name"] == "Full Item"
+        assert item1["description"] == "A description"
+        assert item1["classification"] == "secret"
+
+        assert _DATA_ITEM_2_GUID in recovered_items
+        item2 = recovered_items[_DATA_ITEM_2_GUID]
+        assert item2["parent"] == _DATA_STORE_GUID
+        assert item2["identifier"] == "D2"
+        assert item2["name"] == "Minimal Item"
+        assert "description" not in item2
+        assert "classification" not in item2
+
+    def test_malformed_data_items_not_list_raises(self):
+        """A data_items value that is not a list raises InvalidNativeError."""
+        canvas = {
+            "id": "dfd",
+            "instance": "some-uuid",
+            "properties": [["data_items", "not-a-list"]],
+        }
+        with pytest.raises(InvalidNativeError, match="data_items"):
+            _extract_canvas_data_items(canvas)
+
+    def test_malformed_data_items_entry_not_pair_raises(self):
+        """An entry in data_items that is not a [id, sub_pairs] pair raises InvalidNativeError."""
+        canvas = {
+            "id": "dfd",
+            "instance": "some-uuid",
+            "properties": [["data_items", [{"guid": "x", "name": "flat-dict"}]]],
+        }
+        with pytest.raises(InvalidNativeError, match="data_items entry"):
+            _extract_canvas_data_items(canvas)
+
+    def test_malformed_data_items_sub_pairs_not_list_raises(self):
+        """A data_items entry where sub-pairs is not a list raises InvalidNativeError."""
+        canvas = {
+            "id": "dfd",
+            "instance": "some-uuid",
+            "properties": [["data_items", [["some-guid", "not-a-list"]]]],
+        }
+        with pytest.raises(InvalidNativeError):
+            _extract_canvas_data_items(canvas)

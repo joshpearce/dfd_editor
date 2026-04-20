@@ -63,7 +63,12 @@ _FLOW_PROP_ORDER: tuple[str, ...] = (
 )
 
 # Ordered property keys for the canvas (dfd) object.
-_CANVAS_PROP_ORDER: tuple[str, ...] = ("name", "description", "author", "created", "data_items")
+# Note: "data_items" is intentionally absent from this tuple. It is a
+# ListProperty<DictionaryProperty> in OpenChart, so it serializes as a
+# [[id, [[k,v],...]],...] list-of-pairs — a distinct shape from the simple
+# [key, scalar] pairs handled by the table-driven loop. It is emitted
+# separately in _build_canvas_props.
+_CANVAS_PROP_ORDER: tuple[str, ...] = ("name", "description", "author", "created")
 
 # Anchor angle → anchor type mapping (12 anchors at 30° steps).
 _ANCHOR_TYPES: dict[int, str] = {
@@ -406,25 +411,62 @@ def _extract_meta(canvas: dict | None) -> dict | None:
 def _extract_canvas_data_items(canvas: dict | None) -> list[dict]:
     """Extract data_items from the canvas object's properties list.
 
+    The on-disk shape for data_items is the OpenChart ListProperty<DictionaryProperty>
+    serialization: [[itemId, [[k, v], ...]], ...] — a list of [id, sub-pairs] pairs.
+
     Returns an empty list when the canvas is absent or has no data_items entry.
-    Raises InvalidNativeError if the stored value is present but not a list of
-    dicts (structural invariant violation).
+    Raises InvalidNativeError if the stored value is present but malformed —
+    structural violations surface here, not silently swallowed.
     """
     if canvas is None:
         return []
     raw_pairs = canvas.get("properties", [])
     try:
-        raw_props = {pair[0]: pair[1] for pair in raw_pairs if len(pair) == 2}
-    except TypeError:
-        return []
+        raw_props = _props_to_dict(raw_pairs, drop_nulls=False)
+    except InvalidNativeError:
+        raise InvalidNativeError("canvas properties malformed: expected [key, value] pairs")
+
     raw_items = raw_props.get("data_items")
     if raw_items is None:
         return []
-    if not isinstance(raw_items, list) or any(not isinstance(e, dict) for e in raw_items):
+    if not isinstance(raw_items, list):
         raise InvalidNativeError(
-            "canvas data_items property is malformed: expected a list of dicts"
+            "canvas data_items is malformed: expected a list of [id, [[k,v],...]] pairs"
         )
-    return raw_items
+
+    result: list[dict] = []
+    for entry in raw_items:
+        # Each entry must be [id_str, sub_pairs_list].
+        if not isinstance(entry, list) or len(entry) != 2:
+            raise InvalidNativeError(
+                "canvas data_items entry is malformed: expected [id, [[k,v],...]]"
+            )
+        id_str, sub_pairs = entry[0], entry[1]
+        if not isinstance(id_str, str):
+            raise InvalidNativeError(
+                "canvas data_items entry id must be a string"
+            )
+        if not isinstance(sub_pairs, list):
+            raise InvalidNativeError(
+                f"canvas data_items entry {id_str!r}: sub-pairs must be a list"
+            )
+        try:
+            sub = _props_to_dict(sub_pairs, drop_nulls=True)
+        except InvalidNativeError as exc:
+            raise InvalidNativeError(
+                f"canvas data_items entry {id_str!r}: {exc}"
+            ) from exc
+
+        # Determine the guid to use for this item.
+        # The DataItem model does not store guid in its DictionaryProperty sub-fields;
+        # the outer id_str IS the item guid (it is the ListProperty item key, which
+        # _build_canvas_props sets to item.guid). There is no inner "guid" field to
+        # cross-check against — the guid lives only at the outer id level.
+        item: dict = {"guid": id_str}
+        item.update(sub)
+        result.append(item)
+
+    return result
 
 
 def _assert_single_parent(objects: list[dict], by_instance: dict[str, dict]) -> None:
@@ -623,28 +665,43 @@ def _bool_to_native(value: bool) -> str:
     return "true" if value else "false"
 
 
-def _data_item_to_dict(item: DataItem) -> dict[str, Any]:
-    """Serialize a DataItem model to a plain dict for native storage."""
-    result: dict[str, Any] = {
-        "guid": str(item.guid),
-        "parent": str(item.parent),
-        "identifier": item.identifier,
-        "name": item.name,
-    }
+def _data_item_to_pairs(item: DataItem) -> list[list]:
+    """Serialize a DataItem to the [[k,v],...] sub-pairs list for native storage.
+
+    This mirrors the DictionaryProperty.toOrderedJson() shape that OpenChart
+    uses when it serializes a ListProperty<DictionaryProperty>. Field order
+    matches the DataItem model declaration order: parent, identifier, name,
+    description, classification.
+
+    Optional fields (description, classification) are omitted when None rather
+    than emitted as [key, None]. This matches _props_to_dict(drop_nulls=True)
+    semantics on the import side, so the round-trip is symmetric. OpenChart's
+    DictionaryProperty.toOrderedJson() would emit null for absent optional
+    string fields, but our import path drops null entries anyway — so omitting
+    is both cleaner and round-trip-safe.
+    """
+    pairs: list[list] = [
+        ["parent", str(item.parent)],
+        ["identifier", item.identifier],
+        ["name", item.name],
+    ]
     if item.description is not None:
-        result["description"] = item.description
+        pairs.append(["description", item.description])
     if item.classification is not None:
-        result["classification"] = item.classification
-    return result
+        pairs.append(["classification", item.classification])
+    return pairs
 
 
 def _build_canvas_props(meta: Any, data_items: list[DataItem] | None = None) -> list[list]:
     """Build the canvas (dfd) object's properties list from the meta model.
 
-    data_items are stored here (as a list of plain dicts) rather than as a
-    top-level sibling of objects[] in the native document.  This keeps them
-    inside the canvas object so OpenChart's generic property serialiser can
-    round-trip them without loss when Step 2 adds data_items as a ListProperty.
+    data_items are stored inside the canvas object's properties list using the
+    OpenChart ListProperty<DictionaryProperty> serialization shape:
+        ["data_items", [[itemGuid, [[k, v], ...]], ...]]
+    This allows OpenChart's generic property serializer to round-trip them
+    without loss when Step 2 adds data_items as a ListProperty on the canvas.
+
+    The item guid is used as the outer list-item key (it is stable and unique).
     """
     name = meta.name if meta else None
     description = meta.description if meta else None
@@ -661,18 +718,20 @@ def _build_canvas_props(meta: Any, data_items: list[DataItem] | None = None) -> 
             tz_name = "UTC"
         created_val = {"time": iso, "zone": tz_name}
 
-    items_val: list[dict] | None = None
-    if data_items:
-        items_val = [_data_item_to_dict(item) for item in data_items]
-
     props: list[list] = [
         ["name", name],
         ["description", description],
         ["author", author],
         ["created", created_val],
     ]
-    if items_val is not None:
-        props.append(["data_items", items_val])
+    if data_items:
+        # Emit as [[itemGuid, [[k,v],...]], ...] — the OpenChart
+        # ListProperty<DictionaryProperty> wire shape.
+        native_items = [
+            [str(item.guid), _data_item_to_pairs(item)]
+            for item in data_items
+        ]
+        props.append(["data_items", native_items])
     return props
 
 
