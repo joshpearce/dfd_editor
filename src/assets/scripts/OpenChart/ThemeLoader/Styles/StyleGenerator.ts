@@ -136,7 +136,8 @@ export class StyleGenerator {
             pill_row_vertical_padding_units: s.blockDictionary.pill_row_vertical_padding_units,
             pill_spacing_units: s.blockDictionary.pill_spacing_units,
             plate: structuredClone(s.plate),
-            chip_font: s.chipFont
+            chip_font_weight: s.chipFontWeight,
+            chip_font_family: s.chipFontFamily
         };
         return merge(style as Partial<LabeledLineStyleConfiguration>, base) as LabeledLineStyleConfiguration;
     }

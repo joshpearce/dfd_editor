@@ -189,41 +189,13 @@ export class LabeledDynamicLine extends DynamicLine {
 
 
     /**
-     * Returns the computed chip descriptors for the current frame along with
-     * the canvas used for the computation.  Intended for test inspection.
+     * Computes the pill chip descriptors for the current frame with an explicit
+     * context.  Useful in tests that need non-zero `measureText` widths or
+     * that want to inspect chip geometry without going through `renderTo`.
      *
      * In tests, pass a recording stub CanvasRenderingContext2D (or the minimal
      * `{ font: "", measureText: (s) => ({ width: s.length * 7 }) }` mock).
      * Production code calls `computeChips` directly through `renderTo`.
-     *
-     * @param ctx     The context used for `measureText` (must have `font` writable).
-     * @param canvas  The canvas to resolve data items from (null → empty result).
-     */
-    public get layoutDebug(): {
-        chips: ReadonlyArray<PillChipDescriptor>;
-        midX: number;
-        midY: number;
-    } {
-        // layoutDebug operates without a real ctx; use a zero-width stub so
-        // callers that need non-zero widths should supply their own ctx via
-        // computeChipsWithCtx().
-        const stub: Pick<CanvasRenderingContext2D, "measureText" | "font"> = {
-            font: "",
-            measureText: (_s: string) => ({ width: 0 } as TextMetrics)
-        };
-        const canvas = findCanvas(this.view);
-        const chips = this.computeChips(stub, canvas);
-        const handle = this.view.handles[0];
-        return {
-            chips,
-            midX: handle.face.boundingBox.xMid,
-            midY: handle.face.boundingBox.yMid
-        };
-    }
-
-    /**
-     * Computes the pill chip descriptors for the current frame with an explicit
-     * context.  Useful in tests that need non-zero `measureText` widths.
      *
      * @param ctx     The rendering context (used for `measureText`).
      * @param canvas  The nearest Canvas ancestor (null → returns []).
@@ -295,9 +267,10 @@ export class LabeledDynamicLine extends DynamicLine {
         const hSpacing = gridX * style.pillSpacingUnits;
 
         // Set font for measuring chip label widths.
-        // Font size is derived from chip height; family sourced from theme token.
+        // Font size is derived from chip height; weight + family sourced from theme tokens.
+        // Produces valid CSS font shorthand: "<weight> <size>px <family>".
         const fontSize = Math.round(chipH * CHIP_FONT_SIZE_OF_HEIGHT);
-        ctx.font = `${fontSize}px ${style.chipFont.replace(/^\d+px\s*/, "")}`;
+        ctx.font = `${style.chipFontWeight} ${fontSize}px ${style.chipFontFamily}`;
 
         // Pre-compute labels and widths.
         // Passing null as viewedFromGuid means "no owner view — always qualify".

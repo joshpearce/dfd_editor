@@ -215,7 +215,8 @@ export const DarkStyle = new StyleGenerator({
     },
 
     plate: { fill: darkPlateFill, stroke: darkPlateStroke },
-    chipFont: "600 11px Inter, sans-serif"
+    chipFontWeight: "600",
+    chipFontFamily: "'Inter', sans-serif"
 
 });
 
@@ -403,7 +404,8 @@ export const LightStyle = new StyleGenerator({
     },
 
     plate: { fill: lightPlateFill, stroke: lightPlateStroke },
-    chipFont: "600 11px Inter, sans-serif"
+    chipFontWeight: "600",
+    chipFontFamily: "'Inter', sans-serif"
 
 });
 
@@ -592,6 +594,7 @@ export const BlogStyle = new StyleGenerator({
     },
 
     plate: { fill: lightPlateFill, stroke: lightPlateStroke },
-    chipFont: "600 11px Inter, sans-serif"
+    chipFontWeight: "600",
+    chipFontFamily: "'Inter', sans-serif"
 
 });

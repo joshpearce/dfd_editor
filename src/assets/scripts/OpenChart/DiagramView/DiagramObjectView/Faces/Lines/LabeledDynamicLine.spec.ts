@@ -4,11 +4,10 @@
  * Unit tests for LabeledDynamicLine — the line face that renders data-item
  * pill chips at the line midpoint.
  *
- * COVERAGE NOTE: renderTo() requires a live CanvasRenderingContext2D and is
- * excluded here (same convention as DictionaryBlock.spec.ts and
- * GroupFace.spec.ts). The `layoutDebug` accessor and `computeChipsWithCtx()`
- * provide the observable surface for chip layout, tested without a DOM/canvas
- * context.
+ * COVERAGE:
+ * - `computeChipsWithCtx()` — chip layout, colors, labels, centering.
+ * - `renderTo()` — draw-op sequence via a recording CanvasRenderingContext2D
+ *   stub (I1: 0-ref, 2-ref draw order, plate lineWidth regression).
  *
  * Test-environment note: The NodeFont used by Vitest returns 0 for
  * measureText().width.  All chip widths in the zero-width tests are therefore
@@ -34,6 +33,8 @@ import { sampleSchema } from "../../../../DiagramModel/DiagramModel.fixture";
 import type { DiagramThemeConfiguration } from "@OpenChart/ThemeLoader";
 import type { DiagramSchemaConfiguration } from "@OpenChart/DiagramModel";
 import type { LabeledDynamicLine } from "./LabeledDynamicLine";
+import type { ViewportRegion } from "../../ViewportRegion";
+import type { RenderSettings } from "../../RenderSettings";
 
 // ---------------------------------------------------------------------------
 // Minimal schema — canvas + labeled_line template + supporting base objects
@@ -218,6 +219,102 @@ function makeCtxMockNonZero(): Pick<CanvasRenderingContext2D, "measureText" | "f
         measureText: (s: string) => ({ width: s.length * 7 } as TextMetrics)
     };
 }
+
+// ---------------------------------------------------------------------------
+// Recording CanvasRenderingContext2D stub (I1)
+// ---------------------------------------------------------------------------
+
+type CallRecord = { op: string, args: unknown[], state: Record<string, unknown> };
+
+/**
+ * Creates a recording stub for CanvasRenderingContext2D.
+ *
+ * Each method call appends `{ op, args, state }` to the shared call log,
+ * where `state` is a snapshot of the tracked properties at the time of the
+ * call.  Property assignments are captured via Object.defineProperty setters
+ * so the effective state at the moment of each draw call is preserved.
+ *
+ * Covers the full surface that DynamicLine.renderTo and
+ * LabeledDynamicLine.renderTo actually touch:
+ *   - DynamicLine: lineWidth, fillStyle, strokeStyle + drawAbsoluteMultiElbowPath
+ *     (beginPath / moveTo / lineTo / quadraticCurveTo) + stroke + setLineDash +
+ *     drawAbsolutePolygon (beginPath / moveTo / lineTo / closePath) + fill
+ *   - LabeledDynamicLine overlay: lineWidth / fillStyle / strokeStyle +
+ *     drawRect (beginPath / moveTo / quadraticCurveTo / lineTo / closePath) +
+ *     fill + stroke + fillText
+ *
+ * If the recording context helper grows beyond ~60 LOC it should be extracted
+ * to a sibling __test-utils__/recordingCtx.ts under the Faces tree.
+ */
+function makeRecordingCtx(): {
+    ctx: CanvasRenderingContext2D;
+    calls: () => CallRecord[];
+} {
+    const log: CallRecord[] = [];
+    let state: Record<string, unknown> = {
+        fillStyle: "",
+        strokeStyle: "",
+        lineWidth: 1,
+        font: "",
+        textBaseline: "alphabetic",
+        textAlign: "start"
+    };
+
+    const record = (op: string) =>
+        (...args: unknown[]) => { log.push({ op, args, state: { ...state } }); };
+
+    const ctx = {
+        measureText: (s: string) => ({ width: s.length * 7 } as TextMetrics),
+        beginPath:         record("beginPath"),
+        moveTo:            record("moveTo"),
+        lineTo:            record("lineTo"),
+        quadraticCurveTo:  record("quadraticCurveTo"),
+        closePath:         record("closePath"),
+        fill:              record("fill"),
+        stroke:            record("stroke"),
+        fillText:          record("fillText"),
+        save:              record("save"),
+        restore:           record("restore"),
+        setLineDash:       record("setLineDash"),
+        // Not called by LabeledDynamicLine but present for completeness:
+        strokeText:        record("strokeText"),
+        rect:              record("rect"),
+        fillRect:          record("fillRect"),
+        strokeRect:        record("strokeRect"),
+        arcTo:             record("arcTo"),
+        arc:               record("arc")
+    };
+
+    for (const key of ["fillStyle", "strokeStyle", "lineWidth", "font", "textBaseline", "textAlign"]) {
+        Object.defineProperty(ctx, key, {
+            get: () => state[key],
+            set: (v: unknown) => { state = { ...state, [key]: v }; },
+            configurable: true
+        });
+    }
+
+    return {
+        ctx: ctx as unknown as CanvasRenderingContext2D,
+        calls: () => log
+    };
+}
+
+/** Returns a viewport region large enough to make any face "visible". */
+function makeWideRegion(): ViewportRegion {
+    return {
+        xMin: -Infinity,
+        yMin: -Infinity,
+        xMax: Infinity,
+        yMax: Infinity,
+        scale: 1
+    } as ViewportRegion;
+}
+
+/** A minimal RenderSettings that does not enable animations. */
+const noAnimSettings: RenderSettings = {
+    get shadowsEnabled() { return false; },
+    get animationsEnabled() { return false; }
+};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -554,21 +651,77 @@ describe("LabeledDynamicLine (Step 5)", () => {
     });
 
     // -----------------------------------------------------------------------
-    // 8. layoutDebug accessor (test seam — replaces public computeChips)
+    // 8. renderTo draw-op coverage (I1) — recording CanvasRenderingContext2D
     // -----------------------------------------------------------------------
 
-    describe("layoutDebug accessor", () => {
+    describe("renderTo draw-op coverage", () => {
 
-        it("returns empty chips array when no refs present", () => {
+        it("0 refs → draw output matches base DynamicLine.renderTo", () => {
+            // Acceptance criterion: when there are no data_item_refs the
+            // LabeledDynamicLine must produce exactly the same call sequence as
+            // an equivalent plain DynamicLine (no extra calls, no plate, no chips).
             const canvas = makeCanvasWithItems([]);
-            const line = makeLineOnCanvas(darkFactory, canvas);
-            line.calculateLayout();
 
-            const debug = (line.face as LabeledDynamicLine).layoutDebug;
-            expect(debug.chips).toHaveLength(0);
+            // Build a labeled line (no refs added)
+            const labeledLine = makeLineOnCanvas(darkFactory, canvas);
+            labeledLine.calculateLayout();
+
+            // Build a plain DynamicLine with the same geometry
+            const baseLine = darkFactory.createNewDiagramObject("dynamic_line", LineView);
+            canvas.addObject(baseLine);
+            baseLine.calculateLayout();
+
+            const region = makeWideRegion();
+
+            // Run both against fresh recording ctxs
+            const { ctx: ctx1, calls: calls1 } = makeRecordingCtx();
+            (labeledLine.face as LabeledDynamicLine).renderTo(ctx1, region, noAnimSettings);
+
+            const { ctx: ctx2, calls: calls2 } = makeRecordingCtx();
+            baseLine.face.renderTo(ctx2, region, noAnimSettings);
+
+            // Strip `state` snapshots for cleaner diffing — op name + args must match
+            const normalize = (c: CallRecord[]) => c.map(r => ({ op: r.op, args: r.args }));
+            expect(normalize(calls1())).toEqual(normalize(calls2()));
         });
 
-        it("returns chip descriptors and midpoint coordinates", () => {
+        it("2 refs → draw order: base line → plate → chip rects → chip labels", () => {
+            const canvas = makeCanvasWithItems([
+                { guid: "g1", parent: "p", identifier: "D1", name: "A", classification: "pii" },
+                { guid: "g2", parent: "p", identifier: "D2", name: "B", classification: "secret" }
+            ]);
+            const line = makeLineOnCanvas(darkFactory, canvas);
+            addDataItemRef(line, "g1");
+            addDataItemRef(line, "g2");
+            line.calculateLayout();
+
+            const { ctx, calls } = makeRecordingCtx();
+            (line.face as LabeledDynamicLine).renderTo(ctx, makeWideRegion(), noAnimSettings);
+
+            const log = calls();
+
+            // There must be at least one stroke (the base line) before any fill
+            // that corresponds to the plate overlay.
+            const firstStrokeIdx = log.findIndex(c => c.op === "stroke");
+            expect(firstStrokeIdx).toBeGreaterThanOrEqual(0);
+
+            // After the base line, the plate fill+stroke must appear before fillText.
+            const fillTextIdx = log.findIndex(c => c.op === "fillText");
+            expect(fillTextIdx).toBeGreaterThan(firstStrokeIdx);
+
+            // There must be exactly 2 fillText calls (one per chip).
+            const fillTexts = log.filter(c => c.op === "fillText");
+            expect(fillTexts).toHaveLength(2);
+
+            // The 2 fillText args must include each chip label.
+            const textArgs = fillTexts.map(c => c.args[0] as string);
+            expect(textArgs).toContain("p.D1");
+            expect(textArgs).toContain("p.D2");
+        });
+
+        it("plate lineWidth regression: plate stroke uses PLATE_STROKE_WIDTH (1px)", () => {
+            // Locks in the fix from I6: the plate outline must be drawn at exactly
+            // 1px — not the line's own width (which is typically 2px).
             const canvas = makeCanvasWithItems([
                 { guid: "g1", parent: "p", identifier: "D1", name: "A", classification: "pii" }
             ]);
@@ -576,10 +729,50 @@ describe("LabeledDynamicLine (Step 5)", () => {
             addDataItemRef(line, "g1");
             line.calculateLayout();
 
-            const debug = (line.face as LabeledDynamicLine).layoutDebug;
-            expect(debug.chips).toHaveLength(1);
-            expect(typeof debug.midX).toBe("number");
-            expect(typeof debug.midY).toBe("number");
+            const { ctx, calls } = makeRecordingCtx();
+            (line.face as LabeledDynamicLine).renderTo(ctx, makeWideRegion(), noAnimSettings);
+
+            const log = calls();
+
+            // Find the stroke() call(s) after the base line's first stroke.
+            // The plate stroke is the second stroke() call in the sequence.
+            const strokeCalls = log
+                .map((c, i) => ({ ...c, idx: i }))
+                .filter(c => c.op === "stroke");
+
+            // Must have at least 2 stroke calls: one for the base line, one for the plate.
+            expect(strokeCalls.length).toBeGreaterThanOrEqual(2);
+
+            // The plate stroke is the second stroke call.  At that point,
+            // ctx.lineWidth must equal PLATE_STROKE_WIDTH = 1.
+            const plateStroke = strokeCalls[1];
+            expect(plateStroke.state["lineWidth"]).toBe(1);
+        });
+
+        it("chip font string is valid CSS shorthand (<weight> <size>px <family>)", () => {
+            // M2 regression: the previous regex could produce "18px 600 11px Inter, …"
+            // (invalid CSS). The fix splits weight + family into separate theme tokens.
+            // Verify the emitted font string matches "<weight> <size>px <family>".
+            const canvas = makeCanvasWithItems([
+                { guid: "g1", parent: "p", identifier: "D1", name: "A", classification: "pii" }
+            ]);
+            const line = makeLineOnCanvas(darkFactory, canvas);
+            addDataItemRef(line, "g1");
+            line.calculateLayout();
+
+            const { ctx, calls } = makeRecordingCtx();
+            (line.face as LabeledDynamicLine).renderTo(ctx, makeWideRegion(), noAnimSettings);
+
+            // Find all distinct font strings that were assigned during the call.
+            // The chip font assignment is the last font assignment before fillText.
+            const log = calls();
+            const fillTextIdx = log.findIndex(c => c.op === "fillText");
+            expect(fillTextIdx).toBeGreaterThan(0);
+
+            // The font state at the time of the first fillText call must match the
+            // valid CSS font shorthand pattern: "<number> <number>px <...>"
+            const fontAtFillText = log[fillTextIdx].state["font"] as string;
+            expect(fontAtFillText).toMatch(/^\d+\s+\d+px\s+\S/);
         });
 
     });
@@ -666,4 +859,3 @@ describe("LabeledDynamicLine (Step 5)", () => {
     });
 
 });
-

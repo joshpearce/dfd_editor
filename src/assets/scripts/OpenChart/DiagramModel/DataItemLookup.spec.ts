@@ -3,6 +3,9 @@
  *
  * Unit tests for the DataItemLookup helper module.
  * Covers dataItemsForParent, resolveRefs, pillLabel, and the truncate helper.
+ *
+ * Schema and addDataItem helper are inlined here to avoid importing from
+ * src/assets/configuration/ (OpenChart must not depend on configuration).
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -14,23 +17,103 @@ import {
     truncate
 } from "./DataItemLookup";
 import type { DataItem } from "./DataItemLookup";
-import { DiagramObjectFactory, DiagramModelFile } from "./";
-import { Block, Canvas, Line, ListProperty, StringProperty } from "./DiagramObject";
-import { DfdCanvas } from "@/assets/configuration/DfdTemplates/DfdCanvas";
-import { DfdObjects } from "@/assets/configuration/DfdTemplates/DfdObjects";
-import { BaseTemplates } from "@/assets/configuration/DfdTemplates/BaseTemplates";
-import type { DiagramSchemaConfiguration } from "./DiagramObjectFactory";
-import { addDataItem } from "@/assets/configuration/DfdTemplates/dataItems.test-utils";
+import {
+    DiagramObjectFactory, DiagramModelFile,
+    Block, Canvas, Line, ListProperty, StringProperty, DictionaryProperty,
+    DiagramObjectType, PropertyType
+} from "./";
+import type { DiagramSchemaConfiguration, CanvasTemplate, DiagramObjectTemplate } from "./DiagramObjectFactory";
 
 // ---------------------------------------------------------------------------
-// Schema + factory shared by all tests
+// Minimal schema — inlined to keep OpenChart independent of configuration
 // ---------------------------------------------------------------------------
+
+const minimalCanvas: CanvasTemplate = {
+    name: "dfd",
+    type: DiagramObjectType.Canvas,
+    properties: {
+        data_items: {
+            type: PropertyType.List,
+            form: {
+                type: PropertyType.Dictionary,
+                form: {
+                    parent:         { type: PropertyType.String },
+                    identifier:     { type: PropertyType.String, is_representative: true },
+                    name:           { type: PropertyType.String },
+                    description:    { type: PropertyType.String },
+                    classification: { type: PropertyType.String }
+                }
+            }
+        }
+    }
+};
+
+const minimalTemplates: DiagramObjectTemplate[] = [
+    { name: "horizontal_anchor", type: DiagramObjectType.Anchor },
+    { name: "vertical_anchor",   type: DiagramObjectType.Anchor },
+    { name: "generic_latch",     type: DiagramObjectType.Latch  },
+    { name: "generic_handle",    type: DiagramObjectType.Handle },
+    {
+        name: "process",
+        type: DiagramObjectType.Block,
+        properties: {
+            name: { type: PropertyType.String, is_representative: true }
+        },
+        anchors: {}
+    },
+    {
+        name: "data_flow",
+        type: DiagramObjectType.Line,
+        handle_template: "generic_handle",
+        latch_template: { source: "generic_latch", target: "generic_latch" },
+        properties: {
+            name: { type: PropertyType.String, is_representative: true },
+            data_item_refs: {
+                type: PropertyType.List,
+                form: { type: PropertyType.String },
+                default: []
+            }
+        }
+    }
+];
 
 const dfdSchema: DiagramSchemaConfiguration = {
     id: "dfd_v1",
-    canvas: DfdCanvas,
-    templates: [...BaseTemplates, ...DfdObjects]
+    canvas: minimalCanvas,
+    templates: minimalTemplates
 };
+
+// ---------------------------------------------------------------------------
+// Local addDataItem helper — mirrors dataItems.test-utils without the
+// cross-boundary import.
+// ---------------------------------------------------------------------------
+
+function addDataItem(
+    canvas: Canvas,
+    guid: string,
+    parent: string,
+    identifier: string,
+    name: string,
+    description?: string,
+    classification?: string
+): void {
+    const dataItemsProp = canvas.properties.value.get("data_items");
+    if (!(dataItemsProp instanceof ListProperty)) {
+        throw new Error("canvas.properties.data_items is not a ListProperty");
+    }
+    const entry = dataItemsProp.createListItem() as DictionaryProperty;
+    const fields = entry.value;
+    (fields.get("parent")     as StringProperty).setValue(parent);
+    (fields.get("identifier") as StringProperty).setValue(identifier);
+    (fields.get("name")       as StringProperty).setValue(name);
+    if (description !== undefined) {
+        (fields.get("description") as StringProperty).setValue(description);
+    }
+    if (classification !== undefined) {
+        (fields.get("classification") as StringProperty).setValue(classification);
+    }
+    dataItemsProp.addProperty(entry, guid);
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -352,4 +435,3 @@ describe("truncate", () => {
     });
 
 });
-

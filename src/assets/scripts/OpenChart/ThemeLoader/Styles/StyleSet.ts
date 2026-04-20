@@ -20,8 +20,15 @@ export type StyleSet = {
      */
     plate: { fill: string, stroke: string };
     /**
-     * Font string used for pill chip labels (e.g. `"600 11px Inter, sans-serif"`).
-     * Sourced from the theme so the face does not hardcode a font family.
+     * Font weight token for pill chip labels (e.g. `"600"`).
+     * Combined with chipFontFamily and the computed size to produce a valid
+     * CSS font shorthand.
      */
-    chipFont: string;
+    chipFontWeight: string;
+
+    /**
+     * Font family (with optional stack) for pill chip labels
+     * (e.g. `"'Inter', sans-serif"`).  Must NOT include a size or weight.
+     */
+    chipFontFamily: string;
 };

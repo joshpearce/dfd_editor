@@ -54,9 +54,17 @@ export type LabeledLineStyle = LineStyle & {
     };
 
     /**
-     * Font string for chip labels, e.g. `"600 11px Inter, sans-serif"`.
-     * Sourced from the theme to avoid hardcoding a font family in the face.
+     * Font weight token for chip labels, e.g. `"600"`.
+     * Combined with {@link chipFontFamily} and the computed size to produce a
+     * valid CSS font shorthand: `"<weight> <size>px <family>"`.
      */
-    chipFont: string;
+    chipFontWeight: string;
+
+    /**
+     * Font family (with optional stack) for chip labels, e.g.
+     * `"'Inter', sans-serif"`.  Must NOT include a size or weight — those are
+     * supplied separately so the face can derive the size from chip geometry.
+     */
+    chipFontFamily: string;
 
 };
