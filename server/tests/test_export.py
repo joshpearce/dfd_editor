@@ -2,46 +2,151 @@
 
 from __future__ import annotations
 
-import json
-import pathlib
-
 import pytest
 
 from schema import Diagram
 from transform import DuplicateParentError, InvalidNativeError, to_minimal
 
-_DATA_DIR = pathlib.Path(__file__).parent.parent / "data"
-_EXAMPLE_FILE = _DATA_DIR / "bdf1c563-0a37-41fd-b0e6-d146d2cb49a7.json"
-
 
 # ---------------------------------------------------------------------------
-# 1. Real fixture round-trip
+# 1. Synthetic round-trip
 # ---------------------------------------------------------------------------
 
 
-def test_to_minimal_real_fixture():
-    native = json.loads(_EXAMPLE_FILE.read_text())
+def test_to_minimal_synthetic_fixture():
+    """Round-trip a synthetic native document with bidirectional flow shape."""
+    # Fixed UUIDs for determinism
+    process_guid = "11111111-0000-0000-0000-000000000001"
+    external_guid = "22222222-0000-0000-0000-000000000002"
+    flow_guid = "33333333-0000-0000-0000-000000000003"
+    data_item_guid = "44444444-0000-0000-0000-000000000004"
+    canvas_inst = "55555555-0000-0000-0000-000000000005"
+    p_anchor_0 = "66666666-0000-0000-0000-000000000001"
+    e_anchor_0 = "77777777-0000-0000-0000-000000000001"
+    node1_latch = "88888888-0000-0000-0000-000000000008"
+    node2_latch = "99999999-0000-0000-0000-000000000009"
+    handle_inst = "aaaaaaaa-0000-0000-0000-000000000010"
+
+    # Build complete anchor set (12 anchors per node)
+    p_anchors = {str(angle): f"66666666-0000-{angle:04d}-0000-000000000001" for angle in range(0, 360, 30)}
+    e_anchors = {str(angle): f"77777777-0000-{angle:04d}-0000-000000000001" for angle in range(0, 360, 30)}
+
+    # Build anchor objects list
+    anchor_objects = []
+    for angle in range(0, 360, 30):
+        is_horizontal = angle in (0, 30, 150, 180, 210, 330)
+        anchor_objects.append({
+            "id": "horizontal_anchor" if is_horizontal else "vertical_anchor",
+            "instance": p_anchors[str(angle)],
+            "latches": [node1_latch] if angle == 0 else [],
+        })
+    for angle in range(0, 360, 30):
+        is_horizontal = angle in (0, 30, 150, 180, 210, 330)
+        anchor_objects.append({
+            "id": "horizontal_anchor" if is_horizontal else "vertical_anchor",
+            "instance": e_anchors[str(angle)],
+            "latches": [node2_latch] if angle == 0 else [],
+        })
+
+    native = {
+        "schema": "dfd_v1",
+        "theme": "dark_theme",
+        "objects": [
+            {
+                "id": "dfd",
+                "instance": canvas_inst,
+                "properties": [
+                    ["name", "Test"],
+                    ["description", None],
+                    ["author", None],
+                    ["created", None],
+                    ["data_items", [
+                        [data_item_guid, [["identifier", "item1"], ["name", "Data Item 1"], ["parent", process_guid]]]
+                    ]],
+                ],
+                "objects": [process_guid, external_guid, flow_guid],
+            },
+            {
+                "id": "process",
+                "instance": process_guid,
+                "properties": [
+                    ["name", "Process A"],
+                    ["description", None],
+                    ["trust_level", None],
+                    ["assumptions", []],
+                ],
+                "anchors": p_anchors,
+            },
+            {
+                "id": "external_entity",
+                "instance": external_guid,
+                "properties": [
+                    ["name", "External B"],
+                    ["description", None],
+                    ["entity_type", None],
+                    ["out_of_scope", "false"],
+                ],
+                "anchors": e_anchors,
+            },
+            {
+                "id": "data_flow",
+                "instance": flow_guid,
+                "properties": [
+                    ["name", "My Flow"],
+                    ["data_classification", "confidential"],
+                    ["protocol", "gRPC"],
+                    ["authenticated", "true"],
+                    ["encrypted_in_transit", "true"],
+                    ["node1_src_data_item_refs", [["key1", data_item_guid]]],
+                    ["node2_src_data_item_refs", []],
+                ],
+                "node1": node1_latch,
+                "node2": node2_latch,
+                "handles": [handle_inst],
+            },
+            {
+                "id": "generic_latch",
+                "instance": node1_latch,
+            },
+            {
+                "id": "generic_latch",
+                "instance": node2_latch,
+            },
+            {
+                "id": "generic_handle",
+                "instance": handle_inst,
+            },
+            *anchor_objects,
+        ],
+    }
+
     result = to_minimal(native)
 
     # Must parse as Diagram without error.
     diagram = Diagram(**result)
 
     # At least one node.
-    assert len(diagram.nodes) >= 1
+    assert len(diagram.nodes) >= 2
 
     # meta.name is preserved.
     assert diagram.meta is not None
-    assert diagram.meta.name == "TALA Layout Test"
+    assert diagram.meta.name == "Test"
 
-    # Every data_flow source/target must be a guid present in nodes.
+    # Every data_flow node1/node2 must be a guid present in nodes.
     node_guids = {str(n.guid) for n in diagram.nodes}
     for flow in diagram.data_flows:
-        assert str(flow.source) in node_guids, (
-            f"data_flow {flow.guid}: source {flow.source} not in nodes"
+        assert str(flow.node1) in node_guids, (
+            f"data_flow {flow.guid}: node1 {flow.node1} not in nodes"
         )
-        assert str(flow.target) in node_guids, (
-            f"data_flow {flow.guid}: target {flow.target} not in nodes"
+        assert str(flow.node2) in node_guids, (
+            f"data_flow {flow.guid}: node2 {flow.node2} not in nodes"
         )
+
+    # Check that ref arrays are preserved
+    flow = diagram.data_flows[0]
+    assert len(flow.properties.node1_src_data_item_refs) == 1
+    assert str(flow.properties.node1_src_data_item_refs[0]) == data_item_guid
+    assert len(flow.properties.node2_src_data_item_refs) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +218,7 @@ def test_duplicate_parent_raises():
 
 
 def _native_with_orphan_latch() -> dict:
-    """Craft a native dict where a data_flow's source latch isn't in any anchor."""
+    """Craft a native dict where a data_flow's node1 latch isn't in any anchor."""
     block_guid = "aaaaaaaa-1111-0000-0000-000000000001"
     flow_guid = "aaaaaaaa-1111-0000-0000-000000000002"
     orphan_latch = "aaaaaaaa-1111-0000-0000-000000000003"
@@ -165,9 +270,11 @@ def _native_with_orphan_latch() -> dict:
                     ["protocol", None],
                     ["authenticated", "false"],
                     ["encrypted_in_transit", "false"],
+                    ["node1_src_data_item_refs", []],
+                    ["node2_src_data_item_refs", []],
                 ],
-                "source": orphan_latch,   # not attached to any anchor
-                "target": real_latch,
+                "node1": orphan_latch,  # not attached to any anchor
+                "node2": real_latch,
                 "handles": [handle_guid],
             },
             {
