@@ -307,7 +307,7 @@ describe("DfdValidator — data_item_refs dangling-ref warning (AC5.2, AC5.3)", 
             connect(flow, procA, procB);
 
             // No data items on canvas; add a ref that is dangling by definition
-            addDataItemRef(flow, "some-guid");
+            addDataItemRef(flow, "some-guid", "node1");
 
             setName(procA, "ProcA");
             setName(procB, "ProcB");
@@ -368,8 +368,8 @@ describe("DfdValidator — data_item_refs dangling-ref warning (AC5.2, AC5.3)", 
             connect(flow, procA, procB);
 
             addDataItem(canvas, "valid-guid", procA.instance, "D1", "Valid");
-            addDataItemRef(flow, "valid-guid");
-            addDataItemRef(flow, "dangling-guid");
+            addDataItemRef(flow, "valid-guid", "node1");
+            addDataItemRef(flow, "dangling-guid", "node1");
 
             setName(procA, "ProcA");
             setName(procB, "ProcB");

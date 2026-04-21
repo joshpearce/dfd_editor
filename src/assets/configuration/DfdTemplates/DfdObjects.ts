@@ -210,7 +210,7 @@ export const DfdObjects: DiagramObjectTemplate[] = [
             // Each entry's key is opaque (auto-generated); the value is the
             // data-item guid as a plain string.
             node1_src_data_item_refs: {
-                type: PropertyType.List,
+                type: PropertyType.DataItemRefList,
                 form: { type: PropertyType.String },
                 default: []
             },
@@ -218,7 +218,7 @@ export const DfdObjects: DiagramObjectTemplate[] = [
             // Each entry's key is opaque (auto-generated); the value is the
             // data-item guid as a plain string.
             node2_src_data_item_refs: {
-                type: PropertyType.List,
+                type: PropertyType.DataItemRefList,
                 form: { type: PropertyType.String },
                 default: []
             }

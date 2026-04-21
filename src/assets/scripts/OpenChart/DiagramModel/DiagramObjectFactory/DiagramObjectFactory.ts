@@ -16,7 +16,7 @@ import type {
 } from "../DiagramObject";
 import type {
     AtomicPropertyDescriptors, CanvasTemplate, DiagramObjectTemplate,
-    DiagramSchemaConfiguration, DictionaryPropertyDescriptor,
+    DataItemRefListPropertyDescriptor, DiagramSchemaConfiguration, DictionaryPropertyDescriptor,
     ListPropertyDescriptor, PropertyDescriptor, RootPropertyDescriptor,
     TuplePropertyDescriptor
 } from ".";
@@ -391,6 +391,7 @@ export class DiagramObjectFactory {
                     return this.createDictionaryProperty(id, descriptor, value);
                 }
                 throw new Error(`Invalid JSON entries: '${value}'.`);
+            case PropertyType.DataItemRefList:
             case PropertyType.List:
                 if (value === undefined || Array.isArray(value)) {
                     return this.createListProperty(id, descriptor, value);
@@ -472,7 +473,7 @@ export class DiagramObjectFactory {
      */
     private createListProperty(
         id: string,
-        descriptor: ListPropertyDescriptor,
+        descriptor: ListPropertyDescriptor | DataItemRefListPropertyDescriptor,
         values?: JsonEntries
     ): ListProperty {
         // Resolve value

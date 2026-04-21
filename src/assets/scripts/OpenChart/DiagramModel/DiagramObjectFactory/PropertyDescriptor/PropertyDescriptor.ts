@@ -197,6 +197,24 @@ export type ListPropertyDescriptor = BasePropertyDescriptor<PropertyType.List> &
 };
 
 /**
+ * Data Item Reference List Property Descriptor.
+ * Wire-identical to ListPropertyDescriptor, but distinguished at UI dispatch time.
+ */
+export type DataItemRefListPropertyDescriptor = BasePropertyDescriptor<PropertyType.DataItemRefList> & {
+
+    /**
+     * The list property's type.
+     */
+    form: PropertyDescriptor;
+
+    /**
+     * The property's default value.
+     */
+    default?: [string, any][];
+
+};
+
+/**
  * Tuple Property Descriptor.
  */
 export type TuplePropertyDescriptor = BasePropertyDescriptor<PropertyType.Tuple> & {
@@ -289,9 +307,28 @@ type SimpleDictionaryListPropertyDescriptor = BasePropertyDescriptor<PropertyTyp
 export type PropertyDescriptor
     = AtomicPropertyDescriptors
     | ListPropertyDescriptor
+    | DataItemRefListPropertyDescriptor
     | DictionaryPropertyDescriptor
     | TuplePropertyDescriptor;
 
+
+/**
+ * Simple Data Item Reference List Property Descriptor.
+ * Wire-identical to SimpleListPropertyDescriptor, but distinguished at UI dispatch time.
+ */
+type SimpleDataItemRefListPropertyDescriptor = BasePropertyDescriptor<PropertyType.DataItemRefList> & {
+
+    /**
+     * The list property's type.
+     */
+    form: AtomicPropertyDescriptors;
+
+    /**
+     * The property's default value.
+     */
+    default?: any;
+
+};
 
 /**
  * Simple Property Descriptor:
@@ -300,6 +337,7 @@ export type PropertyDescriptor
 export type SimplePropertyDescriptor
     = AtomicPropertyDescriptors
     | SimpleListPropertyDescriptor
+    | SimpleDataItemRefListPropertyDescriptor
     | SimpleDictionaryPropertyDescriptor
     | SimpleDictionaryListPropertyDescriptor
     | TuplePropertyDescriptor;

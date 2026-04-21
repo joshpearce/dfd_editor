@@ -54,9 +54,9 @@ export function addDataItem(
  *
  * @param line       The data_flow Line to mutate.
  * @param refGuid    The GUID of the data item to reference.
- * @param direction  Which direction: "node1" for node1_src_data_item_refs, "node2" for node2_src_data_item_refs. Defaults to "node1".
+ * @param direction  Which direction: "node1" for node1_src_data_item_refs, "node2" for node2_src_data_item_refs.
  */
-export function addDataItemRef(line: Line, refGuid: string, direction: "node1" | "node2" = "node1"): void {
+export function addDataItemRef(line: Line, refGuid: string, direction: "node1" | "node2"): void {
     const propName = direction === "node1" ? "node1_src_data_item_refs" : "node2_src_data_item_refs";
     const refsProp = line.properties.value.get(propName);
     if (!(refsProp instanceof ListProperty)) {
