@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -174,14 +174,41 @@ class DataFlowProps(_Base):
     protocol: str | None = None
     authenticated: StrictBool = False
     encrypted: StrictBool = False
-    data_item_refs: list[UUID] = []
+    node1_src_data_item_refs: list[UUID] = []
+    node2_src_data_item_refs: list[UUID] = []
 
 
 class DataFlow(_Base):
     guid: UUID
     properties: DataFlowProps
-    source: UUID
-    target: UUID
+    node1: UUID
+    node2: UUID
+
+    @model_validator(mode="after")
+    def _canonicalize_and_self_loop(self) -> "DataFlow":
+        """Enforce canonical order and reject self-loops.
+
+        If node1 == node2, raise ValueError (AC1.6).
+        If node1 > node2 (UUID string comparison), swap both endpoint
+        and the two ref arrays to achieve canonical storage (AC1.2).
+        """
+        if self.node1 == self.node2:
+            raise ValueError("self-loop disallowed: node1 must differ from node2")
+
+        # Canonicalize: ensure node1 < node2 by UUID string comparison
+        if str(self.node1) > str(self.node2):
+            # Swap endpoints
+            self.node1, self.node2 = self.node2, self.node1
+            # Swap ref arrays to preserve semantic direction
+            (
+                self.properties.node1_src_data_item_refs,
+                self.properties.node2_src_data_item_refs,
+            ) = (
+                self.properties.node2_src_data_item_refs,
+                self.properties.node1_src_data_item_refs,
+            )
+
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -220,3 +247,37 @@ class Diagram(_Base):
     containers: list[Container] = []
     data_flows: list[DataFlow] = []
     data_items: list[DataItem] = []
+
+    @model_validator(mode="after")
+    def _validate_flow_refs_and_endpoints(self) -> "Diagram":
+        """Validate that flows reference valid nodes and data items.
+
+        After per-flow canonicalisation:
+        - Check that node1 and node2 refer to existing nodes (AC1.8).
+        - Check that data_item_refs in both directions exist (AC1.7).
+        """
+        data_item_guids = {di.guid for di in self.data_items}
+        node_guids = {n.guid for n in self.nodes}
+
+        for flow in self.data_flows:
+            # AC1.8: endpoints must exist
+            if flow.node1 not in node_guids or flow.node2 not in node_guids:
+                raise ValueError(
+                    f"flow {flow.guid}: node1/node2 must refer to an existing canvas object"
+                )
+
+            # AC1.7: node1_src_data_item_refs direction
+            for ref in flow.properties.node1_src_data_item_refs:
+                if ref not in data_item_guids:
+                    raise ValueError(
+                        f"flow {flow.guid}: node1_src_data_item_refs contains unknown data item {ref}"
+                    )
+
+            # AC1.7: node2_src_data_item_refs direction
+            for ref in flow.properties.node2_src_data_item_refs:
+                if ref not in data_item_guids:
+                    raise ValueError(
+                        f"flow {flow.guid}: node2_src_data_item_refs contains unknown data item {ref}"
+                    )
+
+        return self
