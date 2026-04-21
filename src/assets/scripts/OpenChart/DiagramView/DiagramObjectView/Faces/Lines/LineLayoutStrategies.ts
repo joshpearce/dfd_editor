@@ -394,10 +394,12 @@ function runMultiElbowLayout(
     }
 
     if (hasNode2Src) {
-        // Cap offset at node1 end (symmetric)
-        const a2 = Math.atan2(t[3] - t[1], t[2] - t[0]);
-        t[0] += Math.cos(a2) * (face.style.capSize >> 1);
-        t[1] += Math.sin(a2) * (face.style.capSize >> 1);
+        // Cap offset at node1 end (symmetric with node2, using Math.sign for axis-aligned deltas)
+        if (t[0] === t[2]) {
+            t[1] += Math.sign(t[1] - t[3]) * (face.style.capSize >> 1);
+        } else {
+            t[0] += Math.sign(t[0] - t[2]) * (face.style.capSize >> 1);
+        }
     }
 
     // Set vertices
