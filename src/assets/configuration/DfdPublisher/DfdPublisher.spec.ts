@@ -110,8 +110,8 @@ describe("DfdPublisher", () => {
         });
     });
 
-    describe("publish — flow data_item_refs", () => {
-        it("projects data_item_refs onto the edge when refs are present", () => {
+    describe("publish — bidirectional flow data_item_refs", () => {
+        it("projects both ref arrays when node1 direction is populated", () => {
             const file = new DiagramModelFile(factory);
             const canvas = file.canvas;
 
@@ -127,17 +127,19 @@ describe("DfdPublisher", () => {
 
             const refGuid1 = "item-guid-1";
             const refGuid2 = "item-guid-2";
-            addDataItemRef(flow, refGuid1);
-            addDataItemRef(flow, refGuid2);
+            addDataItemRef(flow, refGuid1, "node1");
+            addDataItemRef(flow, refGuid2, "node1");
 
             const output = JSON.parse(publisher.publish(file));
 
             const edge = output.edges.find((e: Record<string, unknown>) => e.id === flow.instance);
             expect(edge).toBeDefined();
-            expect(edge.data_item_refs).toEqual([refGuid1, refGuid2]);
+            // Both arrays always present (AC2.4)
+            expect(edge.node1_src_data_item_refs).toEqual([refGuid1, refGuid2]);
+            expect(edge.node2_src_data_item_refs).toEqual([]);
         });
 
-        it("omits data_item_refs from edge when refs list is empty", () => {
+        it("emits both arrays always, even when both are empty (AC2.4)", () => {
             const file = new DiagramModelFile(factory);
             const canvas = file.canvas;
 
@@ -154,12 +156,42 @@ describe("DfdPublisher", () => {
 
             const edge = output.edges.find((e: Record<string, unknown>) => e.id === flow.instance);
             expect(edge).toBeDefined();
-            expect(edge.data_item_refs).toBeUndefined();
+            // Both arrays present even when empty
+            expect(edge.node1_src_data_item_refs).toEqual([]);
+            expect(edge.node2_src_data_item_refs).toEqual([]);
+        });
+
+        it("emits correct arrays when both directions are populated", () => {
+            const file = new DiagramModelFile(factory);
+            const canvas = file.canvas;
+
+            const procA = factory.createNewDiagramObject("process", Block);
+            const procB = factory.createNewDiagramObject("process", Block);
+            const flow  = factory.createNewDiagramObject("data_flow", Line);
+
+            canvas.addObject(procA);
+            canvas.addObject(procB);
+            canvas.addObject(flow);
+            connect(flow, procA, procB);
+
+            const refA = "guid-a";
+            const refB = "guid-b";
+            const refC = "guid-c";
+            addDataItemRef(flow, refA, "node1");
+            addDataItemRef(flow, refB, "node1");
+            addDataItemRef(flow, refC, "node2");
+
+            const output = JSON.parse(publisher.publish(file));
+
+            const edge = output.edges.find((e: Record<string, unknown>) => e.id === flow.instance);
+            expect(edge).toBeDefined();
+            expect(edge.node1_src_data_item_refs).toEqual([refA, refB]);
+            expect(edge.node2_src_data_item_refs).toEqual([refC]);
         });
     });
 
-    describe("publish — combined canvas data_items + flow data_item_refs", () => {
-        it("publishes expected minimal shape when both are populated", () => {
+    describe("publish — combined canvas data_items + bidirectional flow refs", () => {
+        it("publishes expected minimal shape when both data_items and flow refs are populated", () => {
             const file = new DiagramModelFile(factory);
             const canvas = file.canvas;
 
@@ -178,7 +210,8 @@ describe("DfdPublisher", () => {
             addDataItem(canvas, item1Guid, procA.instance, "D1", "Token", undefined, "secret");
             addDataItem(canvas, item2Guid, procB.instance, "D2", "Receipt");
 
-            addDataItemRef(flow, item1Guid);
+            addDataItemRef(flow, item1Guid, "node1");
+            addDataItemRef(flow, item2Guid, "node2");
 
             const output = JSON.parse(publisher.publish(file));
 
@@ -195,9 +228,10 @@ describe("DfdPublisher", () => {
                 classification: "secret"
             });
 
-            // flow data_item_refs
+            // flow bidirectional ref arrays
             const edge = output.edges.find((e: Record<string, unknown>) => e.id === flow.instance);
-            expect(edge.data_item_refs).toEqual([item1Guid]);
+            expect(edge.node1_src_data_item_refs).toEqual([item1Guid]);
+            expect(edge.node2_src_data_item_refs).toEqual([item2Guid]);
         });
     });
 
