@@ -3,7 +3,7 @@ import type { Font, FontDescriptor } from "@OpenChart/Utilities";
 import type { EnumerationDescriptor } from "./EnumerationDescriptor";
 import type {
     BranchBlockStyle, CanvasStyle, DiagramTheme, DictionaryBlockStyle,
-    Enumeration, LabeledLineStyle, LineStyle, PointStyle, TextBlockStyle
+    Enumeration, LineStyle, PointStyle, TextBlockStyle
 } from "@OpenChart/DiagramView";
 
 /**
@@ -44,14 +44,6 @@ export type PointStyleConfiguration = ToConfiguration<PointStyle>;
  * Line Style Configuration
  */
 export type LineStyleConfiguration = ToConfiguration<LineStyle>;
-
-/**
- * Labeled Line Style Configuration
- *
- * Snake-case configuration form of {@link LabeledLineStyle}, used in theme
- * design maps (e.g. `FaceType.LabeledDynamicLine` entries).
- */
-export type LabeledLineStyleConfiguration = ToConfiguration<LabeledLineStyle>;
 
 /**
  * Canvas Style Configuration

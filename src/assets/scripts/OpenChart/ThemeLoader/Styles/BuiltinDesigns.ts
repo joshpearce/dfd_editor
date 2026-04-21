@@ -10,9 +10,6 @@ export const darkDataPill = {
 } as const;
 export const darkPillRowVerticalPaddingUnits = 1;
 export const darkPillSpacingUnits = 1;
-/** Plate colours for the dark theme: near-canvas-background fill, low-contrast border. */
-export const darkPlateFill   = "#1a1a1aee";
-export const darkPlateStroke = "#ffffff14";
 
 // ─── Light / Blog theme pill tokens ──────────────────────────────────────────
 // Fills chosen so each clears WCAG AA normal-text 4.5:1 against #ffffff:
@@ -27,9 +24,6 @@ export const lightDataPill = {
 } as const;
 export const lightPillRowVerticalPaddingUnits = 1;
 export const lightPillSpacingUnits = 1;
-/** Plate colours for the light theme: near-white fill, hairline border. */
-export const lightPlateFill   = "#ffffffee";
-export const lightPlateStroke = "#00000014";
 
 /**
  * Dark Style
@@ -212,11 +206,7 @@ export const DarkStyle = new StyleGenerator({
             color: "rgba(0,0,0,.4)",
             offset: [3, 3]
         }
-    },
-
-    plate: { fill: darkPlateFill, stroke: darkPlateStroke },
-    chipFontWeight: "600",
-    chipFontFamily: "'Inter', sans-serif"
+    }
 
 });
 
@@ -401,11 +391,7 @@ export const LightStyle = new StyleGenerator({
             color: "rgba(0,0,0,0.25)",
             offset: [3, 3]
         }
-    },
-
-    plate: { fill: lightPlateFill, stroke: lightPlateStroke },
-    chipFontWeight: "600",
-    chipFontFamily: "'Inter', sans-serif"
+    }
 
 });
 
@@ -591,10 +577,6 @@ export const BlogStyle = new StyleGenerator({
             color: "rgba(0,0,0,0.25)",
             offset: [3, 3]
         }
-    },
-
-    plate: { fill: lightPlateFill, stroke: lightPlateStroke },
-    chipFontWeight: "600",
-    chipFontFamily: "'Inter', sans-serif"
+    }
 
 });

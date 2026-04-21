@@ -5,7 +5,6 @@ import type {
     DictionaryBlockStyle,
     Enumeration,
     GroupStyle,
-    LabeledLineStyle,
     LineStyle,
     PointStyle,
     TextBlockStyle
@@ -104,21 +103,6 @@ export type LineDesign = BaseFaceDesign<FaceType.DynamicLine> & {
 };
 
 /**
- * Labeled Line Design
- *
- * Used for {@link LabeledDynamicLine}; extends the base line design with
- * pill-rendering tokens for data-item chips drawn at the line midpoint.
- */
-export type LabeledLineDesign = BaseFaceDesign<FaceType.LabeledDynamicLine> & {
-
-    /**
-     * The line's style (includes pill tokens).
-     */
-    style: LabeledLineStyle;
-
-};
-
-/**
  * Point Design
  */
 export type PointDesign = BaseFaceDesign<
@@ -172,7 +156,6 @@ export type FaceDesign
     = BranchBlockDesign
     | CanvasDesign
     | DictionaryBlockDesign
-    | LabeledLineDesign
     | LineDesign
     | GroupDesign
     | PointDesign

@@ -14,7 +14,6 @@ export type TypeToTemplate = {
     [FaceType.BranchBlock]: BlockTemplate;
     [FaceType.DictionaryBlock]: BlockTemplate;
     [FaceType.DynamicLine]: LineTemplate;
-    [FaceType.LabeledDynamicLine]: LineTemplate;
     [FaceType.HandlePoint]: HandleTemplate;
     [FaceType.LatchPoint]: LatchTemplate;
     [FaceType.Group]: GroupTemplate;

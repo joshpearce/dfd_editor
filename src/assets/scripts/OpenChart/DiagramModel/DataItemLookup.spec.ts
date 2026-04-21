@@ -2,7 +2,8 @@
  * @file DataItemLookup.spec.ts
  *
  * Unit tests for the DataItemLookup helper module.
- * Covers dataItemsForParent, resolveRefs, pillLabel, and the truncate helper.
+ * Covers dataItemsForParent, readDataItemRefs, readDataItems,
+ * and narrowClassification.
  *
  * Schema and addDataItem helper are inlined here to avoid importing from
  * src/assets/configuration/ (OpenChart must not depend on configuration).
@@ -11,12 +12,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
     dataItemsForParent,
-    resolveRefs,
     readDataItemRefs,
     readDataItems,
-    pillLabel,
-    buildParentNameIndex,
-    truncate,
     narrowClassification
 } from "./DataItemLookup";
 import type { DataItem } from "./DataItemLookup";
@@ -197,140 +194,6 @@ describe("dataItemsForParent", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: resolveRefs
-// ---------------------------------------------------------------------------
-
-describe("resolveRefs", () => {
-
-    beforeEach(() => {
-        factory = new DiagramObjectFactory(dfdSchema);
-        canvas = new DiagramModelFile(factory).canvas;
-    });
-
-    it("returns empty array for empty guid list", () => {
-        addDataItem(canvas, ITEM_A1_GUID, NODE_A, "D1", "Token");
-        const result = resolveRefs(canvas, []);
-        expect(result).toHaveLength(0);
-    });
-
-    it("maps a guid list to items in the supplied order", () => {
-        addDataItem(canvas, ITEM_A1_GUID, NODE_A, "D1", "Token");
-        addDataItem(canvas, ITEM_A2_GUID, NODE_A, "D2", "Email");
-        addDataItem(canvas, ITEM_B1_GUID, NODE_B, "D3", "Cert");
-
-        const result = resolveRefs(canvas, [ITEM_B1_GUID, ITEM_A1_GUID]);
-        expect(result).toHaveLength(2);
-        expect(result[0].guid).toBe(ITEM_B1_GUID);
-        expect(result[1].guid).toBe(ITEM_A1_GUID);
-    });
-
-    it("silently skips unknown guids", () => {
-        addDataItem(canvas, ITEM_A1_GUID, NODE_A, "D1", "Token");
-        const result = resolveRefs(canvas, ["unknown-guid", ITEM_A1_GUID]);
-        expect(result).toHaveLength(1);
-        expect(result[0].guid).toBe(ITEM_A1_GUID);
-    });
-
-    it("returns empty array when all guids are unknown", () => {
-        const result = resolveRefs(canvas, ["ghost-1", "ghost-2"]);
-        expect(result).toHaveLength(0);
-    });
-
-    it("returns empty array for empty canvas with non-empty guid list", () => {
-        const result = resolveRefs(canvas, [ITEM_A1_GUID]);
-        expect(result).toHaveLength(0);
-    });
-
-});
-
-// ---------------------------------------------------------------------------
-// Tests: pillLabel
-// ---------------------------------------------------------------------------
-
-describe("pillLabel", () => {
-
-    beforeEach(() => {
-        factory = new DiagramObjectFactory(dfdSchema);
-        canvas = new DiagramModelFile(factory).canvas;
-    });
-
-    it("returns bare identifier when viewedFrom equals the item parent (owner view)", () => {
-        addDataItem(canvas, ITEM_A1_GUID, NODE_A, "D1", "Token");
-        const item = dataItemsForParent(canvas, NODE_A)[0];
-
-        const label = pillLabel(item, NODE_A, canvas);
-        expect(label).toBe("D1");
-    });
-
-    it("returns qualified label when viewedFrom differs from item parent (non-owner view)", () => {
-        // Add the parent process block to the canvas so resolveParentName can find it.
-        const block = factory.createNewDiagramObject("process", Block);
-        // Override the block's name property.
-        (block.properties.value.get("name") as StringProperty).setValue("Proc A");
-        canvas.addObject(block);
-
-        addDataItem(canvas, ITEM_A1_GUID, block.instance, "D1", "Token");
-        const item = dataItemsForParent(canvas, block.instance)[0];
-
-        const label = pillLabel(item, NODE_B, canvas);
-        expect(label).toBe("Proc A.D1");
-    });
-
-    it("truncates parent name to 12 chars with ellipsis for non-owner view", () => {
-        const block = factory.createNewDiagramObject("process", Block);
-        // Name exactly 13 chars — should be truncated to 12 + "…".
-        (block.properties.value.get("name") as StringProperty).setValue("VeryLongProc1");
-        canvas.addObject(block);
-
-        addDataItem(canvas, ITEM_A1_GUID, block.instance, "D1", "Token");
-        const item = dataItemsForParent(canvas, block.instance)[0];
-
-        const label = pillLabel(item, NODE_B, canvas);
-        expect(label).toBe("VeryLongProc….D1");
-    });
-
-    it("does NOT truncate parent name that is exactly 12 chars", () => {
-        const block = factory.createNewDiagramObject("process", Block);
-        // Exactly 12 chars — no truncation.
-        (block.properties.value.get("name") as StringProperty).setValue("ExactlyTwelv");
-        canvas.addObject(block);
-
-        addDataItem(canvas, ITEM_A1_GUID, block.instance, "D1", "Token");
-        const item = dataItemsForParent(canvas, block.instance)[0];
-
-        const label = pillLabel(item, NODE_B, canvas);
-        expect(label).toBe("ExactlyTwelv.D1");
-    });
-
-    it("falls back to raw guid for non-owner view when parent node not found", () => {
-        // "unknown-node-guid" is 17 chars → truncated to first 12 + "…"
-        const unknownParent = "unknown-node-guid";
-        addDataItem(canvas, ITEM_A1_GUID, unknownParent, "D1", "Token");
-        const item = dataItemsForParent(canvas, unknownParent)[0];
-
-        const label = pillLabel(item, NODE_B, canvas);
-        // "unknown-node" is 12 chars → no truncation-within-truncation.
-        expect(label).toContain(".D1");
-        expect(label.startsWith("unknown-node….D1")).toBe(true);
-    });
-
-    it("null viewedFromGuid always produces the qualified form (no-owner view)", () => {
-        // Passing null means "no owner" — always qualify, even if the GUID would
-        // accidentally match (not possible with null, but the contract is explicit).
-        addDataItem(canvas, ITEM_A1_GUID, NODE_A, "D1", "Token");
-        const item = dataItemsForParent(canvas, NODE_A)[0];
-
-        // null → qualified form (parent not in canvas object tree → raw guid prefix)
-        const label = pillLabel(item, null, canvas);
-        expect(label).toContain("D1");
-        // Should NOT be bare "D1" — must be qualified
-        expect(label).not.toBe("D1");
-        expect(label).toMatch(/^.+\.D1$/);
-    });
-
-});
-
-// ---------------------------------------------------------------------------
 // Tests: readDataItemRefs
 // ---------------------------------------------------------------------------
 
@@ -389,113 +252,6 @@ describe("readDataItemRefs", () => {
         const flow = factory.createNewDiagramObject("data_flow", Line);
         canvas.addObject(flow);
         expect(readDataItemRefs(flow.properties)).toHaveLength(0);
-    });
-
-});
-
-// ---------------------------------------------------------------------------
-// Tests: truncate
-// ---------------------------------------------------------------------------
-
-describe("truncate", () => {
-
-    it("returns string unchanged when shorter than maxLength", () => {
-        expect(truncate("Hello", 10)).toBe("Hello");
-    });
-
-    it("returns string unchanged when equal to maxLength", () => {
-        expect(truncate("HelloWorld", 10)).toBe("HelloWorld");
-    });
-
-    it("truncates string longer than maxLength and appends ellipsis", () => {
-        expect(truncate("HelloWorldExtra", 10)).toBe("HelloWorld…");
-    });
-
-    it("truncates at boundary 12 (spec case: parent name)", () => {
-        expect(truncate("VeryLongProc1", 12)).toBe("VeryLongProc…");
-    });
-
-    it("does not truncate exactly 12 chars", () => {
-        expect(truncate("ExactlyTwelv", 12)).toBe("ExactlyTwelv");
-    });
-
-    it("returns empty string for empty input", () => {
-        expect(truncate("", 12)).toBe("");
-    });
-
-    it("returns only ellipsis when maxLength is 0", () => {
-        expect(truncate("abc", 0)).toBe("…");
-    });
-
-    it("counts emoji as single code points (surrogate-pair safety)", () => {
-        // "👋" is one code point but two UTF-16 code units; it must not be
-        // split.  A 5-char string where char 1 is an emoji: "A👋BCD" (5 code
-        // points) truncated to 4 yields "A👋BC…".
-        const str = "A\uD83D\uDC4BBCD"; // A + 👋 + BCD = 5 code points
-        expect(truncate(str, 4)).toBe("A👋BC…");
-        // Confirm the full string is not truncated at exactly 5 code points.
-        expect(truncate(str, 5)).toBe("A👋BCD");
-    });
-
-});
-
-// ---------------------------------------------------------------------------
-// Tests: buildParentNameIndex (I3)
-// ---------------------------------------------------------------------------
-
-describe("buildParentNameIndex", () => {
-
-    beforeEach(() => {
-        factory = new DiagramObjectFactory(dfdSchema);
-        canvas = new DiagramModelFile(factory).canvas;
-    });
-
-    it("returns an empty map for a canvas with no objects", () => {
-        const index = buildParentNameIndex(canvas);
-        expect(index.size).toBe(0);
-    });
-
-    it("indexes a block's name by its instance guid", () => {
-        const block = factory.createNewDiagramObject("process", Block);
-        (block.properties.value.get("name") as StringProperty).setValue("My Process");
-        canvas.addObject(block);
-
-        const index = buildParentNameIndex(canvas);
-        expect(index.get(block.instance)).toBe("My Process");
-    });
-
-    it("index-based pillLabel produces identical results to the eager traversal path", () => {
-        const block = factory.createNewDiagramObject("process", Block);
-        (block.properties.value.get("name") as StringProperty).setValue("Proc Alpha");
-        canvas.addObject(block);
-
-        addDataItem(canvas, ITEM_A1_GUID, block.instance, "D1", "Token");
-        addDataItem(canvas, ITEM_A2_GUID, block.instance, "D2", "Email");
-
-        const items = dataItemsForParent(canvas, block.instance);
-
-        // Eager path (no index)
-        const eagerLabels = items.map(item => pillLabel(item, NODE_B, canvas));
-
-        // Fast path (with precomputed index)
-        const index = buildParentNameIndex(canvas);
-        const fastLabels  = items.map(item => pillLabel(item, NODE_B, canvas, index));
-
-        expect(fastLabels).toEqual(eagerLabels);
-    });
-
-    it("falls back to item.parent when guid is not in the index", () => {
-        // An item whose parent is not an object in the canvas.
-        addDataItem(canvas, ITEM_A1_GUID, "ghost-guid", "D1", "Token");
-        const item = dataItemsForParent(canvas, "ghost-guid")[0];
-
-        const index = buildParentNameIndex(canvas);
-        // With index: not found → uses item.parent as raw guid fallback.
-        const fastLabel  = pillLabel(item, NODE_B, canvas, index);
-        // Eager: resolveParentName also falls back to raw guid.
-        const eagerLabel = pillLabel(item, NODE_B, canvas);
-
-        expect(fastLabel).toBe(eagerLabel);
     });
 
 });

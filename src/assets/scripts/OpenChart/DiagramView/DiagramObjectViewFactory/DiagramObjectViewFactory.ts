@@ -5,7 +5,7 @@ import {
 import {
     AnchorPoint, AnchorView, BlockView, BranchBlock,
     CanvasView, DictionaryBlock, DotGridCanvas, DynamicLine,
-    GroupFace, GroupView, HandlePoint, HandleView, LabeledDynamicLine,
+    GroupFace, GroupView, HandlePoint, HandleView,
     LatchPoint, LatchView, LineGridCanvas, LineView, TextBlock
 } from "../DiagramObjectView";
 import type { FaceDesign } from "./FaceDesign";
@@ -196,7 +196,6 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                 return object;
 
             case FaceType.DynamicLine:
-            case FaceType.LabeledDynamicLine:
                 // Assert template
                 this.assertTemplateMatchesFace(template, design.type);
                 // Create object
@@ -271,9 +270,6 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
             case FaceType.DynamicLine:
                 face = new DynamicLine(design.style, grid);
                 return new LineView(template.name, instance, attrs, props, face);
-            case FaceType.LabeledDynamicLine:
-                face = new LabeledDynamicLine(design.style, grid);
-                return new LineView(template.name, instance, attrs, props, face);
             case FaceType.Group:
                 face = new GroupFace(design.style);
                 return new GroupView(template.name, instance, attrs, props, face);
@@ -329,7 +325,6 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     return;
                 }
             case FaceType.DynamicLine:
-            case FaceType.LabeledDynamicLine:
                 if (type === DiagramObjectType.Line) {
                     return;
                 }
@@ -403,10 +398,6 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     break;
                 case FaceType.DynamicLine:
                     face = new DynamicLine(design.style, grid);
-                    object.replaceFace(face);
-                    break;
-                case FaceType.LabeledDynamicLine:
-                    face = new LabeledDynamicLine(design.style, grid);
                     object.replaceFace(face);
                     break;
                 case FaceType.Group: {

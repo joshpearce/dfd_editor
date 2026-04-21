@@ -1,6 +1,6 @@
 # OpenChart (Diagram Engine — Forked)
 
-Last verified: 2026-04-20
+Last verified: 2026-04-21
 
 ## Purpose
 
@@ -17,7 +17,7 @@ has been abandoned; treat this directory as first-party code.
 - **Exposes**: `DiagramObjectType` (7 core types — Canvas, Block, Line,
   Group, Anchor, Latch, Handle); `DiagramSchemaConfiguration`; the Face
   system (`DictionaryBlock`, `BranchBlock`, `TextBlock`, `DynamicLine`,
-  `LabeledDynamicLine`, `DotGridCanvas`/`LineGridCanvas`, `GroupFace`,
+  `DotGridCanvas`/`LineGridCanvas`, `GroupFace`,
   `AnchorPoint`/`LatchPoint`/`HandlePoint`); `DiagramEditor` commands +
   interface plugins; `AutomaticLayoutEngine` (sync); `NewAutoLayoutEngine`
   (async, implements `AsyncDiagramLayoutEngine`, takes a `LayoutSource`
@@ -29,7 +29,7 @@ has been abandoned; treat this directory as first-party code.
   (sync interface) and `AsyncDiagramLayoutEngine` (async interface);
   `computeFitCamera` (viewport-fit helper used by `MoveCameraToObjects`);
   `DataItemLookup` helpers (`dataItemsForParent`, `readDataItemRefs`,
-  `resolveRefs`, `pillLabel`, `hashDataItems`, `truncate`, `DataItem` type)
+  `hashDataItems`, `narrowClassification`, `DataItem` type)
   from `DiagramModel/DataItemLookup.ts` — pure model helpers, no DOM/View
   imports; `faceCanvasLookup.findCanvas` shared helper for walking a view's
   parent chain to the nearest `Canvas` ancestor.
@@ -78,10 +78,8 @@ has been abandoned; treat this directory as first-party code.
   `DiagramLayoutEngine/` (incl. `GroupBoundsEngine` and
   `NewAutoLayoutEngine/` — the async TALA/D2 engine), style-aware
   `GroupFace` (dashed / translucent), `FitCamera.ts` (pure viewport-fit
-  math); `DiagramObjectView/Faces/Lines/LabeledDynamicLine.ts` — extends
-  `DynamicLine` to render an axis-aligned data-item pill strip at the line
-  midpoint; `DiagramObjectView/Faces/faceCanvasLookup.ts` — shared
-  `findCanvas` helper used by both line and block faces.
+  math); `DiagramObjectView/Faces/faceCanvasLookup.ts` — shared
+  `findCanvas` helper used by block faces.
 - `DiagramEditor/` — commands, `SynchronousCommandProcessor`,
   `AutosaveController`, `InterfacePlugins/PowerEditPlugin/` (incl.
   `ObjectMovers/` — Block / Group / Generic / Latch Movers) and

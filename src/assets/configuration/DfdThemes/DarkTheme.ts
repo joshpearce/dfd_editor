@@ -70,9 +70,9 @@ const DfdObjects: DesignMap = {
         style: DarkStyle.DictionaryBlock({ head: Colors.DarkThemeGray })
     },
     data_flow: {
-        type: FaceType.LabeledDynamicLine,
+        type: FaceType.DynamicLine,
         attributes: Alignment.Grid,
-        style: DarkStyle.LabeledLine()
+        style: DarkStyle.Line()
     },
     trust_boundary: {
         type: FaceType.Group,
