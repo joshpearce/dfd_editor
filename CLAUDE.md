@@ -1,6 +1,6 @@
 # dfd_editor
 
-Last verified: 2026-04-20
+Last verified: 2026-04-21
 
 Browser-based Data Flow Diagram (DFD) editor. Scaffolded from MITRE's
 Apache-2.0 [attack-flow](https://github.com/center-for-threat-informed-defense/attack-flow)
@@ -61,8 +61,12 @@ is an async layout engine used for coord-less imported diagrams. It serializes
 the canvas to D2, POSTs to `/api/layout`, and re-parses the returned TALA SVG to
 place blocks/groups. `d2` with the TALA plugin must be on the server's `PATH`;
 without it, `/api/layout` returns 502 rather than failing at startup. Line
-endpoints are then rebound via an `AnchorStrategy` (default `"geometric"`;
-`"tala"` and `"none"` also supported — see the engine source).
+endpoints are then rebound via an `AnchorStrategy` (default `"tala"`, which
+uses TALA's own edge endpoints + polyline bend to pick anchor faces and steer
+the handle; `"geometric"` and `"none"` also supported — see the engine source).
+After a `loadFileFromServer` call triggers auto-layout (i.e. the stored file
+had no `layout`), the result is PUT back to the server so subsequent opens
+skip TALA and reuse the stable positions.
 
 ## Project Structure
 
@@ -91,7 +95,8 @@ endpoints are then rebound via an `AnchorStrategy` (default `"geometric"`;
 - `src/components/`, `src/stores/` — Vue UI and Pinia stores.
 - `src/App.vue`, `src/main.ts` — entry points.
 - `server/` — Flask backend + `data/` persistence directory.
-- `docs/` — design notes and phase plans (human-authored; see below).
+- `docs/` — forward-looking design / requirements notes (human-authored;
+  see "Boundaries" below).
 - `tools/` — build/dev tooling.
 - `public/`, `dist/` — static assets and build output.
 
@@ -105,9 +110,8 @@ endpoints are then rebound via an `AnchorStrategy` (default `"geometric"`;
   the Flask server's `/api/diagrams` endpoints (see `server/` and
   `src/assets/scripts/api/DfdApiClient.ts`). Server save/load is the default
   file surface (`1e5a7af feat(files): make server save/load the default`); the
-  recovery bank is a fallback only. `docs/getting-started.md` describes an
-  upstream `?src=<url>` query parameter, but that path is not currently wired
-  in this fork.
+  recovery bank is a fallback only. An upstream `?src=<url>` query parameter
+  is not wired in this fork.
 - Per-domain context lives in sibling `CLAUDE.md` files: `server/CLAUDE.md`,
   `src/assets/configuration/CLAUDE.md`, and
   `src/assets/scripts/OpenChart/CLAUDE.md`. Prefer updating those over
@@ -116,21 +120,19 @@ endpoints are then rebound via an `AnchorStrategy` (default `"geometric"`;
 ## Boundaries
 
 - `src/assets/scripts/OpenChart/` — **our fork**, not upstream-verbatim.
-  Since the scaffold commit it has gained ~316 files of changes (trust-
-  boundary integration reaches deep into the model, view, and editor layers).
-  Edits here are expected and precedented. Note: `docs/getting-started.md`
-  describes an initial intent to keep OpenChart untouched; that intent was
-  abandoned.
+  Since the scaffold commit it has gained a large body of changes (trust-
+  boundary integration, TALA auto-layout, data-item modeling) reaching
+  deep into the model, view, and editor layers. Edits here are expected
+  and precedented.
 - `src/assets/configuration/Dfd*/` — primary place to change schema, theme,
   persistence, or validation behavior.
 - `server/data/` — user diagram storage. Do not hand-edit; do not commit.
 - `node_modules/`, `dist/`, `package-lock.json` — generated, never hand-edit.
-- `docs/` — read for context. Phase plans (`trust-boundary-phase-*.md`,
-  `trust-boundary-integration-plan.md`, `flask-backend-plan.md`,
-  `tala-layout-integration-plan.md`, `tala-layout-integration-notes.md`,
-  `auto-layout-boundary-overlap-plan.md`,
-  `auto-layout-connector-anchoring-plan.md`,
-  `data-items-on-canvas-plan.md`) are historical records of
-  completed work; treat as background, not as current-state documentation.
+- `docs/` — forward-looking requirements and pre-plan notes only
+  (historical phase plans have been purged). Currently just
+  `flow-schema-overhaul-requirements.md`, which describes a proposed
+  bidirectional `Flow` replacement for the current directional `DataFlow`
+  — that work has not landed, so treat it as a design sketch, not
+  current-state documentation.
 - `src/assets/scripts/StixToAttackFlow/` — upstream vestige; safe to ignore
   but don't delete without confirming no stray imports.

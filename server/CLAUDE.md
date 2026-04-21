@@ -1,14 +1,13 @@
 # Flask Backend
 
-Last verified: 2026-04-20
+Last verified: 2026-04-21
 
 ## Purpose
-Hosts DFD diagram files for the browser editor: the "API creates diagram,
-user edits, user saves" workflow described in `docs/flask-backend-plan.md`.
-Runs as a separate process from the Vite dev server. (Note: an upstream
-`?src=<url>` query-param path is described in `docs/getting-started.md` but
-is not wired up in this fork — this server's HTTP endpoints are the working
-persistence surface.)
+Hosts DFD diagram files for the browser editor: "API creates diagram,
+user edits, user saves." Runs as a separate process from the Vite dev
+server. (Note: an upstream `?src=<url>` query-param path is not wired up
+in this fork — this server's HTTP endpoints are the working persistence
+surface.)
 
 ## Contracts
 - **Exposes** — HTTP endpoints defined in `app.py`:

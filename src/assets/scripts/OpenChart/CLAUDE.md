@@ -7,10 +7,9 @@ Last verified: 2026-04-21
 Our forked diagram engine. Originated as a verbatim copy of
 `center-for-threat-informed-defense/attack-flow`'s
 `src/attack_flow_builder/src/assets/scripts/OpenChart/`, then modified
-extensively to support DFD-specific trust-boundary and editing features
-(316 files / 32.6k insertions since the scaffold commit). The original
-intent to "track upstream as-is" described in `docs/getting-started.md`
-has been abandoned; treat this directory as first-party code.
+extensively to support DFD-specific trust-boundary, layout, and editing
+features. The original intent to "track upstream as-is" has been
+abandoned; treat this directory as first-party code.
 
 ## Contracts
 
@@ -23,14 +22,17 @@ has been abandoned; treat this directory as first-party code.
   (async, implements `AsyncDiagramLayoutEngine`, takes a `LayoutSource`
   callback at construction so no HTTP client is imported here) plus its
   siblings `D2Bridge` (canvas ↔ D2 text + TALA-SVG parsing) and
-  `AnchorRebind` (`pickCardinalAnchor` / `rebindLatchToAnchor` — line
-  endpoint rebinding after layout); `AnchorStrategy` (`"none"` /
-  `"geometric"` / `"tala"`, default `"geometric"`); `DiagramLayoutEngine`
-  (sync interface) and `AsyncDiagramLayoutEngine` (async interface);
-  `computeFitCamera` (viewport-fit helper used by `MoveCameraToObjects`);
-  `DataItemLookup` helpers (`dataItemsForParent`, `readDataItemRefs`,
-  `hashDataItems`, `narrowClassification`, `DataItem` type)
-  from `DiagramModel/DataItemLookup.ts` — pure model helpers, no DOM/View
+  `AnchorRebind` (`pickCardinalAnchor` / `pickNearestAnchor` /
+  `rebindLatchToAnchor` — line endpoint rebinding after layout);
+  `AnchorStrategy` (`"none"` / `"geometric"` / `"tala"`, default
+  `"tala"`); `DiagramLayoutEngine` (sync interface) and
+  `AsyncDiagramLayoutEngine` (async interface); `computeFitCamera`
+  (viewport-fit helper used by `MoveCameraToObjects`); `DataItemLookup`
+  helpers (`readDataItems`, `dataItemsForParent`, `readDataItemRefs`,
+  `hashDataItems`, `narrowClassification`, `DataItem` /
+  `PillClassificationKey` types, plus `CHIP_PAD_X_OF_HEIGHT` /
+  `CHIP_BASELINE_OF_HEIGHT` shared chip-geometry constants) from
+  `DiagramModel/DataItemLookup.ts` — pure model helpers, no DOM/View
   imports; `faceCanvasLookup.findCanvas` shared helper for walking a view's
   parent chain to the nearest `Canvas` ancestor.
 - **Guarantees**: Group is a first-class model object (not an overlay)
@@ -99,17 +101,36 @@ has been abandoned; treat this directory as first-party code.
   `src/assets/configuration/` via theme `FaceDesign` coupling
   (`ace7b29`).
 - Mover tests are colocated under
-  `DiagramEditor/InterfacePlugins/PowerEditPlugin/ObjectMovers/`;
-  Phase D Step 1–5 commits are the authoritative reference for
-  expected Mover interactions.
-- `docs/trust-boundary-phase-{a,b,c,d}.md` document the rationale for
-  the bulk of fork-level engine changes.
+  `DiagramEditor/InterfacePlugins/PowerEditPlugin/ObjectMovers/`; the
+  trust-boundary commits that introduced each Mover (see `git log` for
+  `test(trust-boundary): Phase D Step …`) are the authoritative reference
+  for expected Mover interactions. The phase plan docs that originally
+  accompanied them have been purged from `docs/`.
 - `GroupBoundsEngine` lives under `DiagramView/DiagramLayoutEngine/`,
   not under `DiagramEditor/` — it's a view-layer concern.
 - `NewAutoLayoutEngine` must stay HTTP-free: it takes a `LayoutSource`
   callback at construction rather than importing `src/assets/scripts/api/`.
   The Vite-side wiring that injects the callback lives in the Application
   layer (`DiagramModelEditor` / file-management commands).
-- Default `AnchorStrategy` is `"geometric"` as of `de99bd9`; the `"tala"`
-  path depends on parseable TALA SVG and falls back to `"geometric"`
-  per-line when edge data is missing.
+- Default `AnchorStrategy` is `"tala"` as of `6734431` (reverting
+  `de99bd9`'s brief experiment with `"geometric"`): TALA's SVG edge
+  endpoints drive anchor selection via `pickNearestAnchor` (12 anchors
+  per block — 4 face midpoints + 8 quarters) and `pickPolylineElbow`
+  additionally steers the line's single handle onto TALA's bend point.
+  The `"tala"` path falls back to `"geometric"` per-line when edge data
+  is missing or the nearest TALA edge is more than one block
+  half-dimension away from either endpoint.
+- The TALA handle-steering pass sets `PositionSetByUser.True` on the
+  handle before calling `moveTo`; without it, the next
+  `DynamicLine.calculateLayout` tick would snap the handle back to the
+  source/target midpoint and discard TALA's elbow (see commit
+  `a410dc2`). The engine inlines the bitmask (`0b11000`) rather than
+  importing from `ViewAttributes.ts` to avoid dragging the
+  `@OpenChart/Utilities` barrel (and its canvas-dependent FontStore)
+  into the engine layer.
+- `LineLayoutStrategies.ts` two-elbow layouts apply cap offsets toward
+  the handle (via `axisCapTowards`), not toward the opposite endpoint.
+  This matters when TALA rebinds both source and target anchors to the
+  same face (both left, both top, etc.) — the old `oneAxisCapSpace`
+  would push the source's first segment back through its own block
+  instead of out past the face.

@@ -26,7 +26,7 @@ This directory is what turns the upstream attack-flow builder scaffold into a DF
 - **Boundary**: do not import from `src/components/`, `src/stores/`, or Vue code. This directory is declarative config consumed by those layers, not the other way around.
 
 ## Key Decisions
-- `DictionaryBlock` is the default face for Process / External Entity / Data Store so their enum/list properties (trust level, storage type, PII flags, etc.) render as structured key/value rows rather than free text. See `docs/getting-started.md` §3.1 / §4.
+- `DictionaryBlock` is the default face for Process / External Entity / Data Store so their enum/list properties (trust level, storage type, PII flags, etc.) render as structured key/value rows rather than free text.
 - Trust boundary is a `DiagramObjectType.Group` (not an overlay) so the semantic graph's `trustBoundaryAncestors` and edge `crossings` come from real containment — the validator and publisher depend on this.
 - Both themes key their `designs` map by template `name`, so adding a template requires adding a matching design in every theme.
 - Publisher emits a flat `{ nodes, edges }` JSON (not the internal view export) — that's the stable on-disk contract consumers see.
