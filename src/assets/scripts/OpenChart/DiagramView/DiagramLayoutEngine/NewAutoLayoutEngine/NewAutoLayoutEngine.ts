@@ -15,29 +15,6 @@ import type { AsyncDiagramLayoutEngine } from "../DiagramLayoutEngine";
  */
 const MAX_MISSING_DISPLAYED = 10;
 
-///////////////////////////////////////////////////////////////////////////////
-//  Canvas layout-refresh helpers  ////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-/**
- * Extension of {@link SerializableCanvas} for canvases that also expose a
- * `calculateLayout` method (i.e. `CanvasView`).  Kept internal to this
- * module so `D2Bridge`'s functional-core interfaces stay mutation-free.
- */
-interface LayoutableCanvas extends SerializableCanvas {
-    calculateLayout(): void;
-}
-
-/**
- * Returns `true` when `canvas` exposes `calculateLayout` as a callable
- * method.  Used to refresh block/group face dimensions before serialization
- * without importing `CanvasView` directly (which would create a circular
- * dependency).
- */
-function isLayoutable(canvas: SerializableCanvas): canvas is LayoutableCanvas {
-    return typeof (canvas as unknown as { calculateLayout?: unknown }).calculateLayout === "function";
-}
-
 /**
  * A function that accepts a D2 source string and returns a Promise that
  * resolves to the TALA-rendered SVG string.  Injected at construction time so
@@ -874,28 +851,6 @@ export class NewAutoLayoutEngine implements AsyncDiagramLayoutEngine {
             throw new Error(
                 "NewAutoLayoutEngine: objects[0] is not a canvas — expected SerializableCanvas surface"
             );
-        }
-
-        // 0. Ensure block/group faces reflect their current content.
-        //
-        //    DictionaryBlock's pill row (data_items) is folded into the block's
-        //    rendered height only after `calculateLayout` runs with the block
-        //    attached to the canvas.  On the initial import path some blocks may
-        //    have had their first `calculateLayout` run before attachment, so
-        //    `findCanvas(view)` returned null and `dataItemsForParent` returned [].
-        //    That leaves `face.width` / `face.height` stale — smaller than the
-        //    rendered size — and TALA serializes the pre-pill-row dimensions.
-        //    Forcing a canvas-wide recalc here ensures TALA sees the current
-        //    rendered size for every block.
-        //
-        //    `CanvasView.calculateLayout` recursively invalidates children; each
-        //    child face short-circuits via a content hash when nothing is dirty,
-        //    so the overhead when there are no data items is O(N) null checks.
-        //
-        //    The guard is a duck-typed check so we don't import `CanvasView`
-        //    (which would create a circular dependency inside OpenChart).
-        if (isLayoutable(canvas)) {
-            canvas.calculateLayout();
         }
 
         // 1. Serialize to D2
