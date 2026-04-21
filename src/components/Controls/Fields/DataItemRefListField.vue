@@ -153,11 +153,17 @@ export default defineComponent({
     /**
      * Watch for context prop changes and re-subscribe to endpoint name changes.
      * This ensures we pick up new node references when the context is replaced.
+     * Uses (newVal, oldVal) signature to properly unsubscribe from old context
+     * before subscribing to the new one, preventing listener leaks.
      */
     context: {
-      handler() {
-        this.unsubscribeFromEndpoints();
-        this.subscribeToEndpoints();
+      handler(newVal, oldVal) {
+        if (oldVal) {
+          this.unsubscribeFromProperties(oldVal);
+        }
+        if (newVal) {
+          this.subscribeToProperties(newVal);
+        }
       },
       deep: false
     }
@@ -166,43 +172,42 @@ export default defineComponent({
     /**
      * Subscribe to endpoint property changes using RootProperty.subscribe.
      * This bypasses Vue's reactivity limitations with the non-Vue OpenChart model.
+     * Takes explicit context parameter to support both mounted() and watch handler calls.
      */
-    subscribeToEndpoints(): void {
-      if (!this.context) return;
-
+    subscribeToProperties(context: DataItemRefFieldContext): void {
       const handler = () => {
         // Increment counter to invalidate computed property cache, triggering re-render
         this.updateCounter++;
       };
 
-      this.node1SubscriptionId = `node1-${Date.now()}-${Math.random()}`;
-      this.node2SubscriptionId = `node2-${Date.now()}-${Math.random()}`;
+      this.node1SubscriptionId = crypto.randomUUID();
+      this.node2SubscriptionId = crypto.randomUUID();
 
       // Subscribe to the node1View's properties (RootProperty)
-      const node1Props = this.context.node1View.properties as RootProperty;
+      const node1Props = context.node1View.properties as RootProperty;
       if (typeof node1Props.subscribe === "function") {
         node1Props.subscribe(this.node1SubscriptionId, handler);
       }
 
       // Subscribe to the node2View's properties (RootProperty)
-      const node2Props = this.context.node2View.properties as RootProperty;
+      const node2Props = context.node2View.properties as RootProperty;
       if (typeof node2Props.subscribe === "function") {
         node2Props.subscribe(this.node2SubscriptionId, handler);
       }
     },
 
     /**
-     * Unsubscribe from all endpoint property changes.
+     * Unsubscribe from endpoint property changes for a specific context.
+     * Takes explicit context parameter so it can unsubscribe from old context
+     * values during prop swaps (preventing listener leaks).
      */
-    unsubscribeFromEndpoints(): void {
-      if (!this.context) return;
-
-      const node1Props = this.context.node1View.properties as RootProperty;
+    unsubscribeFromProperties(context: DataItemRefFieldContext): void {
+      const node1Props = context.node1View.properties as RootProperty;
       if (this.node1SubscriptionId && typeof node1Props.unsubscribe === "function") {
         node1Props.unsubscribe(this.node1SubscriptionId);
       }
 
-      const node2Props = this.context.node2View.properties as RootProperty;
+      const node2Props = context.node2View.properties as RootProperty;
       if (this.node2SubscriptionId && typeof node2Props.unsubscribe === "function") {
         node2Props.unsubscribe(this.node2SubscriptionId);
       }
@@ -262,10 +267,14 @@ export default defineComponent({
     }
   },
   mounted() {
-    this.subscribeToEndpoints();
+    if (this.context) {
+      this.subscribeToProperties(this.context);
+    }
   },
   unmounted() {
-    this.unsubscribeFromEndpoints();
+    if (this.context) {
+      this.unsubscribeFromProperties(this.context);
+    }
   }
 });
 </script>
