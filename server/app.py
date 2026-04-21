@@ -89,7 +89,13 @@ def import_diagram():
     try:
         native = to_native(body)
     except ValidationError as e:
-        return jsonify({"error": "validation failed", "details": e.errors(include_url=False)}), 400
+        # Filter out the 'ctx' field from errors, which contains non-serializable objects
+        errors = e.errors(include_url=False)
+        cleaned_errors = [
+            {k: v for k, v in err.items() if k != 'ctx'}
+            for err in errors
+        ]
+        return jsonify({"error": "validation failed", "details": cleaned_errors}), 400
     except DuplicateParentError as e:
         return jsonify({"error": "duplicate parent", "detail": str(e)}), 400
     diagram_id = str(uuid.uuid4())
