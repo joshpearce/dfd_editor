@@ -43,18 +43,17 @@ surface.)
 - **Schema contract** — the minimal import/export format is codified by pydantic
   v2 models in `schema.py`; enum parity with `DfdObjects.ts` is enforced by
   `tests/test_drift.py`. `schema.py` is the single source of truth for what a
-  valid minimal doc looks like. As of the `data-items-on-canvas` branch:
-  - `DataFlowProps` carries an optional `data_item_refs: list[UUID]` (default `[]`).
+  valid minimal doc looks like. As of the bidirectional-flow phase:
+  - `DataFlow` now uses `node1: UUID` / `node2: UUID` (renamed from `source`/`target`), with a per-flow `model_validator(mode="after")` that rejects self-loops (`node1 == node2`) and silently swaps endpoints + ref arrays into canonical (`str(node1) < str(node2)`) order.
+  - `DataFlowProps` carries `node1_src_data_item_refs: list[UUID]` and `node2_src_data_item_refs: list[UUID]` (both `Field(default_factory=list)`).
+  - `Diagram` has a diagram-level `model_validator(mode="after")` that rejects (a) flow endpoints referring to a non-existent canvas object and (b) dangling refs in either direction, reporting which direction key carried the bad ref.
   - `DataItem` is a top-level pydantic model (`guid`, `parent`, `identifier`,
     `name`; optional `description`, `classification`).
   - `Diagram` has `data_items: list[DataItem]` (default `[]`).
-  - Import (`to_native`) wires `data_item_refs` as an OpenChart
-    `ListProperty<StringProperty>` wire shape (`[[syntheticKey, guidStr], ...]`)
-    and embeds `data_items` in the canvas `properties` list as a
-    `ListProperty<DictionaryProperty>` structure (`[[guid, [[k,v],...]], ...]`).
-  - Export (`to_minimal`) reads `data_items` back from the canvas properties
-    list and emits them only when non-empty; `data_item_refs` flows through the
-    normal `_FLOW_PROP_ORDER`-driven loop.
+  - `to_native` wires both ref arrays as `ListProperty<StringProperty>` wire shapes under the new keys, emitted unconditionally even when empty so AC2.4 holds (empty-both-sides flows survive round-trip).
+  - `to_minimal` reads both keys back and always emits them on `DataFlowProps` (default `[]`).
+  - `data_items` on `Diagram` continues to be a top-level `ListProperty<DictionaryProperty>` in canvas properties — unchanged by the bidirectional rework.
+  - Old-shape payloads (`source` / `target` / `data_item_refs` on a flow) are rejected with HTTP 400 because `_Base` uses `ConfigDict(extra="forbid")`.
 - **Expects** — PUT bodies must be valid JSON. Payload schema is owned by the
   frontend (`DfdFilePreprocessor` and friends); this server does not validate
   or interpret diagram contents beyond reading an optional top-level `name`.
@@ -91,7 +90,7 @@ surface.)
 
 ## Key Files
 - `app.py` — the HTTP surface (8 routes, ~145 lines)
-- `schema.py` — pydantic v2 models for the minimal DFD format; includes `DataItem`, `DataFlowProps.data_item_refs`, and `Diagram.data_items`
+- `schema.py` — pydantic v2 models for the minimal DFD format; includes `DataItem`, `DataFlowProps.node1_src_data_item_refs`, `DataFlowProps.node2_src_data_item_refs`, and `Diagram.data_items`
 - `transform.py` — native `dfd_v1` ↔ minimal format converter; `_build_canvas_props` now accepts `data_items`; `_data_item_to_pairs` serializes items; `_extract_canvas_data_items` reads them back
 - `tests/` — pytest suites covering endpoints, schema, import/export, and enum-drift vs. `DfdObjects.ts`; `tests/test_data_items.py` covers data-item round-trip end-to-end
 - `requirements.txt` — pinned floor versions of flask / flask-cors (plus `pydantic` for schema validation)
