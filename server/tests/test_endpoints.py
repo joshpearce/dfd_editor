@@ -21,6 +21,8 @@ _TRUST_BOUNDARY_GUID = "44444444-0000-0000-0000-000000000004"
 _FLOW_1_GUID = "66666666-0000-0000-0000-000000000006"
 _DATA_ITEM_1_GUID = "bbbbbbbb-0000-0000-0000-000000000001"
 _DATA_ITEM_2_GUID = "bbbbbbbb-0000-0000-0000-000000000002"
+_DATA_ITEM_3_GUID = "bbbbbbbb-0000-0000-0000-000000000003"
+_DATA_ITEM_4_GUID = "bbbbbbbb-0000-0000-0000-000000000004"
 
 # ---------------------------------------------------------------------------
 # Canonical minimal doc (node1 < node2, both ref arrays populated)
@@ -71,8 +73,8 @@ _MINIMAL_DOC: dict = {
                 "name": "Write Flow",
                 "authenticated": True,
                 "encrypted": True,
-                "node1_src_data_item_refs": [_DATA_ITEM_1_GUID],
-                "node2_src_data_item_refs": [_DATA_ITEM_2_GUID],
+                "node1_src_data_item_refs": [_DATA_ITEM_1_GUID, _DATA_ITEM_3_GUID],
+                "node2_src_data_item_refs": [_DATA_ITEM_2_GUID, _DATA_ITEM_4_GUID],
             },
         },
     ],
@@ -91,6 +93,20 @@ _MINIMAL_DOC: dict = {
             "name": "Session Token",
             "description": "Short-lived auth token",
             "classification": "secret",
+        },
+        {
+            "guid": _DATA_ITEM_3_GUID,
+            "parent": _PROCESS_GUID,
+            "identifier": "D3",
+            "name": "Audit Event",
+            "classification": "internal",
+        },
+        {
+            "guid": _DATA_ITEM_4_GUID,
+            "parent": _DATA_STORE_GUID,
+            "identifier": "D4",
+            "name": "Cache Entry",
+            "classification": "internal",
         },
     ],
 }
@@ -141,9 +157,10 @@ class TestImportThenExportRoundTrip:
     """Verify HTTP round-trip: POST /api/diagrams/import → GET /api/diagrams/<id>/export."""
 
     def test_round_trip_canonical_order(self, client):
-        """POST minimal with node1 < node2 and both ref arrays populated.
+        """POST minimal with node1 < node2 and multi-element ref arrays.
 
         Verifies AC1.1: Flow with node1 < node2 is stored unchanged.
+        Also verifies AC2.2: identical UUID lists in identical order through the HTTP round-trip.
         """
         post_resp = client.post(
             "/api/diagrams/import",
@@ -158,6 +175,20 @@ class TestImportThenExportRoundTrip:
 
         exported = get_resp.get_json()
         assert _canonicalize(exported) == _canonicalize(_MINIMAL_DOC)
+
+        # AC2.2: order-sensitive equality on both ref arrays (list equality is order-preserving).
+        posted_flow = _MINIMAL_DOC["data_flows"][0]
+        exported_flow = next(
+            f for f in exported["data_flows"] if f["guid"] == posted_flow["guid"]
+        )
+        assert (
+            exported_flow["properties"]["node1_src_data_item_refs"]
+            == posted_flow["properties"]["node1_src_data_item_refs"]
+        )
+        assert (
+            exported_flow["properties"]["node2_src_data_item_refs"]
+            == posted_flow["properties"]["node2_src_data_item_refs"]
+        )
 
     def test_round_trip_reversed_order_gets_canonicalised(self, client):
         """POST minimal with node1 > node2, assert endpoints and ref arrays are swapped.
