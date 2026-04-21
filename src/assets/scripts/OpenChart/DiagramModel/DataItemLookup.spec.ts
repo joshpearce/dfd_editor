@@ -2,7 +2,7 @@
  * @file DataItemLookup.spec.ts
  *
  * Unit tests for the DataItemLookup helper module.
- * Covers dataItemsForParent, readDataItemRefs, readDataItems,
+ * Covers dataItemsForParent, readFlowRefs, readDataItems,
  * and narrowClassification.
  *
  * Schema and addDataItem helper are inlined here to avoid importing from

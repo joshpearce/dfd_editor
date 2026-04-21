@@ -303,7 +303,10 @@ describe("DataItemRefListField", () => {
         expect(wrapper.emitted("execute")).toBeTruthy();
         expect(wrapper.emitted("execute")!.length).toBeGreaterThan(0);
 
-        const emittedCmd = wrapper.emitted("execute")![0][0] as { property: unknown; subproperty: StringProperty };
+        const emittedCmd = wrapper.emitted("execute")![0][0] as {
+            property: unknown;
+            subproperty: StringProperty;
+        };
         expect(emittedCmd.constructor.name).toBe("DeleteSubproperty");
         expect(emittedCmd.property).toStrictEqual(mockRefListProperty);
 
