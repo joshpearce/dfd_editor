@@ -117,13 +117,13 @@ function makeGroup(
 
 /**
  * Builds a minimal SerializableLine stub.
- * Pass `null` for sourceObject or targetObject to simulate a floating latch.
+ * Pass `null` for node1Object or node2Object to simulate a floating latch.
  */
 function makeLine(
-    sourceObject: { instance: string } | null,
-    targetObject: { instance: string } | null
+    node1Object: { instance: string } | null,
+    node2Object: { instance: string } | null
 ): SerializableLine {
-    return { sourceObject, targetObject };
+    return { node1Object, node2Object };
 }
 
 /**
@@ -475,12 +475,12 @@ describe("serializeToD2", () => {
         });
 
         it("skips a line that throws when accessing endpoints (I1 — null-safe resolution)", () => {
-            // Simulate a LineView where sourceObject getter throws (null latch).
+            // Simulate a LineView where node1Object getter throws (null latch).
             const throwingLine: SerializableLine = {
-                get sourceObject(): { instance: string } | null {
-                    throw new Error("No source latch assigned.");
+                get node1Object(): { instance: string } | null {
+                    throw new Error("No node1 latch assigned.");
                 },
-                targetObject: { instance: "tgt-id" }
+                node2Object: { instance: "tgt-id" }
             };
             const tgt    = makeBlock("tgt-id", "", 100, 50);
             const canvas = makeCanvas([tgt], [], [throwingLine]);

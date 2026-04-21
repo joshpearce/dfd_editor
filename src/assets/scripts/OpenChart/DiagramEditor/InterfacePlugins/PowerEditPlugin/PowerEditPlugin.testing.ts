@@ -332,8 +332,8 @@ function buildLineFromSpec(
 ): LineView {
     const template = spec.template ?? DEFAULT_LINE_TEMPLATE;
     const line = factory.createNewDiagramObject(template, LineView);
-    line.source.moveTo(spec.source[0], spec.source[1]);
-    line.target.moveTo(spec.target[0], spec.target[1]);
+    line.node1.moveTo(spec.source[0], spec.source[1]);
+    line.node2.moveTo(spec.target[0], spec.target[1]);
     // top-level canvas.calculateLayout() recurses into children; this call
     // ensures the line has valid geometry before being added to the canvas.
     line.calculateLayout();

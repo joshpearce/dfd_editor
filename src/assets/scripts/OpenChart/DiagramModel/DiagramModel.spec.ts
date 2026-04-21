@@ -29,8 +29,8 @@ describe("DiagramModelFile", () => {
         it("creates valid line from schema", () => {
             const line = factory.createNewDiagramObject("dynamic_line", Line);
             expect(line).toBeInstanceOf(Line);
-            expect(line.source).toBeInstanceOf(Latch);
-            expect(line.target).toBeInstanceOf(Latch);
+            expect(line.node1).toBeInstanceOf(Latch);
+            expect(line.node2).toBeInstanceOf(Latch);
         });
         it("creates valid block from schema", () => {
             const block = factory.createNewDiagramObject("generic_block", Block);

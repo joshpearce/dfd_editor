@@ -280,9 +280,9 @@ export class DiagramObjectFactory {
             case DiagramObjectType.Line:
                 object = this.createBaseDiagramObject(template, Line);
                 // Attach latches
-                const { source, target } = template.latch_template;
-                object.source = this.createNewDiagramObject(source, Latch);
-                object.target = this.createNewDiagramObject(target, Latch);
+                const { node1, node2 } = template.latch_template;
+                object.node1 = this.createNewDiagramObject(node1, Latch);
+                object.node2 = this.createNewDiagramObject(node2, Latch);
                 break;
 
             default:

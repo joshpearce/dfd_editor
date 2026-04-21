@@ -33,8 +33,8 @@ export class AutomaticLayoutEngine implements DiagramLayoutEngine {
         for (const line of objects[0]._lines) {
             if (line instanceof LineView) {
                 lines.add(line);
-                if (line.source) { line.source.calculateLayout(); }
-                if (line.target) { line.target.calculateLayout(); }
+                if (line.node1) { line.node1.calculateLayout(); }
+                if (line.node2) { line.node2.calculateLayout(); }
             }
         }
 
@@ -77,10 +77,10 @@ export class AutomaticLayoutEngine implements DiagramLayoutEngine {
         });
 
         lines.forEach(line => {
-            if (!line.source || !line.target) { return; }
+            if (!line.node1 || !line.node2) { return; }
 
-            const source = line.source as LatchView;
-            const target = line.target as LatchView;
+            const source = line.node1 as LatchView;
+            const target = line.node2 as LatchView;
 
             if (source && target && source.anchor?.parent && target.anchor?.parent) {
                 const sourceNode = source.anchor.parent;

@@ -19,33 +19,33 @@ export class RouteLinesThroughBlock extends GroupCommand {
     constructor(group: CanvasView | GroupView, block: BlockView, lines: LineView[]) {
         super();
         for (const line of lines) {
-            if (line.sourceObject === block || line.targetObject === block) {
+            if (line.node1Object === block || line.node2Object === block) {
                 continue;
             }
-            const oSource = line.source.anchor;
-            const oTarget = line.target.anchor;
+            const oSource = line.node1.anchor;
+            const oTarget = line.node2.anchor;
             const [nTarget, nSource] = this.getBestAnchors(block, line);
             // Connect source
             if (oTarget && !oSource) {
-                this.do(new AttachLatchToAnchor(line.source, nSource));
-                this.do(new MoveObjectsTo(line.source, nSource.x, nSource.y));
+                this.do(new AttachLatchToAnchor(line.node1, nSource));
+                this.do(new MoveObjectsTo(line.node1, nSource.x, nSource.y));
             }
             // Connect target
             else if (!oTarget && oSource) {
-                this.do(new AttachLatchToAnchor(line.target, nTarget));
-                this.do(new MoveObjectsTo(line.target, nTarget.x, nTarget.y));
+                this.do(new AttachLatchToAnchor(line.node2, nTarget));
+                this.do(new MoveObjectsTo(line.node2, nTarget.x, nTarget.y));
             }
             // Route line
             else if (oTarget && oSource) {
-                this.do(new AttachLatchToAnchor(line.target, nTarget));
-                this.do(new MoveObjectsTo(line.target, nTarget.x, nTarget.y));
+                this.do(new AttachLatchToAnchor(line.node2, nTarget));
+                this.do(new MoveObjectsTo(line.node2, nTarget.x, nTarget.y));
                 const clone = line.clone();
                 const cloneContainer = findLowestCommonContainer(block, oTarget.parent as DiagramObjectView) ?? group;
                 this.do(new AddObjectToGroup(clone, cloneContainer));
-                this.do(new MoveObjectsTo(clone.source, nSource.x, nSource.y));
-                this.do(new MoveObjectsTo(clone.target, oTarget.x, oTarget.y));
-                this.do(new AttachLatchToAnchor(clone.source, nSource));
-                this.do(new AttachLatchToAnchor(clone.target, oTarget));
+                this.do(new MoveObjectsTo(clone.node1, nSource.x, nSource.y));
+                this.do(new MoveObjectsTo(clone.node2, oTarget.x, oTarget.y));
+                this.do(new AttachLatchToAnchor(clone.node1, nSource));
+                this.do(new AttachLatchToAnchor(clone.node2, oTarget));
                 // Update layout
                 // TODO: Run layout engine
             }
@@ -65,15 +65,15 @@ export class RouteLinesThroughBlock extends GroupCommand {
         const b1 = block.face.boundingBox;
         let target: AnchorView | undefined = undefined;
         let source: AnchorView | undefined = undefined;
-        if (!line.source.face.boundingBox.inside(b1)) {
-            target = this.getNearestAnchor(block, line.source);
+        if (!line.node1.face.boundingBox.inside(b1)) {
+            target = this.getNearestAnchor(block, line.node1);
         } else {
-            target = this.getBestAnchor(block, line.source, line.target);
+            target = this.getBestAnchor(block, line.node1, line.node2);
         }
-        if (!line.target.face.boundingBox.inside(b1)) {
-            source = this.getNearestAnchor(block, line.target);
+        if (!line.node2.face.boundingBox.inside(b1)) {
+            source = this.getNearestAnchor(block, line.node2);
         } else {
-            source = this.getBestAnchor(block, line.target, line.source);
+            source = this.getBestAnchor(block, line.node2, line.node1);
         }
         return [target, source];
     }

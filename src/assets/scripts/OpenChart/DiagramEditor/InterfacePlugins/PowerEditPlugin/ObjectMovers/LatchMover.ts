@@ -119,8 +119,8 @@ export class LatchMover extends ObjectMover {
         // connector. This prevents an invisible zero-length line from being
         // committed when the user accidentally clicks a contact point.
         if (l.length === 1 && !l[0].isLinked()) {
-            const dx = l[0].x - line.source.x;
-            const dy = l[0].y - line.source.y;
+            const dx = l[0].x - line.node1.x;
+            const dy = l[0].y - line.node1.y;
             if (Math.hypot(dx, dy) < LatchMover.MIN_CONNECTOR_LENGTH) {
                 this._discardStream = true;
                 return;
@@ -131,8 +131,8 @@ export class LatchMover extends ObjectMover {
         // Reparenting happens once at release (not mid-drag) so the stream stays
         // clean; the final bound state is used, not intermediate hover binds.
         const canvas = this.plugin.editor.file.canvas;
-        const src = line.sourceObject;
-        const tgt = line.targetObject;
+        const src = line.node1Object;
+        const tgt = line.node2Object;
         const target =
             src && tgt
                 ? (findLowestCommonContainer(src, tgt) ?? canvas)

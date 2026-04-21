@@ -65,7 +65,7 @@ const minimalTemplates: DiagramObjectTemplate[] = [
         name: "data_flow",
         type: DiagramObjectType.Line,
         handle_template: "generic_handle",
-        latch_template: { source: "generic_latch", target: "generic_latch" },
+        latch_template: { node1: "generic_latch", node2: "generic_latch" },
         properties: {
             name: { type: PropertyType.String, is_representative: true },
             node1_src_data_item_refs: {

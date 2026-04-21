@@ -52,11 +52,11 @@ export abstract class LineFace extends DiagramFace {
      */
     public moveBy(dx: number, dy: number): void {
         // Move children
-        if (!this.view.source.isLinked()) {
-            this.view.source.face.moveBy(dx, dy);
+        if (!this.view.node1.isLinked()) {
+            this.view.node1.face.moveBy(dx, dy);
         }
-        if (!this.view.target.isLinked()) {
-            this.view.target.face.moveBy(dx, dy);
+        if (!this.view.node2.isLinked()) {
+            this.view.node2.face.moveBy(dx, dy);
         }
         for (const handle of this.view.handles.values()) {
             handle.face.moveBy(dx, dy);
@@ -71,8 +71,8 @@ export abstract class LineFace extends DiagramFace {
      *  True if the line is anchored on either end, false otherwise.
      */
     protected isAnchored() {
-        const src = this.view.source.isLinked();
-        const trg = this.view.target.isLinked();
+        const src = this.view.node1.isLinked();
+        const trg = this.view.node2.isLinked();
         return src || trg;
     }
 
@@ -90,8 +90,8 @@ export abstract class LineFace extends DiagramFace {
     public calculateLayout(): boolean {
         const views: DiagramObjectView[] = [
             ...this.view.handles,
-            this.view.source,
-            this.view.target
+            this.view.node1,
+            this.view.node2
         ];
         // Calculate bounding box
         this.calculateBoundingBoxFromViews(views);
@@ -113,8 +113,8 @@ export abstract class LineFace extends DiagramFace {
     public renderDebugTo(ctx: CanvasRenderingContext2D, region: ViewportRegion): boolean {
         const isRendered = super.renderDebugTo(ctx, region);
         if (isRendered) {
-            this.view.source.renderDebugTo(ctx, region);
-            this.view.target.renderDebugTo(ctx, region);
+            this.view.node1.renderDebugTo(ctx, region);
+            this.view.node2.renderDebugTo(ctx, region);
             for (const object of this.view.handles) {
                 object.renderDebugTo(ctx, region);
             }

@@ -37,8 +37,8 @@ const dfdSchema: DiagramSchemaConfiguration = {
 function connect(line: Line, blockA: Block, blockB: Block): void {
     const srcAnchor = [...blockA.anchors.values()][0];
     const tgtAnchor = [...blockB.anchors.values()][0];
-    line.source.link(srcAnchor);
-    line.target.link(tgtAnchor);
+    line.node1.link(srcAnchor);
+    line.node2.link(tgtAnchor);
 }
 
 // ---------------------------------------------------------------------------

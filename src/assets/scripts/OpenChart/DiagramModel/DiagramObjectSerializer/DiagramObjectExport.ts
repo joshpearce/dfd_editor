@@ -75,14 +75,14 @@ export type GroupExport = GenericObjectExport & {
 export type LineExport = GenericObjectExport & {
 
     /**
-     * The line's source latch.
+     * The line's node1 latch.
      */
-    source?: string;
+    node1?: string;
 
     /**
-     * The line's target latch.
+     * The line's node2 latch.
      */
-    target?: string;
+    node2?: string;
 
     /**
      * The line's handles.

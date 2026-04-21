@@ -153,8 +153,8 @@ export const DfdObjects: DiagramObjectTemplate[] = [
         type: DiagramObjectType.Line,
         handle_template: "generic_handle",
         latch_template: {
-            source: "generic_latch",
-            target: "generic_latch"
+            node1: "generic_latch",
+            node2: "generic_latch"
         },
         properties: {
             name: {

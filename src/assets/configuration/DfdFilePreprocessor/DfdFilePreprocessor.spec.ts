@@ -112,8 +112,8 @@ function makeNativeFile(overrides: {
             {
                 id: "data_flow",
                 instance: "flow-1",
-                source: "latch-src",
-                target: "latch-tgt",
+                node1: "latch-src",
+                node2: "latch-tgt",
                 handles: [],
                 properties: flowProps as [string, unknown][]
             },

@@ -149,9 +149,9 @@ export class DynamicLine extends LineFace {
      *  True if the layout changed, false otherwise.
      */
     public calculateLayout(): boolean {
-        const src = this.view.source;
+        const src = this.view.node1;
         const hdl = this.view.handles[0];
-        const trg = this.view.target;
+        const trg = this.view.node2;
         if (!src || !hdl || !trg) {
             // Bail if object incomplete
             return false;

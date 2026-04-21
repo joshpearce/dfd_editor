@@ -22,9 +22,9 @@ export function runHorizontalTwoElbowLayout(
     face: GenericLineInternalState
 ) {
     const
-        src = view.source,
+        src = view.node1,
         hdl = view.handles[0],
-        trg = view.target,
+        trg = view.node2,
         sx = src.x,
         sy = src.y,
         tx = trg.x,
@@ -93,9 +93,9 @@ export function runVerticalTwoElbowLayout(
     face: GenericLineInternalState
 ) {
     const
-        src = view.source,
+        src = view.node1,
         hdl = view.handles[0],
-        trg = view.target,
+        trg = view.node2,
         sx = src.x,
         sy = src.y,
         tx = trg.x,
@@ -167,9 +167,9 @@ export function runHorizontalElbowLayout(
     face: GenericLineInternalState
 ) {
     const
-        src = view.source,
+        src = view.node1,
         hdl = view.handles[0],
-        trg = view.target,
+        trg = view.node2,
         sx = src.x,
         sy = src.y,
         tx = trg.x,
@@ -229,9 +229,9 @@ export function runVerticalElbowLayout(
     face: GenericLineInternalState
 ) {
     const
-        src = view.source,
+        src = view.node1,
         hdl = view.handles[0],
-        trg = view.target,
+        trg = view.node2,
         sx = src.x,
         sy = src.y,
         tx = trg.x,

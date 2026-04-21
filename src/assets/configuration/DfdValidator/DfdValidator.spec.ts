@@ -39,8 +39,8 @@ const dfdSchema: DiagramSchemaConfiguration = {
 function connect(line: Line, src: Block, trg: Block): void {
     const srcAnchor = [...src.anchors.values()][0];
     const trgAnchor = [...trg.anchors.values()][0];
-    line.source.link(srcAnchor);
-    line.target.link(trgAnchor);
+    line.node1.link(srcAnchor);
+    line.node2.link(trgAnchor);
 }
 
 /** Sets the required `name` string property on a diagram object. */

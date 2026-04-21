@@ -42,8 +42,8 @@ export class SemanticAnalyzer {
                     }
                     const edge = edges.get(line.instance)!;
                     // Resolve direction
-                    const source = line.source.anchor?.instance;
-                    const target = line.target.anchor?.instance;
+                    const source = line.node1.anchor?.instance;
+                    const target = line.node2.anchor?.instance;
                     if (source === anchor.instance) {
                         node.addNextEdge(position, edge);
                     }
@@ -118,14 +118,14 @@ export class SemanticAnalyzer {
         const blocks = new Map<string, B>();
 
         // Resolve direction
-        let dirSource: "source" | "target";
-        let dirTarget: "source" | "target";
+        let dirSource: "node1" | "node2";
+        let dirTarget: "node1" | "node2";
         if (direction === "outgoing") {
-            dirSource = "source";
-            dirTarget = "target";
+            dirSource = "node1";
+            dirTarget = "node2";
         } else {
-            dirSource = "target";
-            dirTarget = "source";
+            dirSource = "node2";
+            dirTarget = "node1";
         }
 
         // Collect lines
