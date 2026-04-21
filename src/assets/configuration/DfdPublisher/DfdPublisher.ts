@@ -34,8 +34,8 @@ class DfdPublisher implements FilePublisher {
             const flowRefs = readFlowRefs(edge.props);
             const edgeRecord: Record<string, unknown> = {
                 id,
-                source: edge.source?.instance ?? null,
-                target: edge.target?.instance ?? null,
+                node1: edge.node1?.instance ?? null,
+                node2: edge.node2?.instance ?? null,
                 crosses: edge.crossings.map(n => n.instance),
                 node1_src_data_item_refs: flowRefs.node1ToNode2,
                 node2_src_data_item_refs: flowRefs.node2ToNode1

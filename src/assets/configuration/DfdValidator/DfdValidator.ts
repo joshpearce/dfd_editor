@@ -148,7 +148,7 @@ class DfdValidator extends FileValidator {
     }
 
     private validateEdge(id: string, edge: SemanticGraphEdge): void {
-        if (!(edge.source && edge.target)) {
+        if (!(edge.node1 && edge.node2)) {
             this.addWarning(id, "Data flow should connect on both ends.");
         }
         if (edge.crossings.length > 0) {
@@ -162,9 +162,9 @@ class DfdValidator extends FileValidator {
             }
             const classification = edge.props.value.get("data_classification")?.toJson();
             if (classification === "secret" || classification === "confidential") {
-                const sourceRank = privilegeRankOf(edge.source!);
-                const targetRank = privilegeRankOf(edge.target!);
-                if (sourceRank > targetRank) {
+                const node1Rank = privilegeRankOf(edge.node1!);
+                const node2Rank = privilegeRankOf(edge.node2!);
+                if (node1Rank > node2Rank) {
                     this.addWarning(id,
                         "High-classification data flow exits into a less-privileged trust zone.");
                 }

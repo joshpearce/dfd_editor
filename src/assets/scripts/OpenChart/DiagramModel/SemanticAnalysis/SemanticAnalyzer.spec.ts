@@ -356,13 +356,13 @@ describe("SemanticAnalyzer — edge crossings enrichment", () => {
     it("unbound edge has empty crossings", () => {
         const line = factory.createNewDiagramObject("data_flow", Line);
         canvas.addObject(line);
-        // No latch links — edge remains unbound (source/target null)
+        // No latch links — edge remains unbound (node1/node2 null)
 
         const graph = SemanticAnalyzer.toGraph(canvas);
         const edge = graph.edges.get(line.instance)!;
 
-        expect(edge.source).toBeNull();
-        expect(edge.target).toBeNull();
+        expect(edge.node1).toBeNull();
+        expect(edge.node2).toBeNull();
         expect(edge.crossings).toHaveLength(0);
     });
 

@@ -3,23 +3,23 @@ import type { SemanticGraphNode } from "./SemanticGraphNode";
 export interface SemanticGraphEdgeInternalState {
 
     /**
-     * The edge's source node.
+     * The edge's node1 (first node endpoint).
      */
-    _source: SemanticGraphNode | null;
+    _node1: SemanticGraphNode | null;
 
     /**
-     * The source anchor's position.
+     * The node1 anchor's position.
      */
-    _sourceVia: string | null;
+    _node1Via: string | null;
 
     /**
-     * The edge's target node.
+     * The edge's node2 (second node endpoint).
      */
-    _target: SemanticGraphNode | null;
+    _node2: SemanticGraphNode | null;
 
     /**
-     * The target anchor's position.
+     * The node2 anchor's position.
      */
-    _targetVia: string | null;
+    _node2Via: string | null;
 
 }

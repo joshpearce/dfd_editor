@@ -66,14 +66,14 @@ export class SemanticAnalyzer {
         }
         // Pass 4 — crossings
         for (const [, edge] of edges) {
-            if (!edge.source || !edge.target) { continue; }
-            const sa = edge.source.trustBoundaryAncestors;
-            const ta = edge.target.trustBoundaryAncestors;
-            const taSet = new Set(ta);
-            const saSet = new Set(sa);
+            if (!edge.node1 || !edge.node2) { continue; }
+            const n1a = edge.node1.trustBoundaryAncestors;
+            const n2a = edge.node2.trustBoundaryAncestors;
+            const n2aSet = new Set(n2a);
+            const n1aSet = new Set(n1a);
             edge.crossings = [
-                ...sa.filter(n => !taSet.has(n)),
-                ...ta.filter(n => !saSet.has(n))
+                ...n1a.filter(n => !n2aSet.has(n)),
+                ...n2a.filter(n => !n1aSet.has(n))
             ];
         }
         return { edges, nodes };
