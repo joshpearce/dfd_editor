@@ -336,9 +336,10 @@ describe("DfdFilePreprocessor", () => {
                 name: "Token"
             });
 
-            // data_item_refs on flow published (combined from both directions)
+            // bidirectional ref arrays on flow published (both always present per AC2.4)
             const edge = output.edges.find((e: Record<string, unknown>) => e.id === "flow-1");
-            expect(edge?.data_item_refs).toEqual([itemGuid]);
+            expect(edge?.node1_src_data_item_refs).toEqual([itemGuid]);
+            expect(edge?.node2_src_data_item_refs).toEqual([]);
         });
     });
 
