@@ -12,6 +12,7 @@
         class="field-value"
         :is="getField(value)"
         :property="value"
+        :context="contextFor(key, value)"
         @execute="(cmd: SynchronousEditorCommand) => $emit('execute', cmd)"
       />
     </div>
@@ -21,10 +22,10 @@
 <script lang="ts">
 // Dependencies
 import { defineAsyncComponent, defineComponent, type PropType } from "vue";
-import { 
-  DateProperty, DictionaryProperty, EnumProperty, 
+import {
+  DateProperty, DictionaryProperty, EnumProperty,
   FloatProperty, IntProperty, ListProperty, StringProperty,
-  TupleProperty
+  TupleProperty, DataItemRefListProperty
 } from "@OpenChart/DiagramModel";
 import type { Property } from "@OpenChart/DiagramModel";
 import type { SynchronousEditorCommand } from "@OpenChart/DiagramEditor";
@@ -37,6 +38,8 @@ import NumberField from "./NumberField.vue";
 import DateTimeField from "./DateTimeField.vue";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const DictionaryField = defineAsyncComponent(() => import("./DictionaryField.vue")) as any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const DataItemRefListField = defineAsyncComponent(() => import("./DataItemRefListField.vue")) as any;
 
 export default defineComponent({
   name: "DictionaryFieldContents",
@@ -44,6 +47,10 @@ export default defineComponent({
     property: {
       type: Object as PropType<DictionaryProperty>,
       required: true
+    },
+    context: {
+      type: Object as PropType<Record<string, unknown>>,
+      default: () => ({})
     }
   },
   computed: {
@@ -83,6 +90,8 @@ export default defineComponent({
           return "DateTimeField";
         case EnumProperty.name:
           return "EnumField";
+        case DataItemRefListProperty.name:
+          return "DataItemRefListField";
         case ListProperty.name:
           return "ListField";
         case TupleProperty.name:
@@ -90,6 +99,22 @@ export default defineComponent({
         case DictionaryProperty.name:
           return "DictionaryField";
       }
+    },
+
+    /**
+     * Returns context for a subproperty if applicable.
+     * @param key
+     *  The property key.
+     * @param subprop
+     *  The subproperty.
+     * @returns
+     *  Context object if this is a DataItemRefListProperty, undefined otherwise.
+     */
+    contextFor(key: string, subprop: Property): Record<string, unknown> | undefined {
+      if (subprop instanceof DataItemRefListProperty) {
+        return (this.context[key] as Record<string, unknown>) || undefined;
+      }
+      return undefined;
     }
 
   },
@@ -100,7 +125,8 @@ export default defineComponent({
     TupleField,
     NumberField,
     DateTimeField,
-    DictionaryField
+    DictionaryField,
+    DataItemRefListField
   }
 });
 </script>

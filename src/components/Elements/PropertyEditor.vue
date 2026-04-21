@@ -9,6 +9,7 @@
           <DictionaryFieldContents
             class="contents"
             :property="property"
+            :context="context"
             @execute="execute"
           />
         </ScrollBox>
@@ -46,6 +47,10 @@ export default defineComponent({
     property: {
       type: Object as PropType<DictionaryProperty>,
       default: undefined
+    },
+    context: {
+      type: Object as PropType<Record<string, unknown>>,
+      default: () => ({})
     }
   },
   data() {

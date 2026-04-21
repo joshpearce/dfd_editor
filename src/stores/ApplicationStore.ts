@@ -7,8 +7,10 @@ import { BaseAppSettings } from "@/assets/scripts/Application";
 import { OpenChartFinder } from "@/assets/scripts/OpenChartFinder";
 import { ThemeRegistry, ThemeSourceFile } from "@OpenChart/ThemeRegistry";
 import { AsynchronousEditorCommand, BasicRecommender, DiagramViewEditor, SynchronousEditorCommand } from "@OpenChart/DiagramEditor";
+import { readDataItems } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { EditorCommand } from "@OpenChart/DiagramEditor";
 import type { DiagramObjectView } from "@OpenChart/DiagramView";
+import type { DataItem } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { AppCommand, ValidationErrorResult, ValidationWarningResult } from "@/assets/scripts/Application";
 
 
@@ -199,6 +201,19 @@ export const useApplicationStore = defineStore("applicationStore", {
          */
         stickyTimezone(state): string {
             return state.recentTimezone;
+        },
+
+        /**
+         * Returns all data items available in the active editor's canvas.
+         * @returns
+         *  The data items, or an empty array if no canvas is available.
+         */
+        activeDataItems(): DataItem[] {
+            const canvas = this.activeEditor?.file?.canvas;
+            if (!canvas) {
+                return [];
+            }
+            return readDataItems(canvas);
         }
 
     },

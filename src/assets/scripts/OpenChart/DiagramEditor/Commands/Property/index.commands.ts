@@ -6,3 +6,4 @@ export * from "./SetDatePropertyTimezone";
 export * from "./SetTupleSubproperty";
 export * from "./CreateSubproperty";
 export * from "./DeleteSubproperty";
+export * from "./AddDataItemRef";

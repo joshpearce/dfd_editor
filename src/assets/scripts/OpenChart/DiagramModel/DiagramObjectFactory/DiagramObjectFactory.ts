@@ -6,7 +6,7 @@ import { CombinationIndex } from "../DiagramObject";
 import {
     Anchor, Block, Canvas, DateProperty, DictionaryProperty,
     EnumProperty, FloatProperty, Group, Handle, IntProperty,
-    Latch, Line, ListProperty, Property, RootProperty,
+    Latch, Line, ListProperty, DataItemRefListProperty, Property, RootProperty,
     StringProperty, TupleProperty
 } from "../DiagramObject";
 import type { Constructor } from "@OpenChart/Utilities";
@@ -392,6 +392,14 @@ export class DiagramObjectFactory {
                 }
                 throw new Error(`Invalid JSON entries: '${value}'.`);
             case PropertyType.DataItemRefList:
+                if (value === undefined || Array.isArray(value)) {
+                    return this.createListProperty(id, descriptor as DataItemRefListPropertyDescriptor, value, DataItemRefListProperty);
+                }
+                if (value && typeof value === "object") {
+                    value = Object.entries(value);
+                    return this.createListProperty(id, descriptor as DataItemRefListPropertyDescriptor, value, DataItemRefListProperty);
+                }
+                throw new Error(`Invalid JSON entries: '${value}'.`);
             case PropertyType.List:
                 if (value === undefined || Array.isArray(value)) {
                     return this.createListProperty(id, descriptor, value);
@@ -474,7 +482,8 @@ export class DiagramObjectFactory {
     private createListProperty(
         id: string,
         descriptor: ListPropertyDescriptor | DataItemRefListPropertyDescriptor,
-        values?: JsonEntries
+        values?: JsonEntries,
+        propertyClass?: Constructor<ListProperty>
     ): ListProperty {
         // Resolve value
         if (values === undefined) {
@@ -482,7 +491,8 @@ export class DiagramObjectFactory {
         }
         // Create property
         const desc = descriptor.form;
-        const property = new ListProperty({
+        const PropertyClass = propertyClass ?? ListProperty;
+        const property = new PropertyClass({
             id       : id,
             name     : descriptor.name,
             metadata : descriptor.metadata,
