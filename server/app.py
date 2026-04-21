@@ -19,6 +19,23 @@ DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 
+def _safe_ctx(ctx: dict) -> dict:
+    """Preserve JSON-serializable context fields and stringify the rest.
+
+    Pydantic ValidationError.ctx can contain non-JSON-serializable objects
+    (e.g. type objects). This helper keeps the serializable entries and
+    converts the rest to strings so error responses can be JSON-encoded.
+    """
+    result = {}
+    for k, v in ctx.items():
+        try:
+            json.dumps(v)
+            result[k] = v
+        except TypeError:
+            result[k] = str(v)
+    return result
+
+
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok"})
@@ -89,10 +106,10 @@ def import_diagram():
     try:
         native = to_native(body)
     except ValidationError as e:
-        # Filter out the 'ctx' field from errors, which contains non-serializable objects
+        # Preserve JSON-serializable fields in ctx and stringify the rest.
         errors = e.errors(include_url=False)
         cleaned_errors = [
-            {k: v for k, v in err.items() if k != 'ctx'}
+            {**err, "ctx": _safe_ctx(err["ctx"])} if "ctx" in err else err
             for err in errors
         ]
         return jsonify({"error": "validation failed", "details": cleaned_errors}), 400
