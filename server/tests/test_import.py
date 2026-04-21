@@ -110,6 +110,8 @@ _MINIMAL_DOC: dict = {
             "node1": _PROCESS_GUID,
             "node2": _EXTERNAL_GUID,
             "properties": {
+                "authenticated": False,
+                "encrypted": False,
                 "node1_src_data_item_refs": [],
                 "node2_src_data_item_refs": [],
             },
@@ -189,6 +191,8 @@ class TestRoundTrip:
                     "node2": _EXTERNAL_GUID,
                     "properties": {
                         "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
                         "node1_src_data_item_refs": [],
                         "node2_src_data_item_refs": [],
                     },
@@ -214,6 +218,8 @@ class TestRoundTrip:
                     "node2": _EXTERNAL_GUID,
                     "properties": {
                         "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
                         "node1_src_data_item_refs": [_DATA_ITEM_1_GUID],
                         "node2_src_data_item_refs": [],
                     },
@@ -247,6 +253,8 @@ class TestRoundTrip:
                     "node2": _EXTERNAL_GUID,
                     "properties": {
                         "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
                         "node1_src_data_item_refs": [],
                         "node2_src_data_item_refs": [_DATA_ITEM_2_GUID],
                     },
@@ -280,6 +288,8 @@ class TestRoundTrip:
                     "node2": _EXTERNAL_GUID,
                     "properties": {
                         "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
                         "node1_src_data_item_refs": [_DATA_ITEM_1_GUID],
                         "node2_src_data_item_refs": [_DATA_ITEM_2_GUID],
                     },
@@ -441,6 +451,41 @@ class TestDuplicateParentError:
             to_native(doc)
         # Input must be unchanged
         assert doc == original
+
+    def test_round_trip_explicit_false_booleans(self):
+        """Explicit False values for authenticated and encrypted must round-trip (AC2.3).
+
+        Previously, False values were dropped during to_minimal, but AC2.3 requires
+        all shared flow properties to survive the round-trip unchanged.
+        """
+        doc = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
+                {"type": "process", "guid": _EXTERNAL_GUID, "properties": {"name": "P2", "assumptions": []}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_1_GUID,
+                    "node1": _PROCESS_GUID,
+                    "node2": _EXTERNAL_GUID,
+                    "properties": {
+                        "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
+                        "node1_src_data_item_refs": [],
+                        "node2_src_data_item_refs": [],
+                    },
+                }
+            ],
+        }
+        native = to_native(doc)
+        back = to_minimal(native)
+        assert _canonicalize(back) == _canonicalize(doc)
+        # Explicitly check that both booleans come back as False, not absent
+        flow = back["data_flows"][0]
+        assert flow["properties"]["authenticated"] is False
+        assert flow["properties"]["encrypted"] is False
 
 
 # ---------------------------------------------------------------------------
