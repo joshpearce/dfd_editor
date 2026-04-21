@@ -1,6 +1,6 @@
 import { FileValidator } from "@/assets/scripts/Application";
 import { DiagramModelFile, SemanticAnalyzer } from "@OpenChart/DiagramModel";
-import { readDataItems, readDataItemRefs } from "@OpenChart/DiagramModel/DataItemLookup";
+import { readDataItems, readFlowRefs } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Canvas, SemanticGraphEdge, SemanticGraphNode } from "@OpenChart/DiagramModel";
 
 const PRIVILEGE_RANK: Record<string, number> = {
@@ -109,8 +109,12 @@ class DfdValidator extends FileValidator {
     }
 
     /**
-     * Warns when a flow's `data_item_refs` list contains a GUID that doesn't
-     * correspond to any canvas data item.  Does not block save/publish.
+     * Warns when a flow's directional ref arrays contain GUIDs that don't
+     * correspond to any canvas data item (AC5.2). Does not block save/publish.
+     *
+     * Per AC5.3, empty-both-sides flows do NOT warn. AC5.2 requires warnings
+     * to include the direction key name so the user can identify which direction
+     * is dangling.
      *
      * NOTE: the early-return for `knownGuids.size === 0` was intentionally
      * removed.  A flow that holds refs when the canvas has zero data items is
@@ -122,12 +126,22 @@ class DfdValidator extends FileValidator {
         edge: SemanticGraphEdge,
         knownGuids: Set<string>
     ): void {
-        const guids = readDataItemRefs(edge.props);
-        for (const guid of guids) {
+        const flowRefs = readFlowRefs(edge.props);
+
+        // Warn per-direction with the direction key in the message (AC5.2).
+        for (const guid of flowRefs.node1ToNode2) {
             if (!knownGuids.has(guid)) {
                 this.addWarning(
                     id,
-                    `Data flow references unknown data item '${guid}'.`
+                    `Data flow references unknown data item '${guid}' (direction: node1_src_data_item_refs).`
+                );
+            }
+        }
+        for (const guid of flowRefs.node2ToNode1) {
+            if (!knownGuids.has(guid)) {
+                this.addWarning(
+                    id,
+                    `Data flow references unknown data item '${guid}' (direction: node2_src_data_item_refs).`
                 );
             }
         }
