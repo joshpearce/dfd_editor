@@ -623,25 +623,26 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
 
     # authenticated — string bool → real bool; drop key if raw value is not
     # "true"/"false" (or absent), letting the Diagram default take effect.
-    # Only include if the value is True (non-default); False/absent → drop.
+    # Emit both True and explicit False values (AC2.3 requires round-trip preservation).
     authenticated_raw = raw_props.get("authenticated")
     if authenticated_raw is not None:
         converted = _convert_string_bool(authenticated_raw)
-        if converted is True:  # Only emit if True (non-default)
+        if converted is not None:
             flow_props["authenticated"] = converted
 
     # encrypted_in_transit → encrypted; same defensiveness as authenticated.
-    # Only include if the value is True (non-default); False/absent → drop.
+    # Emit both True and explicit False values (AC2.3 requires round-trip preservation).
     encrypted_raw = raw_props.get("encrypted_in_transit")
     if encrypted_raw is not None:
         converted = _convert_string_bool(encrypted_raw)
-        if converted is True:  # Only emit if True (non-default)
+        if converted is not None:
             flow_props["encrypted"] = converted
 
-    # Recover node1_src_data_item_refs from native properties.
+    # Recover node1_src_data_item_refs from native properties (AC2.4).
     # Native shape: [[syntheticKey, guidStr], ...] — a ListProperty wire format.
     # Only accept [[key, guidStr], ...]; plain strings are a hard error (no legacy tolerance).
-    # Always emit both arrays (even if empty) so the property is always present.
+    # AC2.4 requires both arrays to be emitted even when empty so empty-both-sides
+    # flows survive the round-trip and appear in the exported output.
     node1_refs_raw = raw_props.get("node1_src_data_item_refs")
     node1_ref_guids = []
     if node1_refs_raw:
