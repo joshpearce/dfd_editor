@@ -135,6 +135,11 @@ describe("DfdPublisher", () => {
 
             const edge = output.edges.find((e: Record<string, unknown>) => e.id === flow.instance);
             expect(edge).toBeDefined();
+            // Endpoint keys are node1/node2 (not legacy source/target). Phase 5 rename guard.
+            expect(edge.node1).toBe(procA.instance);
+            expect(edge.node2).toBe(procB.instance);
+            expect(edge.source).toBeUndefined();
+            expect(edge.target).toBeUndefined();
             // Both arrays always present (AC2.4)
             expect(edge.node1_src_data_item_refs).toEqual([refGuid1, refGuid2]);
             expect(edge.node2_src_data_item_refs).toEqual([]);
