@@ -2,7 +2,7 @@
 
 **Goal:** Every consumer of Flow properties handles the new two-array shape. Publisher emits one edge per Flow carrying both ref arrays. Validator warns per direction independently. SemanticAnalyzer's edge record renames `source`/`target` to `node1`/`node2`; crossing computation is unchanged in behavior (symmetric).
 
-**Architecture:** Replace `DataItemLookup.readDataItemRefs(props) → string[]` with `readFlowRefs(props) → { node1ToNode2: string[]; node2ToNode1: string[] }`. Rename `SemanticGraphEdge.source`/`target` getters to `node1`/`node2` (Phase 2 deferred this deliberately; Phase 5 lands it). Update `DfdValidator.validateDataItemRefs` to iterate both arrays and produce warning messages that include the property-key direction. Update `DfdPublisher` to always emit both ref arrays as `node1_src_data_item_refs` / `node2_src_data_item_refs` in the edge record (not conditional on non-empty). Update every affected spec and the `dataItems.test-utils.ts` helper.
+**Architecture:** Rename `SemanticGraphEdge.source`/`target` getters to `node1`/`node2` (Phase 2 deferred this deliberately; Phase 5 lands it). Update every affected spec (Phase 1 has already landed `DataItemLookup.readFlowRefs`, `DfdValidator` per-direction warnings, and `DfdPublisher` dual-emission so this phase only updates dependent specs and the semantic graph rename).
 
 **Tech Stack:** TypeScript, Vitest. Gate: `vue-tsc` + `npm run test:unit` + `npm run lint`.
 
@@ -12,15 +12,28 @@
 
 ---
 
+## Amendment 2026-04-21
+
+The following items landed in Phase 1 per Option B plan amendment and are NOT re-implemented here:
+
+- `DataItemLookup.readDataItemRefs` → `readFlowRefs` rename.
+- `DfdPublisher` unconditional dual-emission + removal of `projectDataItemRefs`.
+- `DfdValidator.validateDataItemRefs` per-direction warnings.
+- `DataItemLookup.spec.ts`, `DfdPublisher.spec.ts`, `DfdValidator.spec.ts`, `DfdFilePreprocessor.spec.ts`, `dataItems.test-utils.ts` updates for the above.
+
+Phase 5 retains regression-test responsibility only for these items. The `SemanticGraphEdge.source`/`target` → `node1`/`node2` rename and `DfdValidator.validateEdge` trust-boundary-crossing updates remain in Phase 5.
+
+---
+
 ## Acceptance Criteria Coverage
 
 This phase implements and tests:
 
 ### bidirectional-flow.AC5: Downstream consumers handle the new shape
 
-- **bidirectional-flow.AC5.1 Success:** `DfdPublisher` emits one edge per Flow, carrying both ref arrays in the edge's `properties`, with `id` equal to the Flow's GUID.
-- **bidirectional-flow.AC5.2 Success:** `DfdValidator` surfaces dangling-ref warnings per array independently, with a message identifying the direction.
-- **bidirectional-flow.AC5.3 Success:** `DfdValidator` does NOT flag empty-both-sides flows as errors or warnings.
+- **bidirectional-flow.AC5.1 Success:** Satisfied by Phase 1 amendment; Phase 5 retains regression-test responsibility only.
+- **bidirectional-flow.AC5.2 Success:** Satisfied by Phase 1 amendment; Phase 5 retains regression-test responsibility only.
+- **bidirectional-flow.AC5.3 Success:** Satisfied by Phase 1 amendment; Phase 5 retains regression-test responsibility only.
 - **bidirectional-flow.AC5.4 Success:** `SemanticAnalyzer`'s trust-boundary crossing classification is unchanged in behavior after the source/target → node1/node2 rename (existing crossing tests pass verbatim after fixture key renames).
 
 ---
@@ -86,6 +99,8 @@ This phase implements and tests:
 <!-- START_TASK_1 -->
 ### Task 1: Replace `readDataItemRefs` with `readFlowRefs` in `DataItemLookup`
 
+> **Superseded 2026-04-21:** Landed in Phase 1 per Option B plan amendment. No action needed in Phase 5.
+
 **Verifies:** bidirectional-flow.AC5.2 and AC5.3 foundation (consumed by the Validator)
 
 **Files:**
@@ -135,6 +150,8 @@ This phase implements and tests:
 
 <!-- START_TASK_2 -->
 ### Task 2: Update `DataItemLookup.spec.ts` and `dataItems.test-utils.ts`
+
+> **Superseded 2026-04-21:** Landed in Phase 1 per Option B plan amendment. No action needed in Phase 5.
 
 **Verifies:** bidirectional-flow.AC5.2, AC5.3 (test infrastructure for the Validator / Publisher specs that follow)
 
@@ -298,6 +315,8 @@ This phase implements and tests:
 
 <!-- START_TASK_5 -->
 ### Task 5: `DfdPublisher` emits both ref arrays unconditionally
+
+> **Superseded 2026-04-21:** Landed in Phase 1 per Option B plan amendment. No action needed in Phase 5.
 
 **Verifies:** bidirectional-flow.AC5.1, AC2.4
 

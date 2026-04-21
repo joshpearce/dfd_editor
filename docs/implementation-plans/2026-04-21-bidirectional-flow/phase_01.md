@@ -387,6 +387,18 @@ Expected: three `{"id": "<uuid>"}` responses (HTTP 201) — no validation errors
 **Files:**
 - Modify: `/Users/josh/code/dfd_editor/server/tests/test_drift.py:225-234` (add a new parity test) and anywhere the TS parser lives (extend `_parse_ts` or add a sibling `_parse_data_flow_properties` helper).
 - Modify: `/Users/josh/code/dfd_editor/src/assets/configuration/DfdTemplates/DfdObjects.ts:212-216` (rename + add second property — placeholder only, stays as `PropertyType.List`).
+- Modify: `/Users/josh/code/dfd_editor/src/assets/configuration/DfdPublisher/DfdPublisher.ts`, `DfdValidator.ts`, `/Users/josh/code/dfd_editor/src/assets/scripts/OpenChart/DiagramModel/DataItemLookup.ts` and associated specs per the amendment below.
+
+**Amendment 2026-04-21:**
+
+The `DfdObjects.ts` placeholder rename (property key change) breaks frontend runtime consumers (`DfdPublisher` and `DataItemLookup`) because those consumers read the template-derived keys directly. To keep `npm run test:unit` green and avoid landing backwards-compat shims (forbidden by the hard-cutover DoD), Phase 1 now also lands:
+
+- `DataItemLookup.readDataItemRefs` → `readFlowRefs` returning `{ node1ToNode2: string[]; node2ToNode1: string[] }`.
+- `DfdPublisher` emits BOTH ref arrays on every edge record unconditionally under the new key names (no legacy `data_item_refs` key, no `length > 0` guard).
+- `DfdValidator.validateDataItemRefs` iterates both arrays and produces per-direction warnings (AC5.2/5.3 partial).
+- Associated spec / test-util updates (`DataItemLookup.spec.ts`, `DfdPublisher.spec.ts`, `DfdValidator.spec.ts`, `DfdFilePreprocessor.spec.ts`, `dataItems.test-utils.ts`).
+
+The "Expected: unchanged — frontend specs don't yet exercise the new template key names" verification note is SUPERSEDED — Phase 1 now produces frontend test-churn in the files listed above; `npm run test:unit` is still expected to PASS but now exercises the new keys.
 
 **Implementation:**
 
@@ -418,7 +430,7 @@ cd /Users/josh/code/dfd_editor/server
 ```
 Expected: all drift tests pass (including the new one).
 
-Also run: `npm run test:unit` from repo root. Expected: unchanged — frontend specs don't yet exercise the new template key names (Phase 3 handles that).
+Also run: `npm run test:unit` from repo root. Expected: all 336 frontend unit tests pass with the new `readFlowRefs` / dual-emission behavior.
 
 **Commit:** `test(drift): assert data_flow property name parity; placeholder rename in DfdObjects.ts`
 <!-- END_TASK_7 -->
