@@ -245,14 +245,16 @@ describe("DataItemRefListField", () => {
     });
 
     it("AC4.4: clicking delete on a chip emits deleteSubproperty with correct target id", async () => {
-        // Add TWO items so we can verify the correct one is deleted
+        // Add TWO items so we can verify the correct one is deleted. Pass entry.id as the map
+        // key explicitly — matches production's AddDataItemRef command and keeps the Map key
+        // in sync with subproperty.id so the emitted DeleteSubproperty is introspectable.
         const entry1 = mockRefListProperty.createListItem() as StringProperty;
         entry1.setValue("di-1");
-        mockRefListProperty.addProperty(entry1);
+        mockRefListProperty.addProperty(entry1, entry1.id);
 
         const entry2 = mockRefListProperty.createListItem() as StringProperty;
         entry2.setValue("di-2");
-        mockRefListProperty.addProperty(entry2);
+        mockRefListProperty.addProperty(entry2, entry2.id);
 
         const wrapper = mount(DataItemRefListField, {
             props: {
@@ -289,27 +291,26 @@ describe("DataItemRefListField", () => {
         expect(entry1Value).toBe("di-1");
         expect(entry2Value).toBe("di-2");
 
-        // Call onDelete with the SECOND entry's key (simulating a click on the second delete button)
-        // Using direct method call is acceptable here since we're testing the delete handler
-        (wrapper.vm as any).onDelete(secondEntryKey);
+        // Click the SECOND delete button (the one for di-2). This exercises the template
+        // binding `@click="onDelete(key)"` end-to-end, so a regression in the key wiring would
+        // be caught here — direct method invocation would bypass the template and miss it.
+        // Uses native dispatchEvent because @vue/test-utils `.trigger("click")` hits a
+        // jsdom event-constructor quirk in this environment.
+        (deleteButtons[1].element as HTMLElement).dispatchEvent(new Event("click", { bubbles: true }));
+        await wrapper.vm.$nextTick();
 
         // Assert: execute event was emitted with DeleteSubproperty
         expect(wrapper.emitted("execute")).toBeTruthy();
         expect(wrapper.emitted("execute")!.length).toBeGreaterThan(0);
 
-        const emittedCmd = wrapper.emitted("execute")![0][0] as any;
+        const emittedCmd = wrapper.emitted("execute")![0][0] as { property: unknown; subproperty: StringProperty };
         expect(emittedCmd.constructor.name).toBe("DeleteSubproperty");
+        expect(emittedCmd.property).toStrictEqual(mockRefListProperty);
 
-        // Verify the command targets the correct property
-        const deleteCmd = emittedCmd as { property: any };
-        expect(deleteCmd.property).toStrictEqual(mockRefListProperty);
-
-        // Verify the command was constructed with the correct ID by checking
-        // that the deletion would target di-2 (not di-1).
-        // The DeleteSubproperty constructor takes (property, id) where id is the map key.
-        // We can verify by examining what value is at that key before execution.
-        const targetedValue = (mockRefListProperty.value.get(secondEntryKey) as StringProperty).toJson();
-        expect(targetedValue).toBe("di-2");
+        // Verify the command targets the SECOND entry specifically — subproperty.id must be the
+        // key of the di-2 entry, proving the click-handler forwarded the right key.
+        expect(emittedCmd.subproperty.id).toBe(secondEntryKey);
+        expect(emittedCmd.subproperty.toJson()).toBe("di-2");
     });
 
     it("AC4.5: dropdown hides already-selected items", async () => {

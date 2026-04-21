@@ -13,7 +13,7 @@ export class DeleteSubproperty extends SynchronousEditorCommand {
     /**
      * The subproperty.
      */
-    private readonly subproperty: Property;
+    public readonly subproperty: Property;
 
     /**
      * The subproperty's location in the collection.
