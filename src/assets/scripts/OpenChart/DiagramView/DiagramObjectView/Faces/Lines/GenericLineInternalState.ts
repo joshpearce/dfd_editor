@@ -24,9 +24,14 @@ export interface GenericLineInternalState {
     vertices: number[];
 
     /**
-     * The line's arrow head shape.
+     * The line's arrow head shape at node1 end (when data flows node2 → node1).
      */
-    arrow: number[];
+    arrowAtNode1: number[] | null;
+
+    /**
+     * The line's arrow head shape at node2 end (when data flows node1 → node2).
+     */
+    arrowAtNode2: number[] | null;
 
     /**
      * The line's hitboxes.

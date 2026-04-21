@@ -7,6 +7,7 @@ import {
     round,
     roundNearestMultiple
 } from "@OpenChart/Utilities";
+import { ListProperty } from "@OpenChart/DiagramModel";
 import type { LineView } from "../../Views";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
 
@@ -52,10 +53,9 @@ export function runHorizontalTwoElbowLayout(
     const bx = axisCapTowards(sx, hx, face.style.capSpace);
     const ex = axisCapTowards(tx, hx, face.style.capSpace);
 
-    // Define vertices and arrow
-    let vertices, arrow = true;
+    // Define vertices
+    let vertices;
     if (sy === ty) {
-        arrow = sx !== tx;
         vertices = [bx, sy, ex, ty];
     } else if (sx === hx) {
         vertices = [bx, sy, hx, ty, ex, ty];
@@ -77,7 +77,7 @@ export function runHorizontalTwoElbowLayout(
     }
 
     // Run layout
-    runMultiElbowLayout(face, vertices, arrow);
+    runMultiElbowLayout(view, face, vertices);
 
 }
 
@@ -127,10 +127,9 @@ export function runVerticalTwoElbowLayout(
     const by = axisCapTowards(sy, hy, face.style.capSpace);
     const ey = axisCapTowards(ty, hy, face.style.capSpace);
 
-    // Define vertices and arrow
-    let vertices, arrow = true;
+    // Define vertices
+    let vertices;
     if (sx === tx) {
-        arrow = sy !== ty;
         vertices = [sx, by, tx, ey];
     } else if (sy === hy) {
         vertices = [sx, by, tx, hy, tx, ey];
@@ -152,7 +151,7 @@ export function runVerticalTwoElbowLayout(
     }
 
     // Run layout
-    runMultiElbowLayout(face, vertices, arrow);
+    runMultiElbowLayout(view, face, vertices);
 }
 
 /**
@@ -189,9 +188,8 @@ export function runHorizontalElbowLayout(
     }
 
     // Calculate vertices
-    let vertices, arrow = true;
+    let vertices;
     if (sx === tx) {
-        arrow = sy !== ty;
         // Apply cap space
         const [by, ey] = oneAxisCapSpace(sy, ty, face.style.capSpace);
         // Define vertices
@@ -213,7 +211,7 @@ export function runHorizontalElbowLayout(
     trg.orientation = Orientation.D90;
 
     // Run layout
-    runMultiElbowLayout(face, vertices, arrow);
+    runMultiElbowLayout(view, face, vertices);
 
 }
 
@@ -251,9 +249,8 @@ export function runVerticalElbowLayout(
     }
 
     // Calculate vertices
-    let vertices, arrow = true;
+    let vertices;
     if (sx === tx) {
-        arrow = sy !== ty;
         // Apply cap space
         const [by, ey] = oneAxisCapSpace(sy, ty, face.style.capSpace);
         // Calculate vertices
@@ -275,7 +272,7 @@ export function runVerticalElbowLayout(
     trg.orientation = Orientation.D0;
 
     // Run layout
-    runMultiElbowLayout(face, vertices, arrow);
+    runMultiElbowLayout(view, face, vertices);
 
 }
 
@@ -288,6 +285,8 @@ export function runVerticalElbowLayout(
  *  aligning the vertices, the function uses `getAbsoluteMultiElbowPath()` to
  *  generate the final set of vertices which curve the line's corners. These
  *  final vertices are then applied to the provided `face`.
+ * @param view
+ *  The line's view (for reading ref array properties).
  * @param face
  *  The line's face.
  * @param vertices
@@ -296,13 +295,11 @@ export function runVerticalElbowLayout(
  *  For best results, deduplicate consecutive vertices.
  *   - `[0,0, 0,1, 0,0]` is acceptable.
  *   - `[0,0, 0,1, 0,1, 1,1]` should be simplified to `[0,0, 0,1, 1,1]`.
- * @param includeArrow
- *  Whether the line should include an arrow head or not.
  */
 function runMultiElbowLayout(
+    view: LineView,
     face: GenericLineInternalState,
-    vertices: number[],
-    includeArrow: boolean
+    vertices: number[]
 ) {
     const v = vertices;
     const offset = LineFace.markerOffset;
@@ -357,26 +354,50 @@ function runMultiElbowLayout(
         t[ny] = v[ny] + offset;
     }
 
-    // Apply arrow head
-    if (includeArrow) {
+    // Read the Line's two ref arrays to determine arrow placement
+    const props = view.properties.value;
+    const node1Refs = props.get("node1_src_data_item_refs");
+    const node2Refs = props.get("node2_src_data_item_refs");
+    const hasNode1Src = node1Refs instanceof ListProperty && node1Refs.value.size > 0;
+    const hasNode2Src = node2Refs instanceof ListProperty && node2Refs.value.size > 0;
 
-        // Calculate arrow head
-        face.arrow = getAbsoluteArrowHead(
+    // Arrow at node2 end (data flowing node1 → node2)
+    if (hasNode1Src) {
+        face.arrowAtNode2 = getAbsoluteArrowHead(
             t[lx], t[ly],
             t[nx], t[ny],
             face.style.capSize
         );
+    } else {
+        face.arrowAtNode2 = null;
+    }
 
-        // Calculate cap size offset
+    // Arrow at node1 end (data flowing node2 → node1)
+    if (hasNode2Src) {
+        face.arrowAtNode1 = getAbsoluteArrowHead(
+            t[2], t[3],
+            t[0], t[1],
+            face.style.capSize
+        );
+    } else {
+        face.arrowAtNode1 = null;
+    }
+
+    // Apply cap-size offset to inset line endpoints when arrows are present
+    if (hasNode1Src) {
+        // Cap offset at node2 end (where the arrow tip is)
         if (v[lx] === v[nx]) {
             t[ny] -= Math.sign(t[ny] - t[ly]) * (face.style.capSize >> 1);
         } else {
             t[nx] -= Math.sign(t[nx] - t[lx]) * (face.style.capSize >> 1);
         }
+    }
 
-    } else {
-        // Remove arrow head
-        face.arrow = [];
+    if (hasNode2Src) {
+        // Cap offset at node1 end (symmetric)
+        const a2 = Math.atan2(t[3] - t[1], t[2] - t[0]);
+        t[0] += Math.cos(a2) * (face.style.capSize >> 1);
+        t[1] += Math.sin(a2) * (face.style.capSize >> 1);
     }
 
     // Set vertices
