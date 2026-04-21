@@ -44,8 +44,13 @@ export function runHorizontalTwoElbowLayout(
     hdl.face.moveBy(0, my - hdl.y);
     const hx = hdl.x;
 
-    // Apply cap space
-    const [bx, ex] = oneAxisCapSpace(sx, tx, face.style.capSpace);
+    // Apply cap space toward the handle — not toward the other endpoint — so
+    // that when both anchors sit on the same face (both left or both right),
+    // the source's first segment exits away from its block instead of back
+    // through it.  Only the exit-from-source and approach-to-target cap
+    // offsets matter for whether the segment clears the block.
+    const bx = axisCapTowards(sx, hx, face.style.capSpace);
+    const ex = axisCapTowards(tx, hx, face.style.capSpace);
 
     // Define vertices and arrow
     let vertices, arrow = true;
@@ -115,8 +120,12 @@ export function runVerticalTwoElbowLayout(
         face.points = [src, hdl, trg];
     }
 
-    // Apply cap space
-    const [by, ey] = oneAxisCapSpace(sy, ty, face.style.capSpace);
+    // Apply cap space toward the handle — mirror of the horizontal case,
+    // applied on the y-axis.  Both anchors on the same face (both top or both
+    // bottom) would otherwise cause the source's first segment to reverse into
+    // its own block.
+    const by = axisCapTowards(sy, hy, face.style.capSpace);
+    const ey = axisCapTowards(ty, hy, face.style.capSpace);
 
     // Define vertices and arrow
     let vertices, arrow = true;
@@ -396,6 +405,31 @@ function oneAxisCapSpace(s: number, t: number, c: number) {
     } else {
         return [s, t];
     }
+}
+
+/**
+ * Applies cap space to a single endpoint, offset toward an adjacent vertex.
+ * @remarks
+ *  The two-elbow layouts use this to position the cap offset in the direction
+ *  the first / last segment actually travels — which is `endpoint → handle`,
+ *  not `source → target`.  The distinction matters when both anchors sit on
+ *  the same face of their respective blocks: `oneAxisCapSpace` would push the
+ *  source's cap back into its own block instead of out past its face.
+ * @param p
+ *  The endpoint coordinate to offset.
+ * @param q
+ *  The adjacent vertex coordinate (the direction to offset toward).
+ * @param c
+ *  The cap space.
+ * @returns
+ *  The offset endpoint coordinate, or `p` unchanged if `q` is within `c`.
+ */
+function axisCapTowards(p: number, q: number, c: number) {
+    const d = q - p;
+    if (c < Math.abs(d)) {
+        return p + Math.sign(d) * c;
+    }
+    return p;
 }
 
 /**

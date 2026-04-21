@@ -16,6 +16,15 @@ import type { AsyncDiagramLayoutEngine } from "../DiagramLayoutEngine";
 const MAX_MISSING_DISPLAYED = 10;
 
 /**
+ * Bitmask matching {@link PositionSetByUser.True} from `ViewAttributes.ts`
+ * (xAxis | yAxis = 0b01000 | 0b10000).  Inlined because a value import from
+ * that module drags the `@OpenChart/Utilities` barrel into this engine,
+ * which boots a canvas-dependent FontStore that fails under jsdom.  Keep
+ * the two definitions in sync.
+ */
+const POSITION_SET_BY_USER_TRUE = 0b11000;
+
+/**
  * A function that accepts a D2 source string and returns a Promise that
  * resolves to the TALA-rendered SVG string.  Injected at construction time so
  * the engine does not import from src/assets/scripts/api/ directly (OpenChart
@@ -90,12 +99,13 @@ interface RebindableLatchWithAnchor extends RebindableLatch {
  * that and returns `null` so malformed lines are skipped silently.
  */
 /**
- * A minimal handle surface — just the `moveTo` coordinates setter used by
- * the tala rebind pass to steer a line's elbow toward TALA's polyline bend.
- * Kept deliberately narrow: the rebind does not need to know about handle
- * attributes, templates, or rendering.
+ * A minimal handle surface — `moveTo` to steer a line's elbow toward TALA's
+ * polyline bend, and `userSetPosition` to mark that position as intentional
+ * so the downstream `DynamicLine.calculateLayout` doesn't snap the handle
+ * back to the source/target midpoint on the very next tick.
  */
 interface RebindableHandleSurface {
+    userSetPosition: number;
     moveTo(x: number, y: number): void;
 }
 
@@ -774,6 +784,10 @@ function rebindLinesTala(
             // (pure A-to-B with no waypoint) are left alone.
             const elbow = pickPolylineElbow(bestEdge.points);
             if (elbow && line.handles.length > 0) {
+                // Mark user-set BEFORE moving: moveTo triggers
+                // DynamicLine.calculateLayout, which resets the handle's X
+                // unless PositionSetByUser.xAxis is already set.
+                line.handles[0].userSetPosition = POSITION_SET_BY_USER_TRUE;
                 line.handles[0].moveTo(elbow.x, elbow.y);
             }
         } else {

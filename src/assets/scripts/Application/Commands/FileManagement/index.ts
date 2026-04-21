@@ -140,7 +140,22 @@ export async function loadFileFromServer(
     context: ApplicationStore, id: string
 ): Promise<LoadFile> {
     const contents = await getDiagram(id);
-    return loadExistingFile(context, contents, id);
+    const loadCmd = await loadExistingFile(context, contents, id);
+    // If the stored file had no layout, auto-layout just ran inside
+    // loadExistingFile.  Persist the result so subsequent opens skip TALA
+    // (cheaper) and the rebind-chosen anchor / handle positions stay stable
+    // across sessions instead of being recomputed every load.
+    const hadStoredLayout = Boolean(
+        (JSON.parse(contents) as DiagramViewExport).layout
+    );
+    if (!hadStoredLayout) {
+        try {
+            await new SaveDiagramFileToServer(loadCmd.editor, id).execute();
+        } catch (err) {
+            console.error("failed to persist auto-layout to server:", err);
+        }
+    }
+    return loadCmd;
 }
 
 /**

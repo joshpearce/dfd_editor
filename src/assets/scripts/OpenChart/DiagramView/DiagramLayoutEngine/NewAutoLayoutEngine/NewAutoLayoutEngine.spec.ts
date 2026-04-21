@@ -239,13 +239,18 @@ describe("NewAutoLayoutEngine", () => {
         return block;
     }
 
-    /** Minimal handle stub: just a `moveTo` spy the rebind pass can call. */
+    /**
+     * Minimal handle stub: a `moveTo` spy plus a writable `userSetPosition`
+     * so the rebind pass can mark the handle as intentionally placed after
+     * steering it to a TALA polyline bend.
+     */
     interface HandleStub {
+        userSetPosition: number;
         moveTo: ReturnType<typeof vi.fn>;
     }
 
     function makeHandleStub(): HandleStub {
-        return { moveTo: vi.fn() };
+        return { userSetPosition: 0, moveTo: vi.fn() };
     }
 
     /**
