@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createTestingPinia } from "@pinia/testing";
 import DataItemRefListField from "./DataItemRefListField.vue";
-import { DataItemRefListProperty, StringProperty, DictionaryProperty, ListProperty } from "@OpenChart/DiagramModel";
+import { DataItemRefListProperty, StringProperty, DictionaryProperty, ListProperty, RootProperty } from "@OpenChart/DiagramModel";
 import { useApplicationStore } from "@/stores/ApplicationStore";
 import type { BlockView, DiagramViewFile } from "@OpenChart/DiagramView";
 
@@ -15,9 +15,11 @@ import type { BlockView, DiagramViewFile } from "@OpenChart/DiagramView";
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- * Creates a minimal mock BlockView with a name property.
+ * Creates a minimal mock BlockView with a name property using a real RootProperty.
  */
 function createMockBlockView(name: string): Partial<BlockView> {
+    const properties = new RootProperty();
+
     const nameProperty = new StringProperty({
         id: "name",
         name: "name",
@@ -25,10 +27,10 @@ function createMockBlockView(name: string): Partial<BlockView> {
     });
     nameProperty.setValue(name);
 
+    properties.addProperty(nameProperty, "name");
+
     return {
-        properties: {
-            value: new Map([["name", nameProperty]])
-        }
+        properties: properties
     } as any;
 }
 
@@ -166,12 +168,18 @@ describe("DataItemRefListField", () => {
 
         await wrapper.vm.$nextTick();
 
-        // Assert: section contains label
-        expect(wrapper.find(".direction-label").exists()).toBe(true);
-        // Should either have dropdown (if data items) or empty state (if no data items)
-        // With our mockFile containing 3 data items, should have dropdown
+        // Assert: section contains label with non-empty text
+        const label = wrapper.find(".direction-label");
+        expect(label.exists()).toBe(true);
+        expect(label.text().length).toBeGreaterThan(0);
+
+        // Assert: dropdown is rendered (since we have data items available)
         const dropdown = wrapper.find(".data-item-dropdown");
         expect(dropdown.exists()).toBe(true);
+
+        // Verify the section is rendered (not hidden due to missing context)
+        const section = wrapper.find(".data-item-ref-list-field");
+        expect(section.exists()).toBe(true);
     });
 
     it("AC4.2: label displays endpoint names (not node1/node2)", async () => {
@@ -236,7 +244,7 @@ describe("DataItemRefListField", () => {
         expect(emittedCmd.constructor.name).toBe("AddDataItemRef");
     });
 
-    it("AC4.4: clicking delete on a chip emits deleteSubproperty", async () => {
+    it("AC4.4: clicking delete on a chip emits deleteSubproperty with correct target id", async () => {
         // Add a data item
         const entry = mockRefListProperty.createListItem() as StringProperty;
         entry.setValue("di-1");
@@ -273,6 +281,12 @@ describe("DataItemRefListField", () => {
         expect(wrapper.emitted("execute")).toBeTruthy();
         const emittedCmd = wrapper.emitted("execute")![0][0] as any;
         expect(emittedCmd.constructor.name).toBe("DeleteSubproperty");
+
+        // Verify the command targets the correct property.
+        // The DeleteSubproperty constructor stores the property and subproperty it's targeting.
+        // We verify by checking the property field matches ours (using deep equality).
+        const deleteCmd = emittedCmd as { property: any };
+        expect(deleteCmd.property).toStrictEqual(mockRefListProperty);
     });
 
     it("AC4.5: dropdown hides already-selected items", async () => {
@@ -315,7 +329,7 @@ describe("DataItemRefListField", () => {
         expect(availableOption).toBeDefined();
     });
 
-    it("AC4.6: renaming an endpoint updates the label reactively", async () => {
+    it("AC4.6: renaming an endpoint updates the label reactively via subscription", async () => {
         const wrapper = mount(DataItemRefListField, {
             props: {
                 property: mockRefListProperty,
@@ -338,24 +352,19 @@ describe("DataItemRefListField", () => {
         let label = wrapper.find(".direction-label").text();
         expect(label).toBe("Data from Source to Target");
 
-        // Change node1 name
-        const node1NameProp = mockNode1View.properties!.value.get("name") as StringProperty;
-        node1NameProp.setValue("NewSource");
+        // Now mutate the name property
+        const node1Properties = mockNode1View.properties as any;
+        const node1NameProp = node1Properties.value.get("name") as StringProperty;
+        node1NameProp.setValue("AA");
 
-        // Update props to force re-evaluation of computed label
-        await wrapper.setProps({
-            context: {
-                node1View: mockNode1View as BlockView,
-                node2View: mockNode2View as BlockView,
-                direction: "node1ToNode2"
-            }
-        });
-
+        // The component's subscription handler should have incremented updateCounter,
+        // invalidating the label computed property cache and triggering a re-render.
+        // Wait for Vue to process the update.
         await wrapper.vm.$nextTick();
 
-        // Label should reflect the change (via recomputed computed property)
+        // Label should reflect the change without needing to update props
         label = wrapper.find(".direction-label").text();
-        expect(label).toBe("Data from NewSource to Target");
+        expect(label).toBe("Data from AA to Target");
     });
 
     it("AC4.7: empty diagram shows the empty-state hint", async () => {

@@ -1,5 +1,8 @@
 <template>
-  <section class="data-item-ref-list-field">
+  <section
+    v-if="context"
+    class="data-item-ref-list-field"
+  >
     <h4 class="direction-label">
       {{ label }}
     </h4>
@@ -59,7 +62,7 @@
 import { defineComponent, type PropType } from "vue";
 import { useApplicationStore } from "@/stores/ApplicationStore";
 import * as EditorCommands from "@OpenChart/DiagramEditor";
-import { DataItemRefListProperty, StringProperty } from "@OpenChart/DiagramModel";
+import { DataItemRefListProperty, StringProperty, RootProperty } from "@OpenChart/DiagramModel";
 import type { BlockView } from "@OpenChart/DiagramView";
 import type { SynchronousEditorCommand } from "@OpenChart/DiagramEditor";
 import type { DataItem } from "@OpenChart/DiagramModel/DataItemLookup";
@@ -78,8 +81,8 @@ export default defineComponent({
       required: true
     },
     context: {
-      type: Object as PropType<DataItemRefFieldContext>,
-      required: true
+      type: Object as PropType<DataItemRefFieldContext | undefined>,
+      default: undefined
     }
   },
   emits: {
@@ -87,14 +90,24 @@ export default defineComponent({
   },
   data() {
     return {
-      store: useApplicationStore()
+      store: useApplicationStore(),
+      node1SubscriptionId: "",
+      node2SubscriptionId: "",
+      updateCounter: 0  // Incremented when properties change to invalidate computed cache
     };
   },
   computed: {
     /**
      * Direction label showing "Data from X to Y".
+     * Depends on updateCounter to invalidate when endpoint properties change.
      */
     label(): string {
+      // Access updateCounter to create reactive dependency on property changes
+      void this.updateCounter;
+
+      if (!this.context) {
+        return "";
+      }
       const from =
         this.context.direction === "node1ToNode2"
           ? this.blockName(this.context.node1View)
@@ -138,23 +151,66 @@ export default defineComponent({
   },
   watch: {
     /**
-     * Watch for changes in endpoint names to trigger re-render of label.
+     * Watch for context prop changes and re-subscribe to endpoint name changes.
+     * This ensures we pick up new node references when the context is replaced.
      */
-    "context.node1View.properties.value": {
+    context: {
       handler() {
-        // Trigger re-render by accessing label property
-        void this.$forceUpdate?.();
+        this.unsubscribeFromEndpoints();
+        this.subscribeToEndpoints();
       },
-      deep: true
-    },
-    "context.node2View.properties.value": {
-      handler() {
-        void this.$forceUpdate?.();
-      },
-      deep: true
+      deep: false
     }
   },
   methods: {
+    /**
+     * Subscribe to endpoint property changes using RootProperty.subscribe.
+     * This bypasses Vue's reactivity limitations with the non-Vue OpenChart model.
+     */
+    subscribeToEndpoints(): void {
+      if (!this.context) return;
+
+      const handler = () => {
+        // Increment counter to invalidate computed property cache, triggering re-render
+        this.updateCounter++;
+      };
+
+      this.node1SubscriptionId = `node1-${Date.now()}-${Math.random()}`;
+      this.node2SubscriptionId = `node2-${Date.now()}-${Math.random()}`;
+
+      // Subscribe to the node1View's properties (RootProperty)
+      const node1Props = this.context.node1View.properties as RootProperty;
+      if (typeof node1Props.subscribe === "function") {
+        node1Props.subscribe(this.node1SubscriptionId, handler);
+      }
+
+      // Subscribe to the node2View's properties (RootProperty)
+      const node2Props = this.context.node2View.properties as RootProperty;
+      if (typeof node2Props.subscribe === "function") {
+        node2Props.subscribe(this.node2SubscriptionId, handler);
+      }
+    },
+
+    /**
+     * Unsubscribe from all endpoint property changes.
+     */
+    unsubscribeFromEndpoints(): void {
+      if (!this.context) return;
+
+      const node1Props = this.context.node1View.properties as RootProperty;
+      if (this.node1SubscriptionId && typeof node1Props.unsubscribe === "function") {
+        node1Props.unsubscribe(this.node1SubscriptionId);
+      }
+
+      const node2Props = this.context.node2View.properties as RootProperty;
+      if (this.node2SubscriptionId && typeof node2Props.unsubscribe === "function") {
+        node2Props.unsubscribe(this.node2SubscriptionId);
+      }
+
+      this.node1SubscriptionId = "";
+      this.node2SubscriptionId = "";
+    },
+
     /**
      * Get the display name of a block.
      */
@@ -204,6 +260,12 @@ export default defineComponent({
       const cmd = EditorCommands.deleteSubproperty(this.property, key);
       this.$emit("execute", cmd);
     }
+  },
+  mounted() {
+    this.subscribeToEndpoints();
+  },
+  unmounted() {
+    this.unsubscribeFromEndpoints();
   }
 });
 </script>
