@@ -394,11 +394,13 @@ function runMultiElbowLayout(
     }
 
     if (hasNode2Src) {
-        // Cap offset at node1 end (symmetric with node2, using Math.sign for axis-aligned deltas)
+        // Cap offset at node1 end — endpoint moves toward the inner vertex t[2],t[3], mirroring
+        // the node2-end formula. `-= sign(endpoint - inner) * half` steps the endpoint one half
+        // cap-size toward the adjacent vertex (for t[0] < t[2], sign is -1 and -= negates to +=).
         if (t[0] === t[2]) {
-            t[1] += Math.sign(t[1] - t[3]) * (face.style.capSize >> 1);
+            t[1] -= Math.sign(t[1] - t[3]) * (face.style.capSize >> 1);
         } else {
-            t[0] += Math.sign(t[0] - t[2]) * (face.style.capSize >> 1);
+            t[0] -= Math.sign(t[0] - t[2]) * (face.style.capSize >> 1);
         }
     }
 

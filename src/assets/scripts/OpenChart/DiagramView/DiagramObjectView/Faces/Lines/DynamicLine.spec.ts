@@ -204,22 +204,24 @@ describe("DynamicLine", () => {
             const line = await createTestingLine();
             const canvas = await createTestingCanvas();
 
-            // Initial state: both arrays empty
+            // Establish baseline layout so the observer has a prior state to re-layout from.
             line.calculateLayout();
             let face = line.face as unknown as GenericLineInternalState;
             expect(face.arrowAtNode1).toBe(null);
             expect(face.arrowAtNode2).toBe(null);
 
-            // Mutate node1_src without manual calculateLayout — observer should fire
+            // Mutate the node1_src ref array. LineView's property-change observer (wired in its
+            // constructor) must bubble the update from the nested ListProperty → RootProperty
+            // subscribers → LineView.handleUpdate(PropUpdate) → face.calculateLayout(). No manual
+            // calculateLayout() trigger here — this is the reactivity gate for AC3.5.
             addDataItem(canvas, "item-5", "root", "D5", "Data Item 5");
             addDataItemRef(line, "item-5", "node1");
-            // Let observer fire before checking
-            line.calculateLayout();
             face = line.face as unknown as GenericLineInternalState;
             expect(face.arrowAtNode2).not.toBe(null);
             expect(face.arrowAtNode2?.length).toBe(6);
 
-            // Mutate again: clear node1_src
+            // Removing the entry from the ListProperty must likewise cascade through the observer
+            // chain and re-layout to clear the arrow slot.
             const node1Refs = line.properties.value.get("node1_src_data_item_refs");
             if (node1Refs instanceof ListProperty) {
                 const keys = Array.from(node1Refs.value.keys());
@@ -227,7 +229,6 @@ describe("DynamicLine", () => {
                     node1Refs.removeProperty(key);
                 }
             }
-            line.calculateLayout();
             face = line.face as unknown as GenericLineInternalState;
             expect(face.arrowAtNode2).toBe(null);
         });
@@ -285,30 +286,29 @@ describe("DynamicLine", () => {
             expect(face.arrowAtNode2).toBe(null);
             const verts_none = face.vertices.slice();
 
-            // For a horizontal line at y=20, vertices are at the same y
-            // Arrow offsets are applied to the endpoint x-coordinates
-            // Config 1 (arrow at node2): node2 endpoint insets toward node1
-            const node2End_with_node1src = verts_node1src[verts_node1src.length - 2];
-            const node2End_none = verts_none[verts_none.length - 2];
+            // Horizontal line at y=20: arrow insets modify endpoint x-coordinates only.
+            // vertices[0..1] is the node1 endpoint; vertices[len-2..len-1] is the node2 endpoint.
+            const lastX = (v: number[]): number => v[v.length - 2];
 
-            // Config 2 (arrow at node1): node1 endpoint insets toward node2
-            const node1End_with_node2src = verts_node2src[0];
-            const node1End_none = verts_none[0];
+            // Byte-identical: non-arrow endpoints must match the all-empty baseline exactly.
+            //   Config 1 (arrow at node2): node1 endpoint identical to baseline.
+            expect(verts_node1src[0]).toBe(verts_none[0]);
+            expect(verts_node1src[1]).toBe(verts_none[1]);
+            //   Config 2 (arrow at node1): node2 endpoint identical to baseline.
+            expect(lastX(verts_node2src)).toBe(lastX(verts_none));
+            expect(verts_node2src[verts_node2src.length - 1]).toBe(verts_none[verts_none.length - 1]);
 
-            // Verify insets occurred (endpoint moved toward the opposite end)
-            const node2Inset = Math.abs(node2End_with_node1src - node2End_none);
-            const node1Inset = Math.abs(node1End_with_node2src - node1End_none);
+            // Exact symmetric inset: cap-size inset is capSize >> 1; both ends must shift by the
+            // same signed magnitude (toward the opposite end). For a horizontal x=10→x=50 line:
+            //   node2 end shifts negative (toward node1), node1 end shifts positive (toward node2).
+            const node2Inset = lastX(verts_none) - lastX(verts_node1src);
+            const node1Inset = verts_node2src[0] - verts_none[0];
             expect(node2Inset).toBeGreaterThan(0);
-            expect(node1Inset).toBeGreaterThan(0);
+            expect(node1Inset).toBe(node2Inset);
 
-            // Verify symmetry: both insets should be approximately equal (capSize >> 1 ≈ 6)
-            expect(Math.abs(node2Inset - node1Inset)).toBeLessThan(1);
-
-            // When both arrows: both endpoints inset
-            const node1End_both = verts_both[0];
-            const node2End_both = verts_both[verts_both.length - 2];
-            expect(Math.abs(node1End_both - node1End_none)).toBeGreaterThan(0);
-            expect(Math.abs(node2End_both - node2End_none)).toBeGreaterThan(0);
+            // Both-arrows config applies the same inset to both ends.
+            expect(verts_both[0] - verts_none[0]).toBe(node1Inset);
+            expect(lastX(verts_none) - lastX(verts_both)).toBe(node2Inset);
         });
     });
 });
