@@ -1492,4 +1492,81 @@ describe("NewAutoLayoutEngine", () => {
 
     });
 
+    ///////////////////////////////////////////////////////////////////////////
+    //  calculateLayout refresh — data-item pill-row regression guard  ////////
+    ///////////////////////////////////////////////////////////////////////////
+
+    describe("run — calculateLayout is called before serialization", () => {
+
+        /**
+         * Regression guard for the data-item pill-row stale-size bug.
+         *
+         * Root cause recap: on initial import, DictionaryBlock's `calculateLayout`
+         * may run before the block is attached to the canvas.  That makes
+         * `findCanvas(view)` return null, so `dataItemsForParent` returns [] and
+         * the pill row is not folded into `face.height`.  `serializeToD2` then
+         * reads the stale (too-small) height, TALA routes lines around the smaller
+         * bounding box, and after placement the block renders larger than TALA
+         * expected — causing lines to cross through blocks and endpoints to land
+         * off-perimeter.
+         *
+         * The fix: call `canvas.calculateLayout()` (duck-typed via `isLayoutable`)
+         * before `serializeToD2`, ensuring all faces reflect current content.
+         *
+         * These tests verify:
+         *   1. `calculateLayout` is called when the canvas exposes the method.
+         *   2. `calculateLayout` fires BEFORE `layoutSource` (i.e. before TALA serialization).
+         *   3. When the canvas does NOT expose `calculateLayout` (legacy stubs), the
+         *      engine proceeds normally — the guard is opt-in / backward-compatible.
+         */
+
+        it("calls calculateLayout on the canvas before invoking layoutSource", async () => {
+            const block = makeBlockStub("block-a");
+            const svg   = makeTalaSvg([{ id: "block-a", x: 0, y: 0 }]);
+
+            // Call-order tracking: record which function fired in what position.
+            const callOrder: string[] = [];
+
+            const calculateLayout = vi.fn(() => { callOrder.push("calculateLayout"); });
+            const layoutSource:  LayoutSource = vi.fn().mockImplementation(async () => {
+                callOrder.push("layoutSource");
+                return svg;
+            });
+
+            // Canvas with calculateLayout exposed (mirrors CanvasView).
+            const canvas = {
+                blocks: [block],
+                groups: [],
+                lines:  [],
+                calculateLayout
+            };
+
+            await new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas as unknown as SerializableCanvas));
+
+            expect(calculateLayout).toHaveBeenCalledOnce();
+            expect(layoutSource).toHaveBeenCalledOnce();
+            // calculateLayout must fire before serialization (layoutSource call).
+            expect(callOrder).toEqual(["calculateLayout", "layoutSource"]);
+        });
+
+        it("proceeds normally when canvas does not expose calculateLayout (backward-compatible)", async () => {
+            // Plain SerializableCanvas stub — no calculateLayout method.
+            const block  = makeBlockStub("block-x");
+            const svg    = makeTalaSvg([{ id: "block-x", x: 0, y: 0 }]);
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            const canvas: SerializableCanvas = { blocks: [block], groups: [], lines: [] };
+
+            // Must not throw; block.moveTo must still be called with TALA coords.
+            await expect(
+                new NewAutoLayoutEngine(layoutSource).run(makeObjects(canvas))
+            ).resolves.toBeUndefined();
+
+            expect(layoutSource).toHaveBeenCalledOnce();
+            // TALA placed the block at (0,0) with default 100×50 → center (50, 25).
+            expect(block.moveTo).toHaveBeenCalledWith(50, 25);
+        });
+
+    });
+
 });
