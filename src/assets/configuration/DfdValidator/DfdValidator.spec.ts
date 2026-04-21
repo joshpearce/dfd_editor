@@ -1,8 +1,8 @@
 /**
  * @file DfdValidator.spec.ts
  *
- * Tests for DfdValidator's `data_item_refs` dangling-ref warning introduced
- * in Step 5 of the data-items-on-canvas plan.
+ * Tests for DfdValidator's per-direction dangling-ref warning on a Flow's
+ * `node1_src_data_item_refs` / `node2_src_data_item_refs` arrays.
  *
  * SCOPE: Only the dangling-ref validator behaviour is tested here.  Existing
  * validation rules (required fields, trust-boundary constraints, edge auth)
@@ -52,7 +52,7 @@ function setName(obj: DiagramObject, name: string): void {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("DfdValidator — data_item_refs dangling-ref warning (AC5.2, AC5.3)", () => {
+describe("DfdValidator — ref-array dangling-ref warning (AC5.2, AC5.3)", () => {
 
     let factory: DiagramObjectFactory;
     let validator: DfdValidator;

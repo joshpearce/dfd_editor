@@ -2,7 +2,8 @@
  * @file DfdPublisher.spec.ts
  *
  * Verifies that DfdPublisher correctly projects canvas data_items and
- * flow data_item_refs onto the minimal-format JSON output.
+ * flow ref arrays (node1_src_data_item_refs / node2_src_data_item_refs)
+ * onto the minimal-format JSON output.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -110,7 +111,7 @@ describe("DfdPublisher", () => {
         });
     });
 
-    describe("publish — bidirectional flow data_item_refs", () => {
+    describe("publish — bidirectional flow ref arrays", () => {
         it("projects both ref arrays when node1 direction is populated", () => {
             const file = new DiagramModelFile(factory);
             const canvas = file.canvas;
