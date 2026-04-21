@@ -174,8 +174,8 @@ class DataFlowProps(_Base):
     protocol: str | None = None
     authenticated: StrictBool = False
     encrypted: StrictBool = False
-    node1_src_data_item_refs: list[UUID] = []
-    node2_src_data_item_refs: list[UUID] = []
+    node1_src_data_item_refs: list[UUID] = Field(default_factory=list)
+    node2_src_data_item_refs: list[UUID] = Field(default_factory=list)
 
 
 class DataFlow(_Base):
