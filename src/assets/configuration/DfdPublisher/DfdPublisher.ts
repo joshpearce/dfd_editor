@@ -28,15 +28,19 @@ class DfdPublisher implements FilePublisher {
         }
 
         for (const [id, edge] of graph.edges) {
-            const dataItemRefs = this.projectDataItemRefs(edge.props.value.get("data_item_refs"));
+            // Collect data_item_refs from both directions (node1 and node2).
+            // For now, we combine them into a single "data_item_refs" field for the minimal format.
+            const node1Refs = this.projectDataItemRefs(edge.props.value.get("node1_src_data_item_refs"));
+            const node2Refs = this.projectDataItemRefs(edge.props.value.get("node2_src_data_item_refs"));
+            const allRefs = [...node1Refs, ...node2Refs];
             const edgeRecord: Record<string, unknown> = {
                 id,
                 source: edge.source?.instance ?? null,
                 target: edge.target?.instance ?? null,
                 crosses: edge.crossings.map(n => n.instance)
             };
-            if (dataItemRefs.length > 0) {
-                edgeRecord["data_item_refs"] = dataItemRefs;
+            if (allRefs.length > 0) {
+                edgeRecord["data_item_refs"] = allRefs;
             }
             edges.push(edgeRecord);
         }

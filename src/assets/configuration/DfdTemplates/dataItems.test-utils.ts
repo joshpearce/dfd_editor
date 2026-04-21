@@ -49,15 +49,18 @@ export function addDataItem(
 }
 
 /**
- * Adds a data_item_ref GUID to a flow's data_item_refs ListProperty.
+ * Adds a data_item_ref GUID to a flow's node1_src_data_item_refs or node2_src_data_item_refs
+ * ListProperty.
  *
- * @param line    The data_flow Line to mutate.
- * @param refGuid The GUID of the data item to reference.
+ * @param line       The data_flow Line to mutate.
+ * @param refGuid    The GUID of the data item to reference.
+ * @param direction  Which direction: "node1" for node1_src_data_item_refs, "node2" for node2_src_data_item_refs. Defaults to "node1".
  */
-export function addDataItemRef(line: Line, refGuid: string): void {
-    const refsProp = line.properties.value.get("data_item_refs");
+export function addDataItemRef(line: Line, refGuid: string, direction: "node1" | "node2" = "node1"): void {
+    const propName = direction === "node1" ? "node1_src_data_item_refs" : "node2_src_data_item_refs";
+    const refsProp = line.properties.value.get(propName);
     if (!(refsProp instanceof ListProperty)) {
-        throw new Error("line.properties.data_item_refs is not a ListProperty");
+        throw new Error(`line.properties.${propName} is not a ListProperty`);
     }
     const entry = refsProp.createListItem() as StringProperty;
     entry.setValue(refGuid);

@@ -167,17 +167,25 @@ export function dataItemsForParent(canvas: Canvas, nodeGuid: string): DataItem[]
  * @param props  The root property bag of the object to inspect.
  */
 export function readDataItemRefs(props: RootProperty): string[] {
-    const refsProp = props.value.get("data_item_refs");
-    if (!(refsProp instanceof ListProperty)) {
-        return [];
-    }
     const guids: string[] = [];
-    for (const [, entry] of refsProp.value) {
-        const val = entry.toJson();
-        if (typeof val === "string" && val.length > 0) {
-            guids.push(val);
+
+    // Read refs from both directions (node1 and node2).
+    // For legacy compatibility, also check for "data_item_refs" on old flows.
+    const propNames = ["node1_src_data_item_refs", "node2_src_data_item_refs", "data_item_refs"];
+
+    for (const propName of propNames) {
+        const refsProp = props.value.get(propName);
+        if (!(refsProp instanceof ListProperty)) {
+            continue;
+        }
+        for (const [, entry] of refsProp.value) {
+            const val = entry.toJson();
+            if (typeof val === "string" && val.length > 0) {
+                guids.push(val);
+            }
         }
     }
+
     return guids;
 }
 

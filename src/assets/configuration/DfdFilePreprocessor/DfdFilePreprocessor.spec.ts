@@ -71,7 +71,8 @@ function makeNativeFile(overrides: {
         ["encrypted_in_transit", "false"]
     ];
     if (overrides.flowDataItemRefsValue !== undefined) {
-        flowProps.push(["data_item_refs", overrides.flowDataItemRefsValue]);
+        flowProps.push(["node1_src_data_item_refs", overrides.flowDataItemRefsValue]);
+        flowProps.push(["node2_src_data_item_refs", []]);
     }
 
     // Anchors belong to blocks (via `anchors` map) and are NOT listed in the
@@ -178,7 +179,7 @@ describe("DfdFilePreprocessor", () => {
             const flowObj = [...traverse(file.canvas)]
                 .find(o => o.id === "data_flow");
             expect(flowObj).toBeDefined();
-            const refsProp = flowObj!.properties.value.get("data_item_refs");
+            const refsProp = flowObj!.properties.value.get("node1_src_data_item_refs");
             expect(refsProp).toBeInstanceOf(ListProperty);
             // Empty refs — resolves to well-formed empty ListProperty.
             expect((refsProp as ListProperty).value.size).toBe(0);
@@ -217,7 +218,7 @@ describe("DfdFilePreprocessor", () => {
 
             const flowObj = [...traverse(file.canvas)]
                 .find(o => o.id === "data_flow");
-            const refsProp = flowObj!.properties.value.get("data_item_refs") as ListProperty;
+            const refsProp = flowObj!.properties.value.get("node1_src_data_item_refs") as ListProperty;
             expect(refsProp).toBeInstanceOf(ListProperty);
 
             const vals = [...refsProp.value.values()].map(p => (p as StringProperty).toJson());
@@ -233,7 +234,7 @@ describe("DfdFilePreprocessor", () => {
             const file = new DiagramModelFile(factory, processed);
             const flowObj = [...traverse(file.canvas)]
                 .find(o => o.id === "data_flow");
-            const refsProp = flowObj!.properties.value.get("data_item_refs") as ListProperty;
+            const refsProp = flowObj!.properties.value.get("node1_src_data_item_refs") as ListProperty;
             expect(refsProp).toBeInstanceOf(ListProperty);
             expect(refsProp.value.size).toBe(0);
         });
@@ -313,7 +314,7 @@ describe("DfdFilePreprocessor", () => {
                 [itemGuid, [["parent", parentGuid], ["identifier", "D1"], ["name", "Token"]]]
             ];
 
-            // Backend-shape: [[key, guid], ...] for data_item_refs.
+            // Backend-shape: [[key, guid], ...] for node1_src_data_item_refs.
             const refsValue = [["some-key", itemGuid]];
 
             const native = makeNativeFile({
@@ -335,7 +336,7 @@ describe("DfdFilePreprocessor", () => {
                 name: "Token"
             });
 
-            // data_item_refs on flow published
+            // data_item_refs on flow published (combined from both directions)
             const edge = output.edges.find((e: Record<string, unknown>) => e.id === "flow-1");
             expect(edge?.data_item_refs).toEqual([itemGuid]);
         });
