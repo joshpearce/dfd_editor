@@ -203,7 +203,7 @@ export class GenericMover extends ObjectMover {
         // still inside the group. By separating the lookup pass from the
         // mutation pass we ensure all targets are determined against
         // consistent (restored pre-drag) bounds.
-        type Reparent = { obj: DiagramObjectView; target: CanvasView | GroupView };
+        type Reparent = { obj: DiagramObjectView, target: CanvasView | GroupView };
         const reparents: Reparent[] = [];
         for (const obj of this.objects) {
             if (isDescendantOfSelection(obj)) { continue; }

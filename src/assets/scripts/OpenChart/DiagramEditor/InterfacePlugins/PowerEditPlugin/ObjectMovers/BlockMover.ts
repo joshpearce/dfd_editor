@@ -36,7 +36,7 @@ export class BlockMover extends ObjectMover {
      * compare against a frozen snapshot to reliably detect when the block
      * has moved outside the group's original territory.
      */
-    private currentGroupBox: { xMin: number; yMin: number; xMax: number; yMax: number } | null;
+    private currentGroupBox: { xMin: number, yMin: number, xMax: number, yMax: number } | null;
 
     /**
      * The block's top-left corner at drag-start — used as the grid-snap
@@ -119,7 +119,7 @@ export class BlockMover extends ObjectMover {
         const editor = this.plugin.editor;
         const canvas = editor.file.canvas;
         const { moveObjectsBy, userSetObjectPosition,
-                reparentObject } = EditorCommands;
+            reparentObject } = EditorCommands;
         // Get distance
         let delta;
         if (this.alignment === Alignment.Grid) {
@@ -253,7 +253,7 @@ export class BlockMover extends ObjectMover {
      */
     public releaseSubject(): void {
         const { routeLinesThroughBlock, selectObject, unselectAllObjects,
-                reparentObject } = EditorCommands;
+            reparentObject } = EditorCommands;
         const editor = this.plugin.editor;
         const canvas = editor.file.canvas;
         const block = this.block;

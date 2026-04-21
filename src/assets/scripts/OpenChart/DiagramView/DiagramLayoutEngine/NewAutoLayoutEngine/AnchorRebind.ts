@@ -72,7 +72,7 @@ export interface AnchoredBlockSurface {
      * Map key is the string value of an `AnchorPosition` enum member
      * (e.g. `"0"`, `"30"`, `"60"`, … `"330"`).
      */
-    readonly anchors: ReadonlyMap<string, { readonly x: number; readonly y: number }>;
+    readonly anchors: ReadonlyMap<string, { readonly x: number, readonly y: number }>;
 }
 
 /**
