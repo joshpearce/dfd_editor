@@ -3,8 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { wireSocketClient } from "./DfdSocketDispatcher";
-import type { SocketEnvelopeType } from "./DfdSocketClient";
-import type { DfdSocketClient } from "./DfdSocketClient";
+import { type SocketEnvelopeType, type DfdSocketClient } from "./DfdSocketClient";
 import type { ApplicationStore } from "@/stores/ApplicationStore";
 
 // ---------------------------------------------------------------------------
@@ -261,13 +260,6 @@ describe("remote-control handler", () => {
 //  Tests: error resilience (M2) — each handler absorbs ctx.execute rejections
 // ---------------------------------------------------------------------------
 
-// Flush all pending microtasks (promise continuations). Used to let async
-// handler internals — which are kicked off with `void fn()` — complete before
-// asserting on their side effects.
-function flushMicrotasks(): Promise<void> {
-    return Promise.resolve();
-}
-
 describe("display handler — error resilience", () => {
     it("does not throw when ctx.execute rejects, logs error, and still handles the next valid envelope", async () => {
         const { client, handlers } = makeStubClient();
@@ -276,22 +268,15 @@ describe("display handler — error resilience", () => {
 
         ctx.execute.mockRejectedValueOnce(new Error("display-failure"));
 
-        // The wrapper calls `void handleDisplay(...)` so it returns undefined,
-        // not a Promise. Flush microtasks to let the internal async chain settle.
         handler({ id: "diagram-1" });
-        await flushMicrotasks();
-        await flushMicrotasks(); // two flushes to clear nested awaits
-
-        expect(console.error).toHaveBeenCalledWith(
+        await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith(
             expect.stringContaining("DfdSocketDispatcher:"),
             expect.any(Error)
-        );
+        ));
 
         // Handler registration must still be intact — second call succeeds.
         ctx.execute.mockResolvedValueOnce(undefined);
-        handler({ id: "diagram-2" });
-        await flushMicrotasks();
-        await flushMicrotasks();
+        await handler({ id: "diagram-2" });
         expect(ctx.execute).toHaveBeenCalledTimes(2);
     });
 });
@@ -305,18 +290,13 @@ describe("diagram-updated handler — error resilience", () => {
         ctx.execute.mockRejectedValueOnce(new Error("updated-failure"));
 
         handler({ id: "active-id" });
-        await flushMicrotasks();
-        await flushMicrotasks();
-
-        expect(console.error).toHaveBeenCalledWith(
+        await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith(
             expect.stringContaining("DfdSocketDispatcher:"),
             expect.any(Error)
-        );
+        ));
 
         ctx.execute.mockResolvedValueOnce(undefined);
-        handler({ id: "active-id" });
-        await flushMicrotasks();
-        await flushMicrotasks();
+        await handler({ id: "active-id" });
         expect(ctx.execute).toHaveBeenCalledTimes(2);
     });
 });
@@ -330,20 +310,15 @@ describe("diagram-deleted handler — error resilience", () => {
         ctx.execute.mockRejectedValueOnce(new Error("deleted-failure"));
 
         handler({ id: "active-id" });
-        await flushMicrotasks();
-        await flushMicrotasks();
-
-        expect(console.error).toHaveBeenCalledWith(
+        await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith(
             expect.stringContaining("DfdSocketDispatcher:"),
             expect.any(Error)
-        );
+        ));
 
         // Reset serverFileId so the second call also matches.
         ctx.serverFileId = "active-id";
         ctx.execute.mockResolvedValueOnce(undefined);
-        handler({ id: "active-id" });
-        await flushMicrotasks();
-        await flushMicrotasks();
+        await handler({ id: "active-id" });
         expect(ctx.execute).toHaveBeenCalledTimes(2);
     });
 });
@@ -357,18 +332,13 @@ describe("remote-control handler — error resilience", () => {
         ctx.execute.mockRejectedValueOnce(new Error("remote-control-failure"));
 
         handler({ state: "on" });
-        await flushMicrotasks();
-        await flushMicrotasks();
-
-        expect(console.error).toHaveBeenCalledWith(
+        await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith(
             expect.stringContaining("DfdSocketDispatcher:"),
             expect.any(Error)
-        );
+        ));
 
         ctx.execute.mockResolvedValueOnce(undefined);
-        handler({ state: "off" });
-        await flushMicrotasks();
-        await flushMicrotasks();
+        await handler({ state: "off" });
         expect(ctx.execute).toHaveBeenCalledTimes(2);
     });
 });

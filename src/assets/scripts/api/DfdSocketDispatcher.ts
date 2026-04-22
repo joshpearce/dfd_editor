@@ -22,21 +22,21 @@ export function wireSocketClient(
     client: DfdSocketClient,
     ctx: ApplicationStore
 ): () => void {
-    const unsubDisplay = client.on("display", (payload) => {
-        void handleDisplay(payload, ctx);
-    });
+    const unsubDisplay = client.on("display", (payload) =>
+        handleDisplay(payload, ctx)
+    );
 
-    const unsubUpdated = client.on("diagram-updated", (payload) => {
-        void handleDiagramUpdated(payload, ctx);
-    });
+    const unsubUpdated = client.on("diagram-updated", (payload) =>
+        handleDiagramUpdated(payload, ctx)
+    );
 
-    const unsubDeleted = client.on("diagram-deleted", (payload) => {
-        void handleDiagramDeleted(payload, ctx);
-    });
+    const unsubDeleted = client.on("diagram-deleted", (payload) =>
+        handleDiagramDeleted(payload, ctx)
+    );
 
-    const unsubRemoteControl = client.on("remote-control", (payload) => {
-        void handleRemoteControl(payload, ctx);
-    });
+    const unsubRemoteControl = client.on("remote-control", (payload) =>
+        handleRemoteControl(payload, ctx)
+    );
 
     return () => {
         unsubDisplay();

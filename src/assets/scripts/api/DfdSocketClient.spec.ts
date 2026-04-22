@@ -81,16 +81,16 @@ class MockWebSocket {
 
 let consoleInfo: MockInstance;
 let consoleWarn: MockInstance;
-let _consoleError: MockInstance;
+let consoleError: MockInstance;
 
 beforeEach(() => {
     mockInstances = [];
     vi.stubGlobal("WebSocket", MockWebSocket);
     vi.useFakeTimers();
     // Suppress console noise AND allow assertions on log lines (M3).
-    consoleInfo   = vi.spyOn(console, "info").mockImplementation(() => {});
-    consoleWarn   = vi.spyOn(console, "warn").mockImplementation(() => {});
-    _consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    consoleInfo  = vi.spyOn(console, "info").mockImplementation(() => {});
+    consoleWarn  = vi.spyOn(console, "warn").mockImplementation(() => {});
+    consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -207,6 +207,21 @@ describe("DfdSocketClient.on", () => {
         latestWs().simulateMessage(JSON.stringify({ type: "diagram-deleted" }));
         expect(received).toEqual([undefined]);
 
+        client.close();
+    });
+
+    it("logs a console.error when a handler returns a rejecting promise", async () => {
+        const err = new Error("boom");
+        const client = new DfdSocketClient("ws://localhost:5050/ws");
+        client.on("display", () => Promise.reject(err));
+        latestWs().simulateMessage(JSON.stringify({ type: "display", payload: {} }));
+        // Flush microtasks so the .catch runs
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining("handler rejected"),
+            err
+        );
         client.close();
     });
 });
