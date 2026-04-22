@@ -80,28 +80,38 @@ def _broadcast(envelope: dict) -> None:
         logger.exception("failed to post broadcast envelope: %s", envelope)
 
 
-def _sweep() -> None:
-    """Daemon thread: evict stale sessions and emit remote-control transitions."""
+def _sweep_once(now: float | None = None) -> None:
+    """Evict stale sessions and emit remote-control transitions — one pass.
+
+    Extracted from the daemon loop so tests can drive it synchronously without
+    waiting for the 5-second sleep.
+    """
     global _was_active
+    if now is None:
+        now = time.monotonic()
+    with _last_seen_lock:
+        stale = [sid for sid, ts in _last_seen.items()
+                 if now - ts > SESSION_EXPIRY_SECONDS]
+        for sid in stale:
+            del _last_seen[sid]
+            logger.info("evicted stale session %s", sid)
+        is_active = bool(_last_seen)
+
+    if is_active and not _was_active:
+        logger.info("remote-control: on (session count 0 → >0)")
+        _broadcast({"type": "remote-control", "payload": {"state": "on"}})
+        _was_active = True
+    elif not is_active and _was_active:
+        logger.info("remote-control: off (session count >0 → 0)")
+        _broadcast({"type": "remote-control", "payload": {"state": "off"}})
+        _was_active = False
+
+
+def _sweep() -> None:
+    """Daemon thread: calls _sweep_once every 5 seconds."""
     while True:
         time.sleep(5)
-        now = time.monotonic()
-        with _last_seen_lock:
-            stale = [sid for sid, ts in _last_seen.items()
-                     if now - ts > SESSION_EXPIRY_SECONDS]
-            for sid in stale:
-                del _last_seen[sid]
-                logger.info("evicted stale session %s", sid)
-            is_active = bool(_last_seen)
-
-        if is_active and not _was_active:
-            logger.info("remote-control: on (session count 0 → >0)")
-            _broadcast({"type": "remote-control", "payload": {"state": "on"}})
-            _was_active = True
-        elif not is_active and _was_active:
-            logger.info("remote-control: off (session count >0 → 0)")
-            _broadcast({"type": "remote-control", "payload": {"state": "off"}})
-            _was_active = False
+        _sweep_once()
 
 
 _sweeper = threading.Thread(target=_sweep, daemon=True, name="mcp-session-sweeper")
