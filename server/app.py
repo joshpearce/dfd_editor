@@ -1,16 +1,22 @@
 import json
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
+from flask_sock import Sock
 from pydantic import ValidationError
 
 from transform import DuplicateParentError, InvalidNativeError, to_minimal, to_native
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173"])
+sock = Sock(app)
+
+_ws_clients: set = set()
+_ws_lock = threading.Lock()
 
 # Tests override this via monkeypatch.setattr("app.DATA_DIR", ...).
 # Any refactor that reads DATA_DIR from a different module must preserve
@@ -133,6 +139,83 @@ def export_diagram(diagram_id):
     except ValidationError as e:
         return jsonify({"error": "stored diagram is not a valid dfd_v1 document", "detail": str(e)}), 500
     return jsonify(minimal)
+
+
+@app.route("/api/diagrams/<diagram_id>", methods=["DELETE"])
+def delete_diagram(diagram_id):
+    path = DATA_DIR / f"{diagram_id}.json"
+    if not path.exists():
+        return jsonify({"error": "not found"}), 404
+    path.unlink()
+    return "", 204
+
+
+@app.route("/api/diagrams/<diagram_id>/import", methods=["PUT"])
+def import_diagram_update(diagram_id):
+    path = DATA_DIR / f"{diagram_id}.json"
+    if not path.exists():
+        return jsonify({"error": "not found"}), 404
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "request body must be valid JSON"}), 400
+    try:
+        native = to_native(body)
+    except ValidationError as e:
+        errors = e.errors(include_url=False)
+        cleaned_errors = [
+            {**err, "ctx": _safe_ctx(err["ctx"])} if "ctx" in err else err
+            for err in errors
+        ]
+        return jsonify({"error": "validation failed", "details": cleaned_errors}), 400
+    except DuplicateParentError as e:
+        return jsonify({"error": "duplicate parent", "detail": str(e)}), 400
+    native.pop("layout", None)
+    path.write_text(json.dumps(native, indent=4))
+    return "", 204
+
+
+def broadcast(envelope: dict) -> None:
+    with _ws_lock:
+        snapshot = set(_ws_clients)
+    dead = set()
+    for ws in snapshot:
+        try:
+            ws.send(json.dumps(envelope))
+        except Exception:
+            app.logger.exception("broadcast: failed to send to ws client")
+            dead.add(ws)
+    if dead:
+        with _ws_lock:
+            _ws_clients.difference_update(dead)
+
+
+@app.route("/api/internal/broadcast", methods=["POST"])
+def internal_broadcast():
+    if request.remote_addr != "127.0.0.1":
+        return jsonify({"error": "forbidden"}), 403
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "request body must be valid JSON"}), 400
+    if not isinstance(body.get("type"), str):
+        return jsonify({"error": "type must be a string"}), 400
+    broadcast(body)
+    return jsonify({"ok": True})
+
+
+@sock.route("/ws")
+def ws_handler(ws):
+    with _ws_lock:
+        _ws_clients.add(ws)
+    try:
+        while True:
+            msg = ws.receive()
+            if msg is None:
+                break
+    except Exception:
+        pass
+    finally:
+        with _ws_lock:
+            _ws_clients.discard(ws)
 
 
 @app.route("/api/layout", methods=["POST"])
