@@ -59,22 +59,20 @@ def _session_id(ctx: Context) -> str:
 def _mark_active(sid: str) -> None:
     """Record the session as seen and broadcast on-envelope if this is a 0→1 transition.
 
-    Takes the lock, inserts/updates _last_seen, atomically checks whether this
-    stamps the first active session, and broadcasts inside the lock if so.
-    Broadcasting inside the lock eliminates the race between the on/off
-    transition state update and the broadcast delivery ordering.
+    Computes the transition under the lock, releases it, then broadcasts
+    outside the lock so the HTTP POST does not serialize all tool calls
+    behind the broadcast RTT.
     """
     global _was_active
-    envelope = None
     with _last_seen_lock:
         prev_has_sessions = bool(_last_seen)
         _last_seen[sid] = time.monotonic()
-        if not prev_has_sessions and not _was_active:
+        should_broadcast_on = not prev_has_sessions and not _was_active
+        if should_broadcast_on:
             _was_active = True
-            envelope = {"type": "remote-control", "payload": {"state": "on"}}
-        if envelope:
-            logger.info("remote-control: on (session count 0 → >0)")
-            _broadcast(envelope)
+    if should_broadcast_on:
+        logger.info("remote-control: on (session count 0 → >0)")
+        _broadcast({"type": "remote-control", "payload": {"state": "on"}})
 
 
 def _stamp(ctx: Context) -> None:
@@ -92,20 +90,18 @@ def _broadcast(envelope: dict) -> None:
         logger.exception("failed to post broadcast envelope: %s", envelope)
 
 
-def _sweep_once(now: float | None = None) -> dict | None:
-    """Evict stale sessions and emit remote-control off transition if sessions dropped to zero.
+def _sweep_once(now: float | None = None) -> bool:
+    """Run one sweep pass. Returns True if an 'off' transition was emitted.
 
-    Returns the off-envelope if a >0→0 transition occurred (caller may use it
-    for test inspection), or None.  Broadcasting is done inside the lock to
-    eliminate the race between the on/off transition state update and delivery
-    ordering.  Extracted from the daemon loop so tests can drive it
-    synchronously without waiting for the 5-second sleep.
+    Computes the transition under the lock, releases it, then broadcasts
+    outside the lock so the HTTP POST does not serialize tool calls.
+    Exposed with a return value so tests can assert on the transition
+    without sleeping for the daemon's 5-second interval.
     """
     global _was_active
     if now is None:
         now = time.monotonic()
-
-    envelope = None
+    broadcast_off = False
     with _last_seen_lock:
         stale = [sid for sid, ts in _last_seen.items()
                  if now - ts > SESSION_EXPIRY_SECONDS]
@@ -113,15 +109,13 @@ def _sweep_once(now: float | None = None) -> dict | None:
             del _last_seen[sid]
             logger.info("evicted stale session %s", sid)
         is_active = bool(_last_seen)
-        prev_was_active = _was_active
-        if not is_active and prev_was_active:
+        if not is_active and _was_active:
             _was_active = False
-            envelope = {"type": "remote-control", "payload": {"state": "off"}}
-        if envelope:
-            logger.info("remote-control: off (session count >0 → 0)")
-            _broadcast(envelope)
-
-    return envelope
+            broadcast_off = True
+    if broadcast_off:
+        logger.info("remote-control: off (session count >0 → 0)")
+        _broadcast({"type": "remote-control", "payload": {"state": "off"}})
+    return broadcast_off
 
 
 def _sweep() -> None:

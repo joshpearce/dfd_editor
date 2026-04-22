@@ -97,17 +97,17 @@ _MINIMAL_DOC: dict[str, Any] = {
 
 
 class _FakeSession:
-    def __init__(self, sid: str = "test-session") -> None:
+    def __init__(self) -> None:
         pass  # _session_id uses id(ctx.session); no stored attribute needed
 
 
 class _FakeContext:
-    def __init__(self, sid: str = "test-session") -> None:
-        self.session = _FakeSession(sid)
+    def __init__(self) -> None:
+        self.session = _FakeSession()
 
 
-def _ctx(sid: str = "test-session") -> _FakeContext:
-    return _FakeContext(sid)
+def _ctx() -> _FakeContext:
+    return _FakeContext()
 
 
 # ---------------------------------------------------------------------------
@@ -564,7 +564,7 @@ class TestRemoteControlLifecycle:
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
         # _stamp should detect 0→1 and broadcast on immediately
-        _stamp(_ctx("rc-test-stamp"))
+        _stamp(_ctx())
 
         matching = _wait_for_broadcast(messages, "remote-control", reader_errors=reader_errors)
         on_msgs = [m for m in matching if m.get("payload", {}).get("state") == "on"]
@@ -578,18 +578,17 @@ class TestRemoteControlLifecycle:
         _tmp_path, port = live_server
 
         # Pre-stamp a session and verify active state (on emitted via _stamp)
-        mcp_server._stamp(_ctx("rc-test-off"))
+        mcp_server._stamp(_ctx())
         assert mcp_server._was_active is True
 
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
         # Sweep with a 'now' far enough in the future to evict the session.
-        # _sweep_once now broadcasts the off-envelope internally (M3), so the
-        # returned envelope is for test-assertion inspection only — do NOT
-        # call _broadcast again or it will double-emit.
+        # _sweep_once broadcasts the off-envelope internally and returns True
+        # on an off-transition so the test can assert without inspecting
+        # envelope shape.
         far_future = time.monotonic() + mcp_server.SESSION_EXPIRY_SECONDS + 1
-        envelope = _sweep_once(now=far_future)
-        assert envelope is not None, "Expected _sweep_once to return off-envelope"
+        assert _sweep_once(now=far_future) is True, "Expected _sweep_once to return True (off-transition emitted)"
 
         matching = _wait_for_broadcast(messages, "remote-control", reader_errors=reader_errors)
         off_msgs = [m for m in matching if m.get("payload", {}).get("state") == "off"]
@@ -605,7 +604,7 @@ class TestRemoteControlLifecycle:
         _tmp_path, port = live_server
 
         # Drive to active via first stamp (reuse the same ctx so id() is stable)
-        ctx_dedup = _ctx("rc-dedup")
+        ctx_dedup = _ctx()
         mcp_server._stamp(ctx_dedup)
         assert mcp_server._was_active is True
 
