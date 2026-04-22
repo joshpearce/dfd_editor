@@ -27,7 +27,8 @@ From `package.json` (canonical):
 
 - `npm run dev` — Vite dev server (http://localhost:5173)
 - `npm run dev:flask` — Flask backend on port 5050 (uses `server/.venv`)
-- `npm run dev:all` — both concurrently
+- `npm run dev:mcp` — MCP server on port 5051 (uses `server/.venv`)
+- `npm run dev:all` — all three concurrently (Vite + Flask + MCP)
 - `npm run build` — parallel `type-check` + `build-only` (vue-tsc then `vite build`)
 - `npm run build-only` — `vite build` without type-check
 - `npm run type-check` — `vue-tsc --build`

@@ -4,7 +4,7 @@ import {
 } from "@OpenChart/DiagramEditor";
 import type { AppSettings } from "@/assets/scripts/Application/Configuration/AppSettings";
 
-// TODO: Move into application configuration (mirrors the comment in LoadFile.ts)
+// TODO: Move into application configuration
 const marqueeThemes = {
     dark_theme  : DarkThemeMarquee,
     blog_theme  : LightThemeMarquee,
@@ -35,4 +35,3 @@ export function installEditPlugins(editor: DiagramViewEditor, settings: AppSetti
     );
 }
 
-export { RectangleSelectPlugin, PowerEditPlugin };

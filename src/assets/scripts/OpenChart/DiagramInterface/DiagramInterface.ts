@@ -445,6 +445,9 @@ export class DiagramInterface extends EventEmitter<DiagramInterfaceEvents> {
     public uninstallPlugin(...plugins: Array<new (...args: never[]) => DiagramInterfacePlugin>): void {
         for (const pluginCtor of plugins) {
             this.plugins.delete(pluginCtor.name);
+            if (this.activePlugin?.constructor.name === pluginCtor.name) {
+                this.activePlugin = null;
+            }
         }
     }
 

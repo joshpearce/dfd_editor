@@ -147,9 +147,14 @@ export function switchToFullscreen(): SwitchToFullscreen {
 /**
  * Sets the application to readonly mode.
  * @remarks
- *  This will not affect currently loaded files.
+ *  When a live editor is active, changing the flag also installs or
+ *  uninstalls the interactive-editing plugins ({@link RectangleSelectPlugin}
+ *  and {@link PowerEditPlugin}) on the editor's interface so the change
+ *  takes effect immediately. No-op on the {@link PhantomEditor} placeholder.
  * @param context
  *  The application context.
+ * @param value
+ *  The read-only state to apply.
  * @returns
  *  A command that represents the action.
  */

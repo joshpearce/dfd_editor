@@ -5,7 +5,7 @@
  * no dependency on the concrete DiagramInterface DOM setup (canvas, d3, etc.)
  * or on Vue / Pinia.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SetReadonlyMode } from "./SetReadonlyMode";
 import { PhantomEditor } from "@/stores/PhantomEditor";
 import { PowerEditPlugin, RectangleSelectPlugin } from "@OpenChart/DiagramEditor";
@@ -68,52 +68,51 @@ describe("SetReadonlyMode", () => {
          * When the active editor is the PhantomEditor placeholder, executing
          * the command must update the flag but must NOT touch the interface
          * because the phantom editor has no real canvas.
+         *
+         * The DiagramInterfaceStub (from PowerEditPlugin.testing.setup.ts) has
+         * no installPlugin / uninstallPlugin methods. We attach no-op versions
+         * in beforeEach so vi.spyOn can instrument them, then assert they are
+         * never called — directly expressing the guard invariant.
          */
-        it("updates the flag and skips plugin management when editor is PhantomEditor", async () => {
-            const iface = makeStubInterface();
-            // Inject the spy interface into the PhantomEditor temporarily by
-            // using a context whose activeEditor IS PhantomEditor. PhantomEditor
-            // itself is the singleton — we never need to touch its interface.
+        let installSpy: ReturnType<typeof vi.spyOn>;
+        let uninstallSpy: ReturnType<typeof vi.spyOn>;
+
+        beforeEach(() => {
+            // The stub DiagramInterface lacks installPlugin / uninstallPlugin.
+            // Attach no-ops so vi.spyOn has something to wrap.
+            Object.assign(PhantomEditor.interface, {
+                installPlugin: () => { /* no-op */ },
+                uninstallPlugin: () => { /* no-op */ }
+            });
+            installSpy = vi.spyOn(PhantomEditor.interface, "installPlugin" as never);
+            uninstallSpy = vi.spyOn(PhantomEditor.interface, "uninstallPlugin" as never);
+        });
+
+        afterEach(() => {
+            installSpy.mockRestore();
+            uninstallSpy.mockRestore();
+        });
+
+        it("updates the flag and never calls installPlugin when toggled to read-only", async () => {
             const context = makeContext({ readOnlyMode: false });
-            // Confirm the active editor is the phantom
             expect(context.activeEditor).toBe(PhantomEditor as unknown as DiagramViewEditor);
 
             await new SetReadonlyMode(context, true).execute();
 
             expect(context.readOnlyMode).toBe(true);
-            // PhantomEditor.interface is a real DiagramInterface — but
-            // SetReadonlyMode must short-circuit before touching it.  We assert
-            // by placing spies on a mock interface and confirming they are
-            // never reached when the phantom guard fires.
-            //
-            // Because the PhantomEditor check happens inside execute() *after*
-            // the guard `editor.id === PhantomEditor.id`, and the context's
-            // activeEditor is the real PhantomEditor singleton (not our stub),
-            // we simply verify that the iface mock attached to our stub was
-            // never accessed (iface is not connected to PhantomEditor here).
-            // The production guard does the real work; the assertions below
-            // confirm the flag was updated.
-            expect(iface.installPlugin).not.toHaveBeenCalled();
-            expect(iface.uninstallPlugin).not.toHaveBeenCalled();
+            expect(installSpy).not.toHaveBeenCalled();
+            expect(uninstallSpy).not.toHaveBeenCalled();
         });
 
-        it("does not call installPlugin or uninstallPlugin on PhantomEditor's interface when toggled to false", async () => {
-            // Verify in the opposite direction.
-            // We cannot spy on the real PhantomEditor.interface because it is
-            // replaced by the global DiagramInterface stub (PowerEditPlugin.testing.setup.ts).
-            // Instead, confirm the guard fires by verifying the flag updates and
-            // no stub calls were attempted against the phantom.
+        it("updates the flag and never calls uninstallPlugin when toggled to interactive", async () => {
             const context = makeContext({ readOnlyMode: true });
             expect(context.activeEditor).toBe(PhantomEditor as unknown as DiagramViewEditor);
 
             await new SetReadonlyMode(context, false).execute();
 
             expect(context.readOnlyMode).toBe(false);
-            // If the phantom guard were missing, execute() would reach
-            // installEditPlugins(PhantomEditor, settings). That call invokes
-            // editor.interface.installPlugin — but the stub interface has no
-            // such method and would throw "TypeError: ... is not a function".
-            // The test passing without throwing confirms the guard fires.
+            expect(installSpy).not.toHaveBeenCalled();
+            expect(uninstallSpy).not.toHaveBeenCalled();
         });
     });
 

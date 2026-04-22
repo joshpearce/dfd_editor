@@ -141,17 +141,17 @@ only; Flask's broadcast endpoint rejects non-loopback callers with 403.
 
 ### MCP tools (Step 2)
 
-Six tools exposed at `mcp_server.py` on port 5051 (stdio transport via the
-MCP SDK). Each tool calls Flask over loopback:
+Six tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP transport
+bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
 
-| Tool | Flask call |
-|---|---|
-| `list_diagrams` | `GET /api/diagrams` |
-| `create_diagram` | `POST /api/diagrams` |
-| `get_diagram` | `GET /api/diagrams/<id>` |
-| `update_diagram` | `PUT /api/diagrams/<id>/import` |
-| `delete_diagram` | `DELETE /api/diagrams/<id>` |
-| `display_diagram` | `POST /api/internal/broadcast` with `type: "display"` |
+| Tool | Flask call | Emits |
+|---|---|---|
+| `list_diagrams` | `GET /api/diagrams` | — |
+| `create_diagram` | `POST /api/diagrams` | — |
+| `get_diagram` | `GET /api/diagrams/<id>` | — |
+| `update_diagram` | `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+| `delete_diagram` | `DELETE /api/diagrams/<id>` | `diagram-deleted` |
+| `display_diagram` | `POST /api/internal/broadcast` with `type: "display"` | `display` |
 
 ## Gotchas
 - Not a production server. `flask --debug` is on by default via

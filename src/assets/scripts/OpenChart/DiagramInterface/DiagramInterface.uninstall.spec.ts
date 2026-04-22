@@ -66,18 +66,28 @@ function getPluginMap(iface: DiagramInterface): Map<string, DiagramInterfacePlug
 }
 
 /**
+ * Read the private activePlugin field for assertion purposes only.
+ */
+function getActivePlugin(iface: DiagramInterface): DiagramInterfacePlugin | null {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (iface as any).activePlugin as DiagramInterfacePlugin | null;
+}
+
+/**
  * Build a minimal DiagramInterface without triggering the DOM-dependent
  * constructor (which calls d3.select(document.createElement("canvas"))).
  *
  * We use Object.create to get an instance with the correct prototype, then
- * manually seed the only private field that installPlugin / uninstallPlugin
- * actually access: the `plugins` Map.
+ * manually seed the only private fields that installPlugin / uninstallPlugin
+ * actually access: the `plugins` Map and `activePlugin`.
  */
 function makeInterface(): DiagramInterface {
     const iface = Object.create(DiagramInterface.prototype) as DiagramInterface;
     // Seed the private `plugins` Map that installPlugin / uninstallPlugin use.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (iface as any).plugins = new Map<string, DiagramInterfacePlugin>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (iface as any).activePlugin = null;
     return iface;
 }
 
@@ -127,6 +137,34 @@ describe("DiagramInterface.uninstallPlugin", () => {
         // C must still be present
         expect(map.has("StubPluginC")).toBe(true);
         expect(map.size).toBe(1);
+    });
+
+    it("clears activePlugin when the uninstalled constructor matches the active plugin", () => {
+        const iface = makeInterface();
+        const pluginA = new StubPluginA();
+        iface.installPlugin(pluginA);
+        // Simulate the interface having selected this plugin during a drag interaction.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (iface as any).activePlugin = pluginA;
+        expect(getActivePlugin(iface)).toBe(pluginA);
+
+        iface.uninstallPlugin(StubPluginA);
+
+        expect(getActivePlugin(iface)).toBeNull();
+    });
+
+    it("leaves activePlugin intact when a different constructor is uninstalled", () => {
+        const iface = makeInterface();
+        const pluginA = new StubPluginA();
+        const pluginB = new StubPluginB();
+        iface.installPlugin(pluginA, pluginB);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (iface as any).activePlugin = pluginA;
+
+        iface.uninstallPlugin(StubPluginB);
+
+        // activePlugin was not the uninstalled one — must remain unchanged.
+        expect(getActivePlugin(iface)).toBe(pluginA);
     });
 
 });
