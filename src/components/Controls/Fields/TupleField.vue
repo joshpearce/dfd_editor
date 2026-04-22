@@ -152,10 +152,11 @@ export default defineComponent({
 }
 
 .tuple-table td.field-name {
-  color: #969696;
-  font-size: 8.3pt;
-  font-weight: 500;
+  color: #bfbfbf;
+  font-size: 8.5pt;
+  font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
   width: 0px;
   padding: 0px 8px;
   border-right: solid 1px #242424;

@@ -138,9 +138,11 @@ export default defineComponent({
 }
 
 .section-title {
-  color: #a6a6a6;
-  font-size: 9.5pt;
-  font-weight: 500;
+  color: #bfbfbf;
+  font-size: 8.5pt;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   margin: 0 0 8px 0;
 }
 
