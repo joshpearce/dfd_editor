@@ -500,6 +500,16 @@ def add_element(
         diagram[collection] = []
     if "guid" not in element:
         raise ValueError("element must contain a 'guid' field")
+    incoming_guid = str(element["guid"])
+    existing_guids = {
+        str(item["guid"])
+        for coll in _VALID_COLLECTIONS
+        for item in diagram.get(coll, [])
+    }
+    if incoming_guid in existing_guids:
+        raise ValueError(
+            f"element guid {incoming_guid!r} already exists in the diagram"
+        )
     diagram[collection].append(element)
     broadcast_delivered = _save_minimal(diagram_id, diagram)
     return {"guid": str(element["guid"]), "broadcast_delivered": broadcast_delivered}

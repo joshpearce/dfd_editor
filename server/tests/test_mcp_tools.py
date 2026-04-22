@@ -997,6 +997,31 @@ class TestAddElement:
         guids = {n["guid"] for n in fetched["nodes"]}
         assert _NEW_NODE_GUID not in guids
 
+    def test_duplicate_guid_raises_value_error(self, live_server):
+        """add_element must reject an element whose guid already exists in the diagram."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        # _PROCESS_GUID is already in the diagram (from _MINIMAL_DOC)
+        duplicate_node = {
+            "type": "process",
+            "guid": _PROCESS_GUID,
+            "properties": {"name": "Duplicate"},
+        }
+        with pytest.raises(ValueError, match="already exists"):
+            add_element(
+                diagram_id=diagram_id,
+                collection="nodes",
+                element=duplicate_node,
+                ctx=_ctx(),
+            )
+
+        # Diagram should be unchanged
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        assert sum(1 for n in fetched["nodes"] if n["guid"] == _PROCESS_GUID) == 1
+
     def test_add_element_schema_has_collection_enum(self):
         """FastMCP must advertise the collection parameter as an enum."""
         tools = {t.name: t for t in mcp._tool_manager.list_tools()}
