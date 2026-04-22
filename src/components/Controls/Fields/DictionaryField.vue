@@ -97,7 +97,7 @@ export default defineComponent({
   display: flex;
   align-items: center;
   color: #bfbfbf;
-  font-size: 10.5pt;
+  font-size: 9pt;
   user-select: none;
   padding: 7px 10px;
   border: solid 1px #3d3d3d;
@@ -123,7 +123,7 @@ export default defineComponent({
 
 .no-properties {
   color: #818181;
-  font-size: 10pt;
+  font-size: 9pt;
 }
 
 </style>

@@ -123,7 +123,7 @@ export default defineComponent({
   align-items: center;
   justify-content: center;
   color: #818181;
-  font-size: 10pt;
+  font-size: 9pt;
   text-align: center;
   user-select: none;
   width: 100%;

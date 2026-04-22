@@ -150,14 +150,14 @@ export default defineComponent({
 
 .field-name {
   color: #bfbfbf;
-  font-size: 8.5pt;
+  font-size: 11pt;
   font-weight: 600;
   letter-spacing: 0.05em;
   margin-bottom: 6px;
 }
 
 .field-value {
-  font-size: 10.5pt;
+  font-size: 9pt;
 }
 
 .text-field-control,

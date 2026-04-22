@@ -310,7 +310,7 @@ export default defineComponent({
 input {
   color-scheme: dark;
   color: inherit;
-  font-size: 10pt;
+  font-size: 9pt;
   font-family: inherit;
   padding: 0;
   border: none;
@@ -328,7 +328,7 @@ input:focus {
 
 .editor span {
   color: #999;
-  font-size: 10pt;
+  font-size: 9pt;
   margin: 0px 3px;
 }
 

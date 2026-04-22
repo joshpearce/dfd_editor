@@ -286,7 +286,7 @@ export default defineComponent({
 
 .direction-label {
   color: #bfbfbf;
-  font-size: 8.5pt;
+  font-size: 11pt;
   font-weight: 600;
   letter-spacing: 0.05em;
   margin: 0 0 8px 0;
@@ -312,7 +312,7 @@ export default defineComponent({
 
 .chip {
   color: #d0d0d0;
-  font-size: 10pt;
+  font-size: 9pt;
 }
 
 .delete-button {
@@ -332,7 +332,7 @@ export default defineComponent({
 
 .empty-state {
   color: #888;
-  font-size: 10pt;
+  font-size: 9pt;
   padding: 8px;
   font-style: italic;
   text-align: center;
@@ -345,7 +345,7 @@ export default defineComponent({
   background: #2e2e2e;
   color: #d0d0d0;
   border: 1px solid #404040;
-  font-size: 10.5pt;
+  font-size: 9pt;
   cursor: pointer;
 }
 

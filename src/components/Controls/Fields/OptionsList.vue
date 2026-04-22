@@ -289,7 +289,7 @@ export default defineComponent({
 
 .options li {
   list-style: none;
-  font-size: 10pt;
+  font-size: 9pt;
   user-select: none;
 }
 

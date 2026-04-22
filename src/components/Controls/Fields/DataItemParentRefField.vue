@@ -125,7 +125,7 @@ export default defineComponent({
   background: #2e2e2e;
   color: #d0d0d0;
   border: 1px solid #404040;
-  font-size: 10.5pt;
+  font-size: 9pt;
   cursor: pointer;
 }
 
