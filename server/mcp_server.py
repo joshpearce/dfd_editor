@@ -465,6 +465,56 @@ def display_diagram(diagram_id: str, ctx: Context) -> dict:
 _VALID_COLLECTIONS = {"nodes", "containers", "data_flows", "data_items"}
 
 
+def _find_element(diagram: dict, guid: str) -> tuple[dict, str] | None:
+    for collection in _VALID_COLLECTIONS:
+        for elem in diagram.get(collection, []):
+            if str(elem.get("guid")) == str(guid):
+                return elem, collection
+    return None
+
+
+@mcp.tool()
+def update_element(diagram_id: str, guid: str, fields: dict, ctx: Context) -> dict:
+    """Sparse-merge ``fields`` into an existing element in the diagram.
+
+    Searches all four collections (nodes, containers, data_flows, data_items)
+    for an element whose ``guid`` matches, then applies a partial update:
+
+    - **nodes / containers / data_flows**: ``fields`` is merged into
+      ``element["properties"]`` via ``update()``. The keys ``"guid"`` and
+      ``"type"`` are read-only for nodes and containers; ``"guid"``,
+      ``"node1"``, and ``"node2"`` are read-only for data_flows. Silently
+      skipped if present in ``fields``.
+    - **data_items**: ``fields`` is merged directly onto the flat element dict
+      (data_items have no nested ``properties``; their shape is ``guid``,
+      ``identifier``, ``name``, ``classification``, ``description``,
+      ``parent``). The key ``"guid"`` is read-only and silently skipped.
+
+    After mutation the diagram is validated via ``Diagram.model_validate`` and
+    PUT back to Flask. Raises ``ValueError`` if the guid is not found.
+    Returns ``{guid, broadcast_delivered}``.
+    """
+    _stamp(ctx)
+    diagram = _fetch_minimal(diagram_id)
+    found = _find_element(diagram, guid)
+    if found is None:
+        raise ValueError(f"element {guid!r} not found in diagram {diagram_id!r}")
+    elem, collection = found
+    if collection in ("nodes", "containers"):
+        readonly = {"guid", "type"}
+        safe_fields = {k: v for k, v in fields.items() if k not in readonly}
+        elem["properties"].update(safe_fields)
+    elif collection == "data_flows":
+        readonly = {"guid", "node1", "node2"}
+        safe_fields = {k: v for k, v in fields.items() if k not in readonly}
+        elem["properties"].update(safe_fields)
+    else:  # data_items — flat dict
+        safe_fields = {k: v for k, v in fields.items() if k != "guid"}
+        elem.update(safe_fields)
+    broadcast_delivered = _save_minimal(diagram_id, diagram)
+    return {"guid": guid, "broadcast_delivered": broadcast_delivered}
+
+
 @mcp.tool()
 def add_element(
     diagram_id: str,

@@ -62,6 +62,7 @@ from mcp_server import (
     list_diagrams,
     mcp,
     update_diagram,
+    update_element,
 )
 
 # ---------------------------------------------------------------------------
@@ -306,6 +307,7 @@ class TestToolsEnumeration:
             "delete_diagram",
             "display_diagram",
             "add_element",
+            "update_element",
         }
 
 
@@ -1034,3 +1036,209 @@ class TestAddElement:
         assert set(collection_schema["enum"]) == {
             "nodes", "containers", "data_flows", "data_items"
         }
+
+
+# ---------------------------------------------------------------------------
+# update_element — granular element CRUD: sparse-merge fields into an element
+# ---------------------------------------------------------------------------
+
+_UPDATE_DATA_ITEM_GUID = "dddddddd-0000-0000-0000-000000000001"
+
+
+class TestUpdateElement:
+    def test_update_node_name_and_broadcasts(self, live_server):
+        tmp_path, port = live_server
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        ws, messages, reader_errors = _open_ws_and_drain(port)
+
+        result = update_element(
+            diagram_id=diagram_id,
+            guid=_PROCESS_GUID,
+            fields={"name": "Updated Process"},
+            ctx=_ctx(),
+        )
+
+        assert result["guid"] == _PROCESS_GUID
+        assert result["broadcast_delivered"] is True
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        node = next(n for n in fetched["nodes"] if n["guid"] == _PROCESS_GUID)
+        assert node["properties"]["name"] == "Updated Process"
+
+        matching = _wait_for_broadcast(messages, "diagram-updated", reader_errors=reader_errors)
+        assert len(matching) == 1
+        assert matching[0]["payload"]["id"] == diagram_id
+
+        ws.close()
+
+    def test_update_data_flow_name(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        result = update_element(
+            diagram_id=diagram_id,
+            guid=_FLOW_GUID,
+            fields={"name": "Renamed Flow", "authenticated": True},
+            ctx=_ctx(),
+        )
+
+        assert result["guid"] == _FLOW_GUID
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        flow = next(f for f in fetched["data_flows"] if f["guid"] == _FLOW_GUID)
+        assert flow["properties"]["name"] == "Renamed Flow"
+        assert flow["properties"]["authenticated"] is True
+
+    def test_update_data_item_fields(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        add_element(
+            diagram_id=diagram_id,
+            collection="data_items",
+            element={
+                "guid": _UPDATE_DATA_ITEM_GUID,
+                "identifier": "D1",
+                "name": "Original Name",
+                "classification": "unclassified",
+            },
+            ctx=_ctx(),
+        )
+
+        result = update_element(
+            diagram_id=diagram_id,
+            guid=_UPDATE_DATA_ITEM_GUID,
+            fields={"name": "Renamed Item", "classification": "pii"},
+            ctx=_ctx(),
+        )
+
+        assert result["guid"] == _UPDATE_DATA_ITEM_GUID
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        item = next(di for di in fetched["data_items"] if di["guid"] == _UPDATE_DATA_ITEM_GUID)
+        assert item["name"] == "Renamed Item"
+        assert item["classification"] == "pii"
+
+    def test_readonly_keys_silently_skipped_for_nodes(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        update_element(
+            diagram_id=diagram_id,
+            guid=_PROCESS_GUID,
+            fields={"guid": "should-be-ignored", "type": "data_store", "name": "OK"},
+            ctx=_ctx(),
+        )
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        node = next(n for n in fetched["nodes"] if n["guid"] == _PROCESS_GUID)
+        assert node["guid"] == _PROCESS_GUID
+        assert node["type"] == "process"
+        assert node["properties"]["name"] == "OK"
+
+    def test_readonly_keys_silently_skipped_for_data_flows(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        update_element(
+            diagram_id=diagram_id,
+            guid=_FLOW_GUID,
+            fields={
+                "guid": "should-be-ignored",
+                "node1": "should-be-ignored",
+                "node2": "should-be-ignored",
+                "name": "Flow OK",
+            },
+            ctx=_ctx(),
+        )
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        flow = next(f for f in fetched["data_flows"] if f["guid"] == _FLOW_GUID)
+        assert flow["guid"] == _FLOW_GUID
+        assert flow["node1"] == _PROCESS_GUID
+        assert flow["node2"] == _DATA_STORE_GUID
+        assert flow["properties"]["name"] == "Flow OK"
+
+    def test_readonly_guid_skipped_for_data_items(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        add_element(
+            diagram_id=diagram_id,
+            collection="data_items",
+            element={
+                "guid": _UPDATE_DATA_ITEM_GUID,
+                "identifier": "D1",
+                "name": "Item",
+                "classification": "unclassified",
+            },
+            ctx=_ctx(),
+        )
+
+        update_element(
+            diagram_id=diagram_id,
+            guid=_UPDATE_DATA_ITEM_GUID,
+            fields={"guid": "should-be-ignored", "name": "Item Renamed"},
+            ctx=_ctx(),
+        )
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        item = next(di for di in fetched["data_items"] if di["guid"] == _UPDATE_DATA_ITEM_GUID)
+        assert item["guid"] == _UPDATE_DATA_ITEM_GUID
+        assert item["name"] == "Item Renamed"
+
+    def test_nonexistent_guid_raises_value_error(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        with pytest.raises(ValueError, match="not found"):
+            update_element(
+                diagram_id=diagram_id,
+                guid="00000000-ffff-ffff-ffff-000000000000",
+                fields={"name": "X"},
+                ctx=_ctx(),
+            )
+
+    def test_nonexistent_diagram_raises(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+
+        with pytest.raises(Exception):
+            update_element(
+                diagram_id="does-not-exist",
+                guid=_PROCESS_GUID,
+                fields={"name": "X"},
+                ctx=_ctx(),
+            )
+
+    def test_schema_invalid_field_raises(self, live_server):
+        """_save_minimal validates — setting contains_pii to a string must fail."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        with pytest.raises(Exception):
+            update_element(
+                diagram_id=diagram_id,
+                guid=_DATA_STORE_GUID,
+                fields={"contains_pii": "yes_please"},
+                ctx=_ctx(),
+            )
+
+        # Original diagram must be unchanged (no partial write)
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        ds = next(n for n in fetched["nodes"] if n["guid"] == _DATA_STORE_GUID)
+        assert ds["properties"].get("contains_pii") != "yes_please"
