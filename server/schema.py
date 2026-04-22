@@ -218,7 +218,7 @@ class DataFlow(_Base):
 
 class DataItem(_Base):
     guid: UUID
-    parent: UUID
+    parent: UUID | None = None
     identifier: str
     name: str
     description: str | None = None

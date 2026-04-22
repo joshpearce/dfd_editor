@@ -834,3 +834,129 @@ class TestDataItemsCanvasShape:
         }
         with pytest.raises(InvalidNativeError, match="must not contain"):
             _extract_canvas_data_items(canvas)
+
+
+# ---------------------------------------------------------------------------
+# Test 11: Unowned data item (parent=None) round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestUnownedDataItemRoundTrip:
+    """An unowned data item (parent absent or None) round-trips correctly."""
+
+    def test_unowned_item_parent_absent_on_import(self, client):
+        """POST with parent absent → export emits item without parent field."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "identifier": "D1",
+                "name": "Unowned Item",
+                # parent intentionally absent
+            },
+        ]
+        payload = _base_payload(data_items=data_items)
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        items = {item["guid"]: item for item in exported["data_items"]}
+        assert _DATA_ITEM_1_GUID in items
+        item = items[_DATA_ITEM_1_GUID]
+        assert item["identifier"] == "D1"
+        assert item["name"] == "Unowned Item"
+        # parent must be absent in export (not emitted as null or empty string)
+        assert "parent" not in item
+
+    def test_unowned_item_native_omits_parent_sub_pair(self):
+        """to_native omits the parent sub-pair for unowned items."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "identifier": "D1",
+                "name": "Unowned Item",
+            },
+        ]
+        payload = _base_payload(data_items=data_items)
+        native = to_native(payload)
+
+        canvas = next(o for o in native["objects"] if o.get("id") == "dfd")
+        items_pair = next(
+            (p[1] for p in canvas["properties"] if p[0] == "data_items"), None
+        )
+        assert items_pair is not None
+
+        item_sub_pairs = dict(items_pair[0][1])  # {k: v} for first item
+        assert "parent" not in item_sub_pairs
+        assert "identifier" in item_sub_pairs
+        assert "name" in item_sub_pairs
+
+    def test_unowned_native_round_trip(self):
+        """native → minimal → native preserves unowned item without parent."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "identifier": "D1",
+                "name": "Unowned Item",
+            },
+        ]
+        payload = _base_payload(data_items=data_items)
+        native = to_native(payload)
+        minimal = to_minimal(native)
+
+        items = {item["guid"]: item for item in minimal["data_items"]}
+        assert _DATA_ITEM_1_GUID in items
+        assert "parent" not in items[_DATA_ITEM_1_GUID]
+
+    def test_empty_string_parent_treated_as_unowned(self):
+        """Native doc with parent="" in sub-pairs → treated as unowned (no parent in minimal)."""
+        canvas = {
+            "id": "dfd",
+            "instance": "some-uuid",
+            "properties": [
+                [
+                    "data_items",
+                    [
+                        [
+                            _DATA_ITEM_1_GUID,
+                            [
+                                ["parent", ""],
+                                ["identifier", "D1"],
+                                ["name", "Unowned via empty string"],
+                                ["classification", "unclassified"],
+                            ],
+                        ]
+                    ],
+                ]
+            ],
+        }
+        items = _extract_canvas_data_items(canvas)
+        assert len(items) == 1
+        item = items[0]
+        # empty-string parent must be stripped so DataItem(parent=None) validates
+        assert "parent" not in item or item.get("parent") is None or item.get("parent") == ""
+
+    def test_owned_and_unowned_items_coexist(self, client):
+        """A diagram with mixed owned and unowned items round-trips correctly."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Owned Item",
+            },
+            {
+                "guid": _DATA_ITEM_2_GUID,
+                "identifier": "D2",
+                "name": "Unowned Item",
+                # parent absent
+            },
+        ]
+        payload = _base_payload(data_items=data_items)
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        items = {item["guid"]: item for item in exported["data_items"]}
+
+        assert items[_DATA_ITEM_1_GUID]["parent"] == _PROCESS_GUID
+        assert "parent" not in items[_DATA_ITEM_2_GUID]

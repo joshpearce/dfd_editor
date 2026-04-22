@@ -25,7 +25,7 @@ import { defineAsyncComponent, defineComponent, type PropType } from "vue";
 import {
   DateProperty, DictionaryProperty, EnumProperty,
   FloatProperty, IntProperty, ListProperty, StringProperty,
-  TupleProperty, DataItemRefListProperty
+  TupleProperty, DataItemRefListProperty, DataItemParentRefProperty
 } from "@OpenChart/DiagramModel";
 import type { Property } from "@OpenChart/DiagramModel";
 import type { SynchronousEditorCommand } from "@OpenChart/DiagramEditor";
@@ -40,6 +40,8 @@ import DateTimeField from "./DateTimeField.vue";
 const DictionaryField = defineAsyncComponent(() => import("./DictionaryField.vue")) as any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const DataItemRefListField = defineAsyncComponent(() => import("./DataItemRefListField.vue")) as any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const DataItemParentRefField = defineAsyncComponent(() => import("./DataItemParentRefField.vue")) as any;
 
 export default defineComponent({
   name: "DictionaryFieldContents",
@@ -92,6 +94,8 @@ export default defineComponent({
           return "EnumField";
         case DataItemRefListProperty.name:
           return "DataItemRefListField";
+        case DataItemParentRefProperty.name:
+          return "DataItemParentRefField";
         case ListProperty.name:
           return "ListField";
         case TupleProperty.name:
@@ -126,7 +130,8 @@ export default defineComponent({
     NumberField,
     DateTimeField,
     DictionaryField,
-    DataItemRefListField
+    DataItemRefListField,
+    DataItemParentRefField
   }
 });
 </script>

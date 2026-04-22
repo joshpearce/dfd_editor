@@ -468,6 +468,11 @@ def _extract_canvas_data_items(canvas: dict | None) -> list[dict]:
 
         item: dict = {"guid": id_str}
         item.update(sub)
+        # Treat empty-string parent (frontend's "(unowned)" wire value) as absent.
+        # The DataItem schema accepts parent=None; pydantic rejects an empty string
+        # as an invalid UUID.
+        if item.get("parent") == "":
+            del item["parent"]
         result.append(item)
 
     return result
@@ -704,19 +709,28 @@ def _data_item_to_pairs(item: DataItem) -> list[list]:
     matches the DataItem model declaration order: parent, identifier, name,
     description, classification.
 
+    `parent` is optional and omitted when None (unowned items — parent was ""
+    on the frontend, stored as None server-side, and round-trips back as absent
+    so the frontend's DataItemParentRefProperty sees null and renders as "(unowned)").
     `description` is optional and omitted when None. `classification` is always
     emitted unconditionally (it has a default value of `unclassified` and is
     no longer optional).
+
+    Wire contract: frontend "(unowned)" → empty-string toJson() → server receives
+    "" → stored as None; on export, parent is absent from sub-pairs → frontend
+    DataItemParentRefProperty.setValue(null) → toJson() == null → shows "(unowned)".
 
     The preprocessor (DfdFilePreprocessor) is currently pass-through; it does not
     need to normalise absent sub-keys because OpenChart's DictionaryProperty loader
     already tolerates missing optional fields.
     """
-    pairs: list[list] = [
-        ["parent", str(item.parent)],
+    pairs: list[list] = []
+    if item.parent is not None:
+        pairs.append(["parent", str(item.parent)])
+    pairs.extend([
         ["identifier", item.identifier],
         ["name", item.name],
-    ]
+    ])
     if item.description is not None:
         pairs.append(["description", item.description])
     pairs.append(["classification", str(item.classification)])

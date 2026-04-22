@@ -34,7 +34,7 @@ export const DfdCanvas: CanvasTemplate = {
                 type: PropertyType.Dictionary,
                 form: {
                     parent: {
-                        type: PropertyType.String
+                        type: PropertyType.DataItemParentRef
                     },
                     identifier: {
                         type: PropertyType.String,

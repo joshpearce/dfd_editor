@@ -6,8 +6,8 @@ import { CombinationIndex } from "../DiagramObject";
 import {
     Anchor, Block, Canvas, DateProperty, DictionaryProperty,
     EnumProperty, FloatProperty, Group, Handle, IntProperty,
-    Latch, Line, ListProperty, DataItemRefListProperty, Property, RootProperty,
-    StringProperty, TupleProperty
+    Latch, Line, ListProperty, DataItemRefListProperty, DataItemParentRefProperty,
+    Property, RootProperty, StringProperty, TupleProperty
 } from "../DiagramObject";
 import type { Constructor } from "@OpenChart/Utilities";
 import type {
@@ -423,6 +423,7 @@ export class DiagramObjectFactory {
             case PropertyType.Float:
             case PropertyType.Date:
             case PropertyType.Enum:
+            case PropertyType.DataItemParentRef:
                 if (Array.isArray(value)) {
                     throw new Error(`Invalid JSON primitive: '${value}'.`);
                 }
@@ -639,6 +640,15 @@ export class DiagramObjectFactory {
                     editable : editable,
                     metadata : meta,
                     options  : options
+                }, value);
+
+            // Data item parent ref property (atomic, wire-identical to StringProperty)
+            case PropertyType.DataItemParentRef:
+                return new DataItemParentRefProperty({
+                    id       : id,
+                    name     : descriptor.name,
+                    editable : editable,
+                    metadata : meta
                 }, value);
 
         }

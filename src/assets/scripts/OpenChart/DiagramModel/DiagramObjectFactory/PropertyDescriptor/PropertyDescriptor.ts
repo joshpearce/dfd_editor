@@ -61,7 +61,8 @@ type AtomicType
     | PropertyType.Float
     | PropertyType.String
     | PropertyType.Date
-    | PropertyType.Enum;
+    | PropertyType.Enum
+    | PropertyType.DataItemParentRef;
 
 /**
  * Resolves the JSON type of an {@link AtomicType}.
@@ -72,6 +73,7 @@ type AtomicTypeToJsonType = {
     [PropertyType.String]: string | null;
     [PropertyType.Date]: Date | null;
     [PropertyType.Enum]: string | null;
+    [PropertyType.DataItemParentRef]: string | null;
 };
 
 /**
@@ -150,6 +152,13 @@ export type EnumPropertyDescriptor = AtomicPropertyDescriptor<PropertyType.Enum>
 export type DatePropertyDescriptor = AtomicPropertyDescriptor<PropertyType.Date>;
 
 /**
+ * Data Item Parent Ref Property Descriptor.
+ * Wire-identical to StringPropertyDescriptor, but distinguished at UI dispatch
+ * time so the property editor renders DataItemParentRefField instead of TextField.
+ */
+export type DataItemParentRefPropertyDescriptor = AtomicPropertyDescriptor<PropertyType.DataItemParentRef>;
+
+/**
  * All Atomic Property Descriptors.
  */
 export type AtomicPropertyDescriptors
@@ -157,7 +166,8 @@ export type AtomicPropertyDescriptors
     | IntPropertyDescriptor
     | FloatPropertyDescriptor
     | DatePropertyDescriptor
-    | EnumPropertyDescriptor;
+    | EnumPropertyDescriptor
+    | DataItemParentRefPropertyDescriptor;
 
 
 ///////////////////////////////////////////////////////////////////////////////

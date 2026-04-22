@@ -10,5 +10,6 @@ export enum PropertyType {
     List              = "list",
     Dictionary        = "dict",
     Tuple             = "tuple",
-    DataItemRefList   = "data_item_ref_list"
+    DataItemRefList   = "data_item_ref_list",
+    DataItemParentRef = "data_item_parent_ref"
 }
