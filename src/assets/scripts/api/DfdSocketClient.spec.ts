@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // (Tests pure reconnect/dispatch logic via an injected mock WebSocket)
 
-import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
+import { beforeEach, afterEach, describe, it, expect, vi, type MockInstance } from "vitest";
 import { DfdSocketClient } from "./DfdSocketClient";
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,11 @@ class MockWebSocket {
     }
 
     close() {
-        this._readyState = MockWebSocket.CLOSED;
+        // Real browser WebSocket.close() is a request — the CLOSED state and
+        // the onclose event fire asynchronously. We do NOT flip _readyState here
+        // so that tests can call simulateClose() independently to model the
+        // async close event arriving after client.close() was called.
+        this._readyState = MockWebSocket.CLOSING;
     }
 
     simulateOpen() {
@@ -75,10 +79,18 @@ class MockWebSocket {
 //  Test setup
 // ---------------------------------------------------------------------------
 
+let consoleInfo: MockInstance;
+let consoleWarn: MockInstance;
+let _consoleError: MockInstance;
+
 beforeEach(() => {
     mockInstances = [];
     vi.stubGlobal("WebSocket", MockWebSocket);
     vi.useFakeTimers();
+    // Suppress console noise AND allow assertions on log lines (M3).
+    consoleInfo   = vi.spyOn(console, "info").mockImplementation(() => {});
+    consoleWarn   = vi.spyOn(console, "warn").mockImplementation(() => {});
+    _consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -104,7 +116,7 @@ describe("DfdSocketClient.on", () => {
         latestWs().simulateOpen();
 
         const received: unknown[] = [];
-        client.on("display", (p) => received.push(p));
+        client.on("display", (p) => { received.push(p); });
 
         latestWs().simulateMessage(JSON.stringify({ type: "display", payload: { id: "abc" } }));
         expect(received).toEqual([{ id: "abc" }]);
@@ -118,8 +130,8 @@ describe("DfdSocketClient.on", () => {
 
         const a: unknown[] = [];
         const b: unknown[] = [];
-        client.on("diagram-updated", (p) => a.push(p));
-        client.on("diagram-updated", (p) => b.push(p));
+        client.on("diagram-updated", (p) => { a.push(p); });
+        client.on("diagram-updated", (p) => { b.push(p); });
 
         latestWs().simulateMessage(JSON.stringify({ type: "diagram-updated", payload: { id: "x" } }));
         expect(a).toEqual([{ id: "x" }]);
@@ -133,7 +145,7 @@ describe("DfdSocketClient.on", () => {
         latestWs().simulateOpen();
 
         const received: unknown[] = [];
-        client.on("display", (p) => received.push(p));
+        client.on("display", (p) => { received.push(p); });
 
         latestWs().simulateMessage(JSON.stringify({ type: "diagram-deleted", payload: { id: "y" } }));
         expect(received).toHaveLength(0);
@@ -146,7 +158,7 @@ describe("DfdSocketClient.on", () => {
         latestWs().simulateOpen();
 
         const received: unknown[] = [];
-        const unsub = client.on("remote-control", (p) => received.push(p));
+        const unsub = client.on("remote-control", (p) => { received.push(p); });
 
         latestWs().simulateMessage(JSON.stringify({ type: "remote-control", payload: { state: "on" } }));
         expect(received).toHaveLength(1);
@@ -164,7 +176,7 @@ describe("DfdSocketClient.on", () => {
         latestWs().simulateOpen();
 
         const received: unknown[] = [];
-        client.on("display", (p) => received.push(p));
+        client.on("display", (p) => { received.push(p); });
 
         latestWs().simulateMessage("not-json{{{{");
         expect(received).toHaveLength(0);
@@ -177,7 +189,7 @@ describe("DfdSocketClient.on", () => {
         latestWs().simulateOpen();
 
         const received: unknown[] = [];
-        client.on("display", (p) => received.push(p));
+        client.on("display", (p) => { received.push(p); });
 
         latestWs().simulateMessage(JSON.stringify({ type: "unknown-type", payload: {} }));
         expect(received).toHaveLength(0);
@@ -190,7 +202,7 @@ describe("DfdSocketClient.on", () => {
         latestWs().simulateOpen();
 
         const received: unknown[] = [];
-        client.on("diagram-deleted", (p) => received.push(p));
+        client.on("diagram-deleted", (p) => { received.push(p); });
 
         latestWs().simulateMessage(JSON.stringify({ type: "diagram-deleted" }));
         expect(received).toEqual([undefined]);
@@ -304,6 +316,16 @@ describe("DfdSocketClient reconnect backoff", () => {
         expect(mockInstances).toHaveLength(1); // no new connection created
     });
 
+    it("logs a reconnect warning when the connection closes unexpectedly (M3)", () => {
+        const client = new DfdSocketClient("ws://localhost:5050/ws");
+        latestWs().simulateOpen();
+        latestWs().simulateClose();
+        expect(consoleWarn).toHaveBeenCalledWith(
+            expect.stringContaining("DfdSocketClient: disconnected — reconnecting in")
+        );
+        client.close();
+    });
+
     it("does not reconnect twice when error then close fire together", () => {
         const client = new DfdSocketClient("ws://localhost:5050/ws");
         latestWs().simulateOpen();
@@ -331,5 +353,51 @@ describe("DfdSocketClient.close", () => {
             client.close();
             client.close();
         }).not.toThrow();
+    });
+
+    it("does not schedule reconnect when onclose fires asynchronously after client.close()", () => {
+        // M1: verify that the combination of _permanentlyClosed = true AND
+        // nulling onclose prevents any reconnect after close().
+        //
+        // To test _permanentlyClosed independently, we capture the onclose
+        // callback BEFORE close() nulls it, then invoke it afterward — this
+        // simulates the true async "event already in the queue" scenario.
+        //
+        // This test FAILS if either guard is removed:
+        //   - Remove `_permanentlyClosed = true` → the captured closure calls
+        //     _scheduleReconnect() (because _permanentlyClosed is still false).
+        //   - Remove `this._ws.onclose = null` → invoking capturedOnclose would
+        //     call _scheduleReconnect() via the stale onclose reference that
+        //     was set on the real _ws before it was nulled.  That path is the
+        //     same: the captured closure still holds a reference to the old
+        //     onclose fn, so removing _permanentlyClosed = true makes it
+        //     re-enter _scheduleReconnect.
+        const client = new DfdSocketClient("ws://localhost:5050/ws");
+        latestWs().simulateOpen();
+        const ws = latestWs();
+
+        // Capture the onclose callback BEFORE close() nulls it.
+        // This is the "event already in the queue" race.
+        const capturedOnclose = ws.onclose!;
+
+        // Permanently close the client. This sets _permanentlyClosed = true
+        // and sets ws.onclose = null.
+        client.close();
+
+        // Invoke the captured callback — simulates the browser firing the close
+        // event that was already queued before we nulled the handler.
+        // The closure checks `if (this._permanentlyClosed) return`, so with
+        // the guard in place no reconnect is scheduled.
+        capturedOnclose(new CloseEvent("close"));
+
+        vi.advanceTimersByTime(10_000);
+        expect(mockInstances).toHaveLength(1); // no reconnect
+    });
+
+    it("logs 'permanently closed' when close() is called (M3)", () => {
+        const client = new DfdSocketClient("ws://localhost:5050/ws");
+        latestWs().simulateOpen();
+        client.close();
+        expect(consoleInfo).toHaveBeenCalledWith("DfdSocketClient: permanently closed.");
     });
 });

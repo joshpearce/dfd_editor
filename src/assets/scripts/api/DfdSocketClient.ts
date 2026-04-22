@@ -18,13 +18,28 @@ export interface SocketEnvelope {
     payload?: unknown;
 }
 
-type Handler = (payload: unknown) => void;
+/**
+ * A handler registered via {@link DfdSocketClient.on}. May return a Promise;
+ * any rejected promise is caught and logged so it does not propagate.
+ */
+export type SocketHandler = (payload: unknown) => void | Promise<void>;
 
 /**
- * The exponential-backoff delays (ms) used between reconnect attempts.
- * Once the last value is reached it is reused for all subsequent attempts.
+ * Construction options for {@link DfdSocketClient}.
  */
-const BACKOFF_STEPS = [500, 1000, 2000, 5000] as const;
+export interface DfdSocketClientOptions {
+    /**
+     * Exponential-backoff delay steps in milliseconds. Once the last value is
+     * reached it is reused for all subsequent attempts.
+     * Defaults to `[500, 1000, 2000, 5000]`.
+     */
+    backoffSteps?: readonly number[];
+}
+
+/**
+ * The default exponential-backoff delays (ms) used between reconnect attempts.
+ */
+const DEFAULT_BACKOFF_STEPS: readonly number[] = [500, 1000, 2000, 5000];
 
 /**
  * A thin WebSocket client that connects to the DFD Flask server's `/ws`
@@ -53,7 +68,7 @@ export class DfdSocketClient {
     /**
      * Per-type handler sets.
      */
-    private readonly _handlers: Map<SocketEnvelopeType, Set<Handler>>;
+    private readonly _handlers: Map<SocketEnvelopeType, Set<SocketHandler>>;
 
     /**
      * Current WebSocket connection (null when not connected).
@@ -72,6 +87,11 @@ export class DfdSocketClient {
     private _reconnectTimer: ReturnType<typeof setTimeout> | null;
 
     /**
+     * Backoff delay steps (ms), configurable via constructor options.
+     */
+    private readonly _backoffSteps: readonly number[];
+
+    /**
      * When true, the reconnect loop is permanently disabled.
      * Set by {@link close}.
      */
@@ -82,14 +102,17 @@ export class DfdSocketClient {
      * Creates a new {@link DfdSocketClient} and immediately begins connecting.
      * @param url
      *  The WebSocket endpoint URL (e.g. `"ws://localhost:5050/ws"`).
+     * @param options
+     *  Optional configuration (e.g. custom backoff steps for testing).
      */
-    constructor(url: string) {
+    constructor(url: string, options?: DfdSocketClientOptions) {
         this._url = url;
         this._handlers = new Map();
         this._ws = null;
         this._attemptCount = 0;
         this._reconnectTimer = null;
         this._permanentlyClosed = false;
+        this._backoffSteps = options?.backoffSteps ?? DEFAULT_BACKOFF_STEPS;
         this._connect();
     }
 
@@ -108,7 +131,7 @@ export class DfdSocketClient {
      * @returns
      *  An unsubscribe function. Calling it removes this specific handler.
      */
-    on(type: SocketEnvelopeType, handler: Handler): () => void {
+    on(type: SocketEnvelopeType, handler: SocketHandler): () => void {
         let set = this._handlers.get(type);
         if (!set) {
             set = new Set();
@@ -215,7 +238,12 @@ export class DfdSocketClient {
             return;
         }
         for (const handler of handlers) {
-            handler(envelope.payload);
+            const ret = handler(envelope.payload);
+            if (ret && typeof (ret as Promise<void>).catch === "function") {
+                (ret as Promise<void>).catch((err) =>
+                    console.error("DfdSocketClient: socket handler rejected:", err)
+                );
+            }
         }
     }
 
@@ -223,14 +251,14 @@ export class DfdSocketClient {
      * Schedules the next reconnect attempt using the backoff table.
      */
     private _scheduleReconnect(): void {
-        const stepIndex = Math.min(this._attemptCount, BACKOFF_STEPS.length - 1);
-        const delayMs = BACKOFF_STEPS[stepIndex];
+        const stepIndex = Math.min(this._attemptCount, this._backoffSteps.length - 1);
+        const delayMs = this._backoffSteps[stepIndex];
         this._attemptCount++;
         console.warn(
             `DfdSocketClient: disconnected — reconnecting in ${delayMs} ms `
             + `(attempt ${this._attemptCount}).`
         );
-        this._reconnectTimer = window.setTimeout(() => {
+        this._reconnectTimer = setTimeout(() => {
             this._reconnectTimer = null;
             if (!this._permanentlyClosed) {
                 this._connect();

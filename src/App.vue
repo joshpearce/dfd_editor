@@ -52,7 +52,7 @@ import { defineComponent, markRaw, ref } from 'vue';
 import { Device, clamp, OperatingSystem, PointerTracker } from "./assets/scripts/Browser";
 import type { Command } from "./assets/scripts/Application"
 import { DfdSocketClient } from "./assets/scripts/api/DfdSocketClient";
-import { wireSocketClient } from "./assets/scripts/api/DfdSocketDispatcher";
+import { setupSocketLifecycle } from "./assets/scripts/api/app-socket-lifecycle";
 // Components
 import FindDialog from "@/components/Elements/FindDialog.vue";
 import SplashMenu from "@/components/Elements/SplashMenu.vue";
@@ -207,7 +207,7 @@ export default defineComponent({
     // The connection is non-fatal: if Flask isn't running, the client will
     // retry in the background without blocking any app functionality.
     const socket = new DfdSocketClient("ws://localhost:5050/ws");
-    this.disposeSocket = wireSocketClient(socket, ctx);
+    this.disposeSocket = setupSocketLifecycle(socket, ctx);
 
     // Import settings
     const os = Device.getOperatingSystemClass();
