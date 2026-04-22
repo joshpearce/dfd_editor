@@ -21,9 +21,10 @@
 
 import { defineComponent, type PropType } from "vue";
 import { useApplicationStore } from "@/stores/ApplicationStore";
-import { DataItemParentRefProperty, RootProperty } from "@OpenChart/DiagramModel";
+import { DataItemParentRefProperty } from "@OpenChart/DiagramModel";
 import * as EditorCommands from "@OpenChart/DiagramEditor";
 import type { SynchronousEditorCommand } from "@OpenChart/DiagramEditor";
+import type { DiagramViewEditor } from "@OpenChart/DiagramEditor";
 import type { CanvasView } from "@OpenChart/DiagramView";
 import type { BlockView } from "@OpenChart/DiagramView";
 import type { GroupView } from "@OpenChart/DiagramView";
@@ -49,9 +50,11 @@ function collectEligibleBlocks(canvas: CanvasView): BlockView[] {
 }
 
 function blockDisplayName(block: BlockView): string {
-    const nameProp = block.properties.value.get("name");
-    const val = nameProp?.toJson?.();
-    return typeof val === "string" && val.trim() ? val.trim() : block.id;
+    const key = block.properties.representativeKey;
+    if (!key) return block.instance.slice(0, 8);
+    const prop = block.properties.value.get(key);
+    const name = prop?.toJson?.();
+    return typeof name === "string" && name.trim() ? name.trim() : block.instance.slice(0, 8);
 }
 
 export default defineComponent({
@@ -68,9 +71,8 @@ export default defineComponent({
     data() {
         return {
             store: useApplicationStore(),
-            subscriptionId: "",
-            blockSubscriptionIds: [] as Array<{ props: RootProperty; id: string }>,
-            updateCounter: 0
+            updateCounter: 0,
+            editListener: null as ((...args: unknown[]) => void) | null
         };
     },
     computed: {
@@ -98,54 +100,31 @@ export default defineComponent({
             const cmd = EditorCommands.setStringProperty(this.property, guid === "" ? null : guid);
             this.$emit("execute", cmd);
         },
-        subscribeAll(): void {
-            this.unsubscribeAll();
-            const canvas = this.store.activeEditor?.file?.canvas as CanvasView | undefined;
-            if (!canvas) return;
+        attachEditListener(): void {
+            this.detachEditListener();
+            const editor = this.store.activeEditor as DiagramViewEditor | undefined;
+            if (!editor || typeof editor.on !== "function") return;
             const handler = () => { this.updateCounter++; };
-
-            const canvasSubId = crypto.randomUUID();
-            this.subscriptionId = canvasSubId;
-            if (typeof (canvas.properties as RootProperty).subscribe === "function") {
-                (canvas.properties as RootProperty).subscribe(canvasSubId, handler);
-            }
-
-            for (const block of collectEligibleBlocks(canvas)) {
-                const blockSubId = crypto.randomUUID();
-                const blockProps = block.properties as RootProperty;
-                if (typeof blockProps.subscribe === "function") {
-                    blockProps.subscribe(blockSubId, handler);
-                    this.blockSubscriptionIds.push({ props: blockProps, id: blockSubId });
-                }
-            }
+            this.editListener = handler;
+            editor.on("edit", handler);
         },
-        unsubscribeAll(): void {
-            const canvas = this.store.activeEditor?.file?.canvas as CanvasView | undefined;
-            if (canvas && this.subscriptionId) {
-                const canvasProps = canvas.properties as RootProperty;
-                if (typeof canvasProps.unsubscribe === "function") {
-                    canvasProps.unsubscribe(this.subscriptionId);
-                }
-                this.subscriptionId = "";
-            }
-            for (const { props, id } of this.blockSubscriptionIds) {
-                if (typeof props.unsubscribe === "function") {
-                    props.unsubscribe(id);
-                }
-            }
-            this.blockSubscriptionIds = [];
+        detachEditListener(): void {
+            const editor = this.store.activeEditor as DiagramViewEditor | undefined;
+            if (!editor || !this.editListener || typeof editor.removeEventListener !== "function") return;
+            editor.removeEventListener("edit", this.editListener);
+            this.editListener = null;
         }
     },
     watch: {
-        "store.activeEditor.file.canvas": {
+        "store.activeEditor": {
             handler() {
-                this.subscribeAll();
+                this.attachEditListener();
             },
             immediate: true
         }
     },
     unmounted() {
-        this.unsubscribeAll();
+        this.detachEditListener();
     }
 });
 </script>

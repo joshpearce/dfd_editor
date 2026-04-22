@@ -47,8 +47,7 @@ surface.)
   - `DataFlow` now uses `node1: UUID` / `node2: UUID` (renamed from `source`/`target`), with a per-flow `model_validator(mode="after")` that rejects self-loops (`node1 == node2`) and silently swaps endpoints + ref arrays into canonical (`str(node1) < str(node2)`) order.
   - `DataFlowProps` carries `node1_src_data_item_refs: list[UUID]` and `node2_src_data_item_refs: list[UUID]` (both `Field(default_factory=list)`).
   - `Diagram` has a diagram-level `model_validator(mode="after")` that rejects (a) flow endpoints referring to a non-existent canvas object and (b) dangling refs in either direction, reporting which direction key carried the bad ref.
-  - `DataItem` is a top-level pydantic model (`guid`, `parent`, `identifier`,
-    `name`, `classification` required — closed enum, default `"unclassified"`; `description` optional).
+  - `DataItem` is a top-level pydantic model. Required: `guid`, `identifier`, `name`, `classification` (closed enum, default `"unclassified"`). Optional: `parent` (nullable — `None` means unowned) and `description`.
   - `Diagram` has `data_items: list[DataItem]` (default `[]`).
   - `to_native` wires both ref arrays as `ListProperty<StringProperty>` wire shapes under the new keys, emitted unconditionally even when empty so AC2.4 holds (empty-both-sides flows survive round-trip).
   - `to_minimal` reads both keys back and always emits them on `DataFlowProps` (default `[]`).

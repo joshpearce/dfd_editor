@@ -1,8 +1,6 @@
 // pattern: Functional Core
 
 import { StringProperty } from "./StringProperty";
-import type { StringPropertyOptions } from "./StringPropertyOptions";
-import type { JsonValue } from "../JsonTypes";
 
 /**
  * Reference to a single parent element GUID on a Data Item. Runtime shape
@@ -11,17 +9,6 @@ import type { JsonValue } from "../JsonTypes";
  * TextField).
  */
 export class DataItemParentRefProperty extends StringProperty {
-
-    /**
-     * Creates a new {@link DataItemParentRefProperty}.
-     * @param options
-     *  The property's options.
-     * @param value
-     *  The property's value.
-     */
-    constructor(options: StringPropertyOptions, value?: JsonValue) {
-        super(options, value);
-    }
 
     /**
      * Returns a clone of the property.

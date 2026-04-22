@@ -702,27 +702,10 @@ def _bool_to_native(value: bool) -> str:
 
 
 def _data_item_to_pairs(item: DataItem) -> list[list]:
-    """Serialize a DataItem to the [[k,v],...] sub-pairs list for native storage.
+    """Emit data-item properties as pairs.
 
-    This mirrors the DictionaryProperty.toOrderedJson() shape that OpenChart
-    uses when it serializes a ListProperty<DictionaryProperty>. Field order
-    matches the DataItem model declaration order: parent, identifier, name,
-    description, classification.
-
-    `parent` is optional and omitted when None (unowned items — parent was ""
-    on the frontend, stored as None server-side, and round-trips back as absent
-    so the frontend's DataItemParentRefProperty sees null and renders as "(unowned)").
-    `description` is optional and omitted when None. `classification` is always
-    emitted unconditionally (it has a default value of `unclassified` and is
-    no longer optional).
-
-    Wire contract: frontend "(unowned)" → empty-string toJson() → server receives
-    "" → stored as None; on export, parent is absent from sub-pairs → frontend
-    DataItemParentRefProperty.setValue(null) → toJson() == null → shows "(unowned)".
-
-    The preprocessor (DfdFilePreprocessor) is currently pass-through; it does not
-    need to normalise absent sub-keys because OpenChart's DictionaryProperty loader
-    already tolerates missing optional fields.
+    `parent` is emitted only when set; `description` similarly.
+    `classification` is always present (closed enum, required on `DataItem`).
     """
     pairs: list[list] = []
     if item.parent is not None:

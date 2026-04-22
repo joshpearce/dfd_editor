@@ -22,6 +22,7 @@ import pytest
 
 import app as app_module
 from app import app
+from schema import DataItem
 from transform import InvalidNativeError, _extract_canvas_data_items, to_minimal, to_native
 
 # ---------------------------------------------------------------------------
@@ -931,9 +932,11 @@ class TestUnownedDataItemRoundTrip:
         }
         items = _extract_canvas_data_items(canvas)
         assert len(items) == 1
-        item = items[0]
-        # empty-string parent must be stripped so DataItem(parent=None) validates
-        assert "parent" not in item or item.get("parent") is None or item.get("parent") == ""
+        raw_item = items[0]
+        # empty-string parent must be stripped so DataItem(parent=None) validates;
+        # construct the DataItem to verify the branch actually fires
+        data_item = DataItem(**raw_item)
+        assert data_item.parent is None
 
     def test_owned_and_unowned_items_coexist(self, client):
         """A diagram with mixed owned and unowned items round-trips correctly."""

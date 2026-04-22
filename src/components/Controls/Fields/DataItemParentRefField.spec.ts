@@ -19,6 +19,7 @@ function makeBlock(templateId: string, name: string, instance: string): any {
     const nameProp = new StringProperty({ id: "name", name: "name", editable: true });
     nameProp.setValue(name);
     props.addProperty(nameProp, "name");
+    props.representativeKey = "name";
     return { id: templateId, instance, properties: props, blocks: [], groups: [] };
 }
 
@@ -40,6 +41,27 @@ function makeProperty(value: string | null = null): DataItemParentRefProperty {
 }
 
 /**
+ * Build a minimal mock editor that supports .on() / .removeEventListener() and
+ * can emit "edit" events in tests via mockEditor.emit("edit").
+ */
+function makeMockEditor(canvas: any): any {
+    const listeners: Array<(...args: any[]) => void> = [];
+    return {
+        file: makeMockFile(canvas),
+        on(_event: string, handler: (...args: any[]) => void) {
+            listeners.push(handler);
+        },
+        removeEventListener(_event: string, handler: (...args: any[]) => void) {
+            const idx = listeners.indexOf(handler);
+            if (idx !== -1) { listeners.splice(idx, 1); }
+        },
+        emit(_event: string, ...args: any[]) {
+            for (const fn of listeners) { fn(...args); }
+        }
+    };
+}
+
+/**
  * Mount the component with the given store canvas pre-configured.
  * Setting the file before mounting ensures the immediate watch fires
  * with the correct canvas and subscriptions target the test blocks.
@@ -47,15 +69,16 @@ function makeProperty(value: string | null = null): DataItemParentRefProperty {
 function mountWithCanvas(
     property: DataItemParentRefProperty,
     canvas: any
-): { wrapper: ReturnType<typeof mount>, store: ReturnType<typeof useApplicationStore> } {
+): { wrapper: ReturnType<typeof mount>, store: ReturnType<typeof useApplicationStore>, mockEditor: any } {
     const pinia = createTestingPinia({ stubActions: false, createSpy: vi.fn });
     const store = useApplicationStore();
-    (store.activeEditor as any).file = makeMockFile(canvas);
+    const mockEditor = makeMockEditor(canvas);
+    (store as any).activeEditor = mockEditor;
     const wrapper = mount(DataItemParentRefField, {
         props: { property },
         global: { plugins: [pinia] }
     });
-    return { wrapper, store };
+    return { wrapper, store, mockEditor };
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -150,50 +173,52 @@ describe("DataItemParentRefField", () => {
         expect(cmd.nextValue).toBeNull();
     });
 
-    it("renaming a block updates the option label via subscription", async () => {
-        const process = makeBlock("process", "OldName", "guid-p");
-        const canvas = makeCanvas([process]);
-
-        const { wrapper } = mountWithCanvas(makeProperty(), canvas);
-        await wrapper.vm.$nextTick();
-
-        let option = wrapper.findAll("option").find(
-            o => (o.element as HTMLOptionElement).value === "guid-p"
-        );
-        expect(option?.text()).toBe("OldName");
-
-        // Rename: mutate block's name property; subscription handler fires
-        const nameProp = process.properties.value.get("name") as StringProperty;
-        nameProp.setValue("NewName");
-        await wrapper.vm.$nextTick();
-
-        option = wrapper.findAll("option").find(
-            o => (o.element as HTMLOptionElement).value === "guid-p"
-        );
-        expect(option?.text()).toBe("NewName");
-    });
-
-    it("adding a block to canvas and triggering canvas RootProperty fires re-render", async () => {
+    it("editor 'edit' event causes dropdown to re-render with new block", async () => {
         const canvas = makeCanvas([]);
-
-        const { wrapper } = mountWithCanvas(makeProperty(), canvas);
+        const { wrapper, mockEditor } = mountWithCanvas(makeProperty(), canvas);
         await wrapper.vm.$nextTick();
 
         // Initially only (unowned)
         expect(wrapper.findAll("option").length).toBe(1);
 
-        // Simulate block addition: push to the mutable array and fire canvas RP update
+        // Add a new process block to canvas
         const newBlock = makeBlock("process", "Added Process", "guid-added");
         canvas.blocks.push(newBlock);
 
-        // Trigger canvas RootProperty subscribers by adding a property to it
-        // (this simulates any canvas-level property update that would happen in real usage)
-        const triggerProp = new StringProperty({ id: "trigger", name: "trigger", editable: true });
-        (canvas.properties as RootProperty).addProperty(triggerProp, "trigger");
+        // Simulate the editor emitting "edit" (the real code path when a block is added)
+        mockEditor.emit("edit");
         await wrapper.vm.$nextTick();
 
         const values = wrapper.findAll("option").map(o => (o.element as HTMLOptionElement).value);
         expect(values).toContain("guid-added");
+    });
+
+    it("rename of a newly-added block refreshes the label via 'edit' event", async () => {
+        const canvas = makeCanvas([]);
+        const { wrapper, mockEditor } = mountWithCanvas(makeProperty(), canvas);
+        await wrapper.vm.$nextTick();
+
+        // Add a new block after mount (simulating SpawnObject command)
+        const newBlock = makeBlock("process", "Initial Name", "guid-rename");
+        canvas.blocks.push(newBlock);
+        mockEditor.emit("edit");
+        await wrapper.vm.$nextTick();
+
+        let option = wrapper.findAll("option").find(
+            o => (o.element as HTMLOptionElement).value === "guid-rename"
+        );
+        expect(option?.text()).toBe("Initial Name");
+
+        // Rename the block (simulating SetStringProperty command)
+        const nameProp = newBlock.properties.value.get("name") as StringProperty;
+        nameProp.setValue("Renamed Block");
+        mockEditor.emit("edit");
+        await wrapper.vm.$nextTick();
+
+        option = wrapper.findAll("option").find(
+            o => (o.element as HTMLOptionElement).value === "guid-rename"
+        );
+        expect(option?.text()).toBe("Renamed Block");
     });
 
     it("shows (unowned) option selected when property value is empty string", async () => {
