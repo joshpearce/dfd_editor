@@ -83,8 +83,7 @@ export function narrowClassification(classification: string | null | undefined):
         classification === "pii" ||
         classification === "secret" ||
         classification === "public" ||
-        classification === "internal" ||
-        classification === "unclassified"
+        classification === "internal"
     ) {
         return classification;
     }

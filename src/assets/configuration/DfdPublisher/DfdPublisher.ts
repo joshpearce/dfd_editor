@@ -61,11 +61,21 @@ class DfdPublisher implements FilePublisher {
      * their partial state (empty string for absent required fields); the
      * DfdValidator surfaces missing-field conditions as user-visible warnings.
      *
+     * Unowned items (empty `parent`) have the `parent` key omitted from the
+     * output to match the server contract (server/schema.py DataItem.parent is
+     * Optional[str] and serialised as absent, not as empty string).
+     *
      * @param canvas  The diagram canvas.
-     * @returns       Array of DataItem records (may include partial items).
+     * @returns       Array of DataItem records ready for JSON serialization.
      */
-    private projectCanvasDataItems(canvas: Canvas): DataItem[] {
-        return readDataItems(canvas);
+    private projectCanvasDataItems(canvas: Canvas): Omit<DataItem, "parent"> [] {
+        return readDataItems(canvas).map(item => {
+            const { parent, ...rest } = item;
+            if (parent) {
+                return { parent, ...rest };
+            }
+            return rest;
+        });
     }
 
     /**

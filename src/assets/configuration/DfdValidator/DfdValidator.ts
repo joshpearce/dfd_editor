@@ -82,7 +82,8 @@ class DfdValidator extends FileValidator {
     private validateDataItemFields(canvas: Canvas): void {
         for (const item of readDataItems(canvas)) {
             const missingFields: string[] = [];
-            if (!item.parent)     { missingFields.push("parent"); }
+            // `parent` is intentionally optional (unowned items have no parent).
+            // Only `identifier` and `name` are required for a well-formed item.
             if (!item.identifier) { missingFields.push("identifier"); }
             if (!item.name)       { missingFields.push("name"); }
             if (missingFields.length > 0) {

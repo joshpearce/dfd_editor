@@ -402,6 +402,27 @@ describe("DfdValidator — data item missing required fields (I2)", () => {
         validator = new DfdValidator();
     });
 
+    // C1 regression: unowned data item (parent null/absent) must NOT produce a
+    // missing-required-field warning.  Step 3 made `parent` optional end-to-end;
+    // the validator must honour that.
+    it("does not warn for missing-required-field when data item has no parent (unowned)", () => {
+        const file = new DiagramModelFile(factory);
+        const canvas = file.canvas;
+        const procA = factory.createNewDiagramObject("process", Block);
+        canvas.addObject(procA);
+        setName(procA, "ProcA");
+
+        // Add an unowned item: parent is empty string (what DataItemParentRef stores for null/absent)
+        addDataItem(canvas, "unowned-item", "", "D1", "Unowned Item");
+
+        validator.run(file);
+
+        const missingWarnings = validator.getWarnings().filter(
+            w => w.reason.includes("missing required field")
+        );
+        expect(missingWarnings).toHaveLength(0);
+    });
+
     it("does not warn when all data items have all required fields", () => {
         const file = new DiagramModelFile(factory);
         const canvas = file.canvas;

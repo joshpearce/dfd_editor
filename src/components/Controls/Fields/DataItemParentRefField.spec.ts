@@ -282,6 +282,59 @@ describe("DataItemParentRefField", () => {
         expect(options[0].text()).toBe("(unowned)");
     });
 
+    describe("dangling parent GUID (M3)", () => {
+        it("shows dangling GUID as '?<first-8-chars>' option and selects it", async () => {
+            // Property holds a GUID that no longer exists in the canvas
+            const danglingGuid = "aaaabbbb-cccc-dddd-eeee-ffffffffffff";
+            const prop = makeProperty(danglingGuid);
+            const canvas = makeCanvas([]); // empty canvas — no matching block
+
+            const { wrapper } = mountWithCanvas(prop, canvas);
+            await wrapper.vm.$nextTick();
+
+            const options = wrapper.findAll("option");
+            const values = options.map(o => (o.element as HTMLOptionElement).value);
+            const texts = options.map(o => (o.element as HTMLOptionElement).text);
+
+            // Synthetic dangling option must appear
+            expect(values).toContain(danglingGuid);
+            const danglingIdx = values.indexOf(danglingGuid);
+            expect(texts[danglingIdx]).toBe("?aaaabbbb");
+
+            // The select must reflect the dangling GUID as selected
+            const select = wrapper.find("select");
+            expect((select.element as HTMLSelectElement).value).toBe(danglingGuid);
+        });
+
+        it("does not add a synthetic option when the GUID resolves to a known block", async () => {
+            const knownGuid = "known-guid-1234";
+            const process = makeBlock("process", "Known Proc", knownGuid);
+            const canvas = makeCanvas([process]);
+            const prop = makeProperty(knownGuid);
+
+            const { wrapper } = mountWithCanvas(prop, canvas);
+            await wrapper.vm.$nextTick();
+
+            const options = wrapper.findAll("option");
+            // Should have (unowned) + known block — no duplicate or synthetic option
+            expect(options).toHaveLength(2);
+            const texts = options.map(o => (o.element as HTMLOptionElement).text);
+            expect(texts).not.toContain(`?${knownGuid.slice(0, 8)}`);
+        });
+
+        it("does not add a synthetic option when property is empty (unowned)", async () => {
+            const prop = makeProperty("");
+            const canvas = makeCanvas([]);
+
+            const { wrapper } = mountWithCanvas(prop, canvas);
+            await wrapper.vm.$nextTick();
+
+            const options = wrapper.findAll("option");
+            // Only (unowned) option
+            expect(options).toHaveLength(1);
+        });
+    });
+
     describe("editor swap listener lifecycle (M2)", () => {
         it("swapping editors removes listener from old editor and attaches to new one", async () => {
             const canvas = makeCanvas([]);

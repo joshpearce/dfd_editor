@@ -248,6 +248,50 @@ describe("DfdPublisher", () => {
     });
 
     // -----------------------------------------------------------------------
+    // M2: Unowned items must not emit a `parent` key in the output JSON.
+    // The server contract (server/schema.py) uses Optional[str] and omits
+    // the key entirely when absent; the publisher must match that shape.
+    // -----------------------------------------------------------------------
+
+    describe("publish — unowned items omit parent key (M2)", () => {
+
+        it("does not include parent key in output JSON when item parent is empty", () => {
+            const file = new DiagramModelFile(factory);
+            const canvas = file.canvas;
+
+            const itemGuid = "unowned-item-guid";
+            // parent empty string = unowned
+            addDataItem(canvas, itemGuid, "", "D1", "Unowned Item");
+
+            const output = JSON.parse(publisher.publish(file));
+
+            expect(output.data_items).toHaveLength(1);
+            const emitted = output.data_items[0];
+            expect(emitted.guid).toBe(itemGuid);
+            expect(emitted).not.toHaveProperty("parent");
+        });
+
+        it("includes parent key for owned items but omits it for unowned items in the same output", () => {
+            const file = new DiagramModelFile(factory);
+            const canvas = file.canvas;
+
+            const ownerGuid = "owner-proc-guid";
+            addDataItem(canvas, "owned-item", ownerGuid, "D1", "Owned Item");
+            addDataItem(canvas, "unowned-item", "", "D2", "Unowned Item");
+
+            const output = JSON.parse(publisher.publish(file));
+
+            expect(output.data_items).toHaveLength(2);
+            const owned = output.data_items.find((i: Record<string, unknown>) => i.guid === "owned-item");
+            const unowned = output.data_items.find((i: Record<string, unknown>) => i.guid === "unowned-item");
+
+            expect(owned).toHaveProperty("parent", ownerGuid);
+            expect(unowned).not.toHaveProperty("parent");
+        });
+
+    });
+
+    // -----------------------------------------------------------------------
     // I2: Partial items are published rather than silently dropped
     // -----------------------------------------------------------------------
 

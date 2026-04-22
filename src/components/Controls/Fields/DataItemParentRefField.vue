@@ -19,12 +19,12 @@
 <script lang="ts">
 // pattern: Imperative Shell
 
-import { defineComponent, type PropType } from "vue";
+import { defineComponent, ref, type PropType } from "vue";
 import { useApplicationStore } from "@/stores/ApplicationStore";
+import { useEditorEditEvent } from "@/composables/useEditorEditEvent";
 import { DataItemParentRefProperty } from "@OpenChart/DiagramModel";
 import * as EditorCommands from "@OpenChart/DiagramEditor";
 import type { SynchronousEditorCommand } from "@OpenChart/DiagramEditor";
-import type { DiagramViewEditor } from "@OpenChart/DiagramEditor";
 import type { CanvasView } from "@OpenChart/DiagramView";
 import type { BlockView } from "@OpenChart/DiagramView";
 import type { GroupView } from "@OpenChart/DiagramView";
@@ -68,13 +68,13 @@ export default defineComponent({
     emits: {
         execute: (cmd: SynchronousEditorCommand) => cmd
     },
-    data() {
-        return {
-            store: useApplicationStore(),
-            updateCounter: 0,
-            editListener: null as ((...args: unknown[]) => void) | null,
-            attachedEditor: null as DiagramViewEditor | null
-        };
+    setup() {
+        const store = useApplicationStore();
+        // `updateCounter` is a reactive ref exposed to the template and to
+        // Options API computed properties via the component instance.
+        const updateCounter = ref(0);
+        useEditorEditEvent(store, () => { updateCounter.value++; });
+        return { store, updateCounter };
     },
     computed: {
         currentValue(): string {
@@ -93,6 +93,14 @@ export default defineComponent({
                     text: blockDisplayName(block)
                 });
             }
+            // If the current value is a non-empty GUID that does not match any
+            // option, append a synthetic option so the select has a selected
+            // entry — mirrors DataItemRefListField.resolveName's dangling-ref
+            // display pattern.
+            const current = this.property.toJson() ?? "";
+            if (current && !result.some(opt => opt.value === current)) {
+                result.push({ value: current, text: `?${current.slice(0, 8)}` });
+            }
             return result;
         }
     },
@@ -100,34 +108,7 @@ export default defineComponent({
         onChange(guid: string): void {
             const cmd = EditorCommands.setStringProperty(this.property, guid === "" ? null : guid);
             this.$emit("execute", cmd);
-        },
-        attachEditListener(): void {
-            this.detachEditListener();
-            const editor = this.store.activeEditor as DiagramViewEditor | undefined;
-            if (!editor || typeof editor.on !== "function") return;
-            const handler = () => { this.updateCounter++; };
-            editor.on("edit", handler);
-            this.editListener = handler;
-            this.attachedEditor = editor;
-        },
-        detachEditListener(): void {
-            const editor = this.attachedEditor;
-            if (!editor || !this.editListener || typeof editor.removeEventListener !== "function") return;
-            editor.removeEventListener("edit", this.editListener);
-            this.editListener = null;
-            this.attachedEditor = null;
         }
-    },
-    watch: {
-        "store.activeEditor": {
-            handler() {
-                this.attachEditListener();
-            },
-            immediate: true
-        }
-    },
-    unmounted() {
-        this.detachEditListener();
     }
 });
 </script>

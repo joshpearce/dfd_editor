@@ -55,12 +55,12 @@
 <script lang="ts">
 // pattern: Imperative Shell
 
-import { defineComponent } from "vue";
+import { defineComponent, ref } from "vue";
 import { useApplicationStore } from "@/stores/ApplicationStore";
+import { useEditorEditEvent } from "@/composables/useEditorEditEvent";
 import { ListProperty, DictionaryProperty, StringProperty } from "@OpenChart/DiagramModel";
 import * as EditorCommands from "@OpenChart/DiagramEditor";
 import type { SynchronousEditorCommand } from "@OpenChart/DiagramEditor";
-import type { DiagramViewEditor } from "@OpenChart/DiagramEditor";
 import type { DataItem } from "@OpenChart/DiagramModel/DataItemLookup";
 import { dataItemsForParent, readDataItems } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Canvas } from "@OpenChart/DiagramModel";
@@ -76,13 +76,11 @@ export default defineComponent({
     emits: {
         execute: (cmd: SynchronousEditorCommand) => cmd
     },
-    data() {
-        return {
-            store: useApplicationStore(),
-            updateCounter: 0,
-            editListener: null as ((...args: unknown[]) => void) | null,
-            attachedEditor: null as DiagramViewEditor | null
-        };
+    setup() {
+        const store = useApplicationStore();
+        const updateCounter = ref(0);
+        useEditorEditEvent(store, () => { updateCounter.value++; });
+        return { store, updateCounter };
     },
     computed: {
         canvas(): Canvas | undefined {
@@ -101,34 +99,7 @@ export default defineComponent({
             return readDataItems(canvas).filter(item => !item.parent);
         }
     },
-    watch: {
-        "store.activeEditor": {
-            handler() {
-                this.attachEditListener();
-            },
-            immediate: true
-        }
-    },
-    unmounted() {
-        this.detachEditListener();
-    },
     methods: {
-        attachEditListener(): void {
-            this.detachEditListener();
-            const editor = this.store.activeEditor as DiagramViewEditor | undefined;
-            if (!editor || typeof editor.on !== "function") return;
-            const handler = () => { this.updateCounter++; };
-            editor.on("edit", handler);
-            this.editListener = handler;
-            this.attachedEditor = editor;
-        },
-        detachEditListener(): void {
-            const editor = this.attachedEditor;
-            if (!editor || !this.editListener || typeof editor.removeEventListener !== "function") return;
-            editor.removeEventListener("edit", this.editListener);
-            this.editListener = null;
-            this.attachedEditor = null;
-        },
         onSelectChange(e: Event): void {
             const select = e.target as HTMLSelectElement;
             this.onAdopt(select.value);
