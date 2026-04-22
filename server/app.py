@@ -8,6 +8,7 @@ from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 from flask_sock import Sock
 from pydantic import ValidationError
+from simple_websocket import ConnectionClosed, Server as WsServer
 
 from transform import DuplicateParentError, InvalidNativeError, to_minimal, to_native
 
@@ -15,7 +16,7 @@ app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173"])
 sock = Sock(app)
 
-_ws_clients: set = set()
+_ws_clients: set[WsServer] = set()
 _ws_lock = threading.Lock()
 
 # Tests override this via monkeypatch.setattr("app.DATA_DIR", ...).
@@ -40,6 +41,29 @@ def _safe_ctx(ctx: dict) -> dict:
         except TypeError:
             result[k] = str(v)
     return result
+
+
+def _to_native_or_error(body):
+    """Parse and validate a minimal-format body, returning (native, None) or (None, error_response).
+
+    Returns:
+        (native_dict, None) on success.
+        (None, (Response, status_code)) on body=None, ValidationError, or DuplicateParentError.
+    """
+    if body is None:
+        return None, (jsonify({"error": "request body must be valid JSON"}), 400)
+    try:
+        native = to_native(body)
+    except ValidationError as e:
+        errors = e.errors(include_url=False)
+        cleaned_errors = [
+            {**err, "ctx": _safe_ctx(err["ctx"])} if "ctx" in err else err
+            for err in errors
+        ]
+        return None, (jsonify({"error": "validation failed", "details": cleaned_errors}), 400)
+    except DuplicateParentError as e:
+        return None, (jsonify({"error": "duplicate parent", "detail": str(e)}), 400)
+    return native, None
 
 
 @app.route("/api/health")
@@ -106,21 +130,9 @@ def update_diagram(diagram_id):
 
 @app.route("/api/diagrams/import", methods=["POST"])
 def import_diagram():
-    body = request.get_json(silent=True)
-    if body is None:
-        return jsonify({"error": "request body must be valid JSON"}), 400
-    try:
-        native = to_native(body)
-    except ValidationError as e:
-        # Preserve JSON-serializable fields in ctx and stringify the rest.
-        errors = e.errors(include_url=False)
-        cleaned_errors = [
-            {**err, "ctx": _safe_ctx(err["ctx"])} if "ctx" in err else err
-            for err in errors
-        ]
-        return jsonify({"error": "validation failed", "details": cleaned_errors}), 400
-    except DuplicateParentError as e:
-        return jsonify({"error": "duplicate parent", "detail": str(e)}), 400
+    native, err = _to_native_or_error(request.get_json(silent=True))
+    if err is not None:
+        return err
     diagram_id = str(uuid.uuid4())
     (DATA_DIR / f"{diagram_id}.json").write_text(json.dumps(native, indent=4))
     return jsonify({"id": diagram_id}), 201
@@ -155,21 +167,9 @@ def import_diagram_update(diagram_id):
     path = DATA_DIR / f"{diagram_id}.json"
     if not path.exists():
         return jsonify({"error": "not found"}), 404
-    body = request.get_json(silent=True)
-    if body is None:
-        return jsonify({"error": "request body must be valid JSON"}), 400
-    try:
-        native = to_native(body)
-    except ValidationError as e:
-        errors = e.errors(include_url=False)
-        cleaned_errors = [
-            {**err, "ctx": _safe_ctx(err["ctx"])} if "ctx" in err else err
-            for err in errors
-        ]
-        return jsonify({"error": "validation failed", "details": cleaned_errors}), 400
-    except DuplicateParentError as e:
-        return jsonify({"error": "duplicate parent", "detail": str(e)}), 400
-    native.pop("layout", None)
+    native, err = _to_native_or_error(request.get_json(silent=True))
+    if err is not None:
+        return err
     path.write_text(json.dumps(native, indent=4))
     return "", 204
 
@@ -196,8 +196,12 @@ def internal_broadcast():
     body = request.get_json(silent=True)
     if body is None:
         return jsonify({"error": "request body must be valid JSON"}), 400
-    if not isinstance(body.get("type"), str):
-        return jsonify({"error": "type must be a string"}), 400
+    msg_type = body.get("type")
+    if not isinstance(msg_type, str) or not msg_type:
+        return jsonify({"error": "type must be a non-empty string"}), 400
+    payload = body.get("payload")
+    if payload is not None and not isinstance(payload, dict):
+        return jsonify({"error": "payload must be an object"}), 400
     broadcast(body)
     return jsonify({"ok": True})
 
@@ -211,7 +215,7 @@ def ws_handler(ws):
             msg = ws.receive()
             if msg is None:
                 break
-    except Exception:
+    except ConnectionClosed:
         pass
     finally:
         with _ws_lock:

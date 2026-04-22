@@ -14,7 +14,7 @@ import simple_websocket
 from werkzeug.serving import make_server
 
 import app as app_module
-from app import app
+from app import app, broadcast
 
 # ---------------------------------------------------------------------------
 # Minimal valid document (no layout key) for seeding and import tests
@@ -83,9 +83,19 @@ def live_server(tmp_path, monkeypatch):
         yield app, port
     finally:
         srv.shutdown()
-        # Drain the module-level client set so isolated tests don't bleed
-        with app_module._ws_lock:
-            app_module._ws_clients.clear()
+
+
+# ---------------------------------------------------------------------------
+# Autouse fixture: drain _ws_clients after every test unconditionally (M3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _drain_ws_clients():
+    """Drain the module-level WS client set after each test regardless of outcome."""
+    yield
+    with app_module._ws_lock:
+        app_module._ws_clients.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +139,11 @@ class TestPutImport:
         assert resp.status_code == 404
 
     def test_put_import_happy_path_strips_layout(self, client, tmp_path):
-        # Seed a native file that includes a `layout` key
+        # Seed a native file that explicitly contains a `layout` key.
+        # The assertion below verifies that PUT /import replaces the stored
+        # file wholesale — any layout that existed before must be gone after.
+        # If a future refactor merged payloads instead of replacing, this
+        # test would fail loudly.
         native_with_layout = {
             "schema": "dfd_v1",
             "layout": {"some": "coords"},
@@ -145,7 +159,8 @@ class TestPutImport:
         assert resp.status_code == 204
 
         stored = json.loads((tmp_path / "target.json").read_text())
-        # layout must be absent after a PUT /import
+        # layout must be absent — to_native never emits it; the whole file
+        # is replaced, so the previously-stored layout key is gone.
         assert "layout" not in stored
         # file must contain re-imported content (schema key is the marker)
         assert stored.get("schema") == "dfd_v1"
@@ -166,6 +181,46 @@ class TestPutImport:
         body = resp.get_json()
         assert body["error"] == "validation failed"
         assert "details" in body
+
+    def test_put_import_duplicate_parent_returns_400(self, client, tmp_path):
+        # Two containers both claim the same child GUID — triggers DuplicateParentError.
+        _seed_file(tmp_path, "target3", {"schema": "dfd_v1"})
+        child_guid = _PROCESS_GUID
+        bad_doc = copy.deepcopy(_MINIMAL_DOC)
+        bad_doc["containers"] = [
+            {
+                "type": "trust_boundary",
+                "guid": "aaaaaaaa-0000-0000-0000-000000000001",
+                "properties": {"name": "TB1"},
+                "children": [child_guid],
+            },
+            {
+                "type": "trust_boundary",
+                "guid": "aaaaaaaa-0000-0000-0000-000000000002",
+                "properties": {"name": "TB2"},
+                "children": [child_guid],
+            },
+        ]
+        resp = client.put(
+            "/api/diagrams/target3/import",
+            data=json.dumps(bad_doc),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert body["error"] == "duplicate parent"
+        assert "detail" in body
+
+    def test_put_import_non_json_body_returns_400(self, client, tmp_path):
+        _seed_file(tmp_path, "target4", {"schema": "dfd_v1"})
+        resp = client.put(
+            "/api/diagrams/target4/import",
+            data=b"not json",
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert body["error"] == "request body must be valid JSON"
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +259,57 @@ class TestInternalBroadcast:
         )
         assert resp.status_code == 400
 
+    def test_empty_string_type_returns_400(self, client):
+        resp = client.post(
+            "/api/internal/broadcast",
+            json={"type": ""},
+        )
+        assert resp.status_code == 400
+
+    def test_non_dict_payload_returns_400(self, client):
+        resp = client.post(
+            "/api/internal/broadcast",
+            json={"type": "display", "payload": ["not", "a", "dict"]},
+        )
+        assert resp.status_code == 400
+
+    def test_null_payload_accepted(self, client):
+        # JSON null / absent payload is valid (payload is optional)
+        resp = client.post(
+            "/api/internal/broadcast",
+            json={"type": "display", "payload": None},
+        )
+        assert resp.status_code == 200
+
+    def test_absent_payload_accepted(self, client):
+        resp = client.post(
+            "/api/internal/broadcast",
+            json={"type": "display"},
+        )
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# broadcast() dead-socket cleanup (I2 — unit test, no live server needed)
+# ---------------------------------------------------------------------------
+
+
+class TestBroadcastDeadSocketPruning:
+    def test_dead_socket_is_pruned_on_send_failure(self):
+        """A socket whose .send() raises must be removed from _ws_clients."""
+
+        class _FailingSocket:
+            def send(self, _data):
+                raise RuntimeError("boom")
+
+        stub = _FailingSocket()
+        with app_module._ws_lock:
+            app_module._ws_clients.add(stub)
+
+        broadcast({"type": "x"})
+
+        assert stub not in app_module._ws_clients
+
 
 # ---------------------------------------------------------------------------
 # WebSocket smoke test
@@ -216,13 +322,32 @@ class TestWebSocketBroadcast:
 
         ws = simple_websocket.Client(f"ws://127.0.0.1:{port}/ws")
 
-        # Condition-based wait: poll until the app registers the connection
+        # Condition-based wait: poll by sending a sentinel and waiting for the
+        # receive — this exercises the same invariant (socket is registered)
+        # through an observable effect rather than private state (M4).
+        sentinel = {"type": "_ping"}
         deadline = time.time() + 2.0
-        while not app_module._ws_clients and time.time() < deadline:
-            time.sleep(0.01)
-        assert app_module._ws_clients, "ws client never registered in _ws_clients"
+        received_sentinel = False
+        while time.time() < deadline:
+            try:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/internal/broadcast",
+                    data=json.dumps(sentinel).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req) as resp:
+                    assert resp.status == 200
+                msg = ws.receive(timeout=0.1)
+                if msg is not None and json.loads(msg) == sentinel:
+                    received_sentinel = True
+                    break
+            except Exception:
+                time.sleep(0.01)
 
-        # Trigger a broadcast via the internal HTTP endpoint
+        assert received_sentinel, "ws client never received sentinel broadcast"
+
+        # Trigger the real broadcast and assert delivery.
         envelope = {"type": "display", "payload": {"id": "xyz"}}
         req = urllib.request.Request(
             f"http://127.0.0.1:{port}/api/internal/broadcast",
@@ -230,7 +355,8 @@ class TestWebSocketBroadcast:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(req).read()
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
 
         msg = ws.receive(timeout=2.0)
         assert json.loads(msg) == envelope

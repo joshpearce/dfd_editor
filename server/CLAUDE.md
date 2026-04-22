@@ -58,9 +58,9 @@ surface.)
   or interpret diagram contents beyond reading an optional top-level `name`.
 
 ## Dependencies
-- **Uses** — `flask>=3.0`, `flask-cors>=4.0`, `pydantic>=2.0` (see
-  `requirements.txt`). Stdlib only otherwise (`json`, `uuid`, `pathlib`,
-  `subprocess` for shelling `d2`).
+- **Uses** — `flask>=3.0`, `flask-cors>=4.0`, `pydantic>=2.0`,
+  `flask-sock>=0.7` (WS transport on `/ws`; see `requirements.txt`). Stdlib
+  only otherwise (`json`, `uuid`, `pathlib`, `subprocess` for shelling `d2`).
 - **Used by**
   - `src/assets/scripts/api/DfdApiClient.ts` — the HTTP client; calls
     `/api/diagrams` via relative URLs (Vite proxies to `127.0.0.1:5050`).
