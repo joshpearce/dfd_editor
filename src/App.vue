@@ -51,6 +51,8 @@ import { useApplicationStore } from './stores/ApplicationStore';
 import { defineComponent, markRaw, ref } from 'vue';
 import { Device, clamp, OperatingSystem, PointerTracker } from "./assets/scripts/Browser";
 import type { Command } from "./assets/scripts/Application"
+import { DfdSocketClient } from "./assets/scripts/api/DfdSocketClient";
+import { wireSocketClient } from "./assets/scripts/api/DfdSocketDispatcher";
 // Components
 import FindDialog from "@/components/Elements/FindDialog.vue";
 import SplashMenu from "@/components/Elements/SplashMenu.vue";
@@ -83,7 +85,8 @@ export default defineComponent({
         [Handle.Right]: 310
       },
       track: markRaw(new PointerTracker()),
-      onResizeObserver: null as ResizeObserver | null
+      onResizeObserver: null as ResizeObserver | null,
+      disposeSocket: null as (() => void) | null
     }
   },
   computed: {
@@ -199,7 +202,13 @@ export default defineComponent({
   },
   async created() {
     const ctx = this.application;
-    
+
+    // Connect to the Flask WebSocket endpoint and register broadcast handlers.
+    // The connection is non-fatal: if Flask isn't running, the client will
+    // retry in the background without blocking any app functionality.
+    const socket = new DfdSocketClient("ws://localhost:5050/ws");
+    this.disposeSocket = wireSocketClient(socket, ctx);
+
     // Import settings
     const os = Device.getOperatingSystemClass();
     let settings;
@@ -253,6 +262,7 @@ export default defineComponent({
   },
   unmounted() {
     this.onResizeObserver?.disconnect();
+    this.disposeSocket?.();
   },
   components: {
     AppHotkeyBox,
