@@ -52,7 +52,10 @@ as JSON files under `server/data/` and exposes `/api/health`,
 `/api/diagrams[/<id>]` (GET/POST/PUT), `/api/diagrams/<id>/export` + `/api/diagrams/import`
 for the minimal DFD interchange format, and `/api/layout` (shells `d2 --layout=tala`
 for `NewAutoLayoutEngine`). CORS is allowed only for `http://localhost:5173`.
-See `server/CLAUDE.md` for the full contract.
+A companion MCP server (`server/mcp_server.py`, port 5051) and a WebSocket
+broadcast endpoint (`GET /ws`) support remote-control from AI agents — see
+`server/CLAUDE.md` "MCP server & WebSocket" for the full topology, endpoints,
+and broadcast envelope.
 
 ### TALA auto-layout
 

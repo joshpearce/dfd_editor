@@ -434,6 +434,21 @@ export class DiagramInterface extends EventEmitter<DiagramInterfaceEvents> {
     }
 
     /**
+     * Uninstalls one or more plugins from the interface.
+     * @remarks
+     *  Accepts plugin constructors (classes) rather than instances — the
+     *  caller identifies plugins by class, matching the key used by
+     *  {@link installPlugin} (`plugin.constructor.name`).
+     * @param plugins
+     *  The plugin constructors to remove.
+     */
+    public uninstallPlugin(...plugins: Array<new (...args: never[]) => DiagramInterfacePlugin>): void {
+        for (const pluginCtor of plugins) {
+            this.plugins.delete(pluginCtor.name);
+        }
+    }
+
+    /**
      * Canvas hover behavior.
      * @param event
      *  The click event.

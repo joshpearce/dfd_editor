@@ -102,6 +102,57 @@ surface.)
 - `.venv/` — expected virtual-env location; `npm run dev:flask` invokes
   `.venv/bin/flask` directly.
 
+## MCP server & WebSocket
+
+Three-process dev setup: Vite (5173), Flask (5050 REST + WS), MCP (5051).
+`npm run dev:all` starts all three. The MCP process binds to 127.0.0.1:5051
+only; Flask's broadcast endpoint rejects non-loopback callers with 403.
+
+### New HTTP endpoints (Step 1)
+
+- `DELETE /api/diagrams/<id>` — deletes `server/data/<id>.json`; 204 on
+  success, 404 if missing.
+- `PUT /api/diagrams/<id>/import` — replaces the stored doc with a
+  minimal-format body (same validation as `POST /api/diagrams/import`);
+  204 on success, 400 on validation error, 404 if missing.
+- `POST /api/internal/broadcast` — accepts `{"type": ..., "payload": ...}`;
+  fans the envelope out to all connected WebSocket clients; 200 on success,
+  403 if caller is not 127.0.0.1.
+- `GET /ws` — WebSocket upgrade endpoint (flask-sock). Clients receive
+  broadcast envelopes as JSON strings.
+
+### Broadcast envelope
+
+```json
+{"type": "display" | "diagram-updated" | "diagram-deleted" | "remote-control",
+ "payload": <type-specific object or omitted>}
+```
+
+- `display` — payload `{"id": "<uuid>"}`: browser should navigate to that
+  diagram.
+- `diagram-updated` — payload `{"id": "<uuid>"}`: browser should reload the
+  named diagram.
+- `diagram-deleted` — payload `{"id": "<uuid>"}`: browser should close the
+  named diagram if open.
+- `remote-control` — payload `{"state": "on" | "off"}`: browser dispatches
+  `SetReadonlyMode`; `"on"` locks the editor (installs read-only mode and
+  uninstalls `RectangleSelectPlugin` / `PowerEditPlugin`); `"off"` restores
+  interactive editing.
+
+### MCP tools (Step 2)
+
+Six tools exposed at `mcp_server.py` on port 5051 (stdio transport via the
+MCP SDK). Each tool calls Flask over loopback:
+
+| Tool | Flask call |
+|---|---|
+| `list_diagrams` | `GET /api/diagrams` |
+| `create_diagram` | `POST /api/diagrams` |
+| `get_diagram` | `GET /api/diagrams/<id>` |
+| `update_diagram` | `PUT /api/diagrams/<id>/import` |
+| `delete_diagram` | `DELETE /api/diagrams/<id>` |
+| `display_diagram` | `POST /api/internal/broadcast` with `type: "display"` |
+
 ## Gotchas
 - Not a production server. `flask --debug` is on by default via
   `npm run dev:flask`. Never expose this process to the network.

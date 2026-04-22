@@ -3,10 +3,8 @@ import { ref } from "vue";
 import { AppCommand } from "../AppCommand";
 import { EditorDirective } from "@OpenChart/DiagramEditor/EditorDirectives";
 import { SaveDiagramFileToRecoveryBank } from "./SaveDiagramFileToRecoveryBank";
-import {
-    DarkThemeMarquee, DiagramViewEditor, LightThemeMarquee,
-    PowerEditPlugin, RectangleSelectPlugin
-} from "@OpenChart/DiagramEditor";
+import { DiagramViewEditor } from "@OpenChart/DiagramEditor";
+import { installEditPlugins } from "../EditorPlugins";
 import type { DiagramViewFile } from "@OpenChart/DiagramView";
 import type { ApplicationStore } from "@/stores/ApplicationStore";
 
@@ -59,26 +57,9 @@ export class LoadFile extends AppCommand {
                 context.activeValidator?.run(editor.file);
             }
         });
-        // TODO: Move into application configuration
-        const marqueeThemes = {
-            dark_theme  : DarkThemeMarquee,
-            blog_theme  : LightThemeMarquee,
-            light_theme : LightThemeMarquee
-        };
         // Configure interface plugins
         if (!context.readOnlyMode) {
-            const hotkeys = settings.hotkeys.edit;
-            // Power Edit settings
-            const pluginSettings = {
-                factory           : this.editor.file.factory,
-                lineTemplate      : settings.edit.anchor_line_template,
-                multiselectHotkey : hotkeys.select_many
-            };
-            // Install plugins
-            this.editor.interface.installPlugin(
-                new RectangleSelectPlugin(this.editor, marqueeThemes, hotkeys.select_marquee),
-                new PowerEditPlugin(this.editor, pluginSettings)
-            );
+            installEditPlugins(this.editor, settings);
         }
         // Apply view settings
         const view = settings.view.diagram;
