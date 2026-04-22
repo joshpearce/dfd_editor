@@ -152,7 +152,6 @@ export default defineComponent({
   color: #bfbfbf;
   font-size: 8.5pt;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 6px;
 }
