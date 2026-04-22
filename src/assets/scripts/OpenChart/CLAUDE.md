@@ -34,8 +34,12 @@ abandoned; treat this directory as first-party code.
   `PillClassificationKey` types, plus `CHIP_PAD_X_OF_HEIGHT` /
   `CHIP_BASELINE_OF_HEIGHT` shared chip-geometry constants) from
   `DiagramModel/DataItemLookup.ts` — pure model helpers, no DOM/View
-  imports; `faceCanvasLookup.findCanvas` shared helper for walking a view's
-  parent chain to the nearest `Canvas` ancestor.
+  imports; `DataItemParentRefProperty` (a `StringProperty` subclass — the
+  property type dispatched by `PropertyType.DataItemParentRef` so the
+  property editor renders a block-picker dropdown instead of a text field)
+  from `DiagramModel/DiagramObject/Property/`; `faceCanvasLookup.findCanvas`
+  shared helper for walking a view's parent chain to the nearest `Canvas`
+  ancestor.
 - **Guarantees**: Group is a first-class model object (not an overlay)
   that owns children, supports nesting, and persists via the same file
   format as blocks/lines. `GroupBoundsEngine` persists user-set group
