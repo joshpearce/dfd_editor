@@ -12,6 +12,7 @@
             :context="context"
             @execute="execute"
           />
+          <slot name="after-contents" />
         </ScrollBox>
       </template>
       <template v-else>

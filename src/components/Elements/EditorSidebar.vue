@@ -4,25 +4,28 @@
       name="Properties"
       :units="3"
     >
-      <div class="properties-pane">
-        <PropertyEditor
-          ref="propertyEditor"
-          :property="selected"
-          :context="fieldContext"
-        >
-          <template #no-props>
-            The selected object has no properties.
-          </template>
-          <template #no-prop>
-            Select a single object to edit its properties.
-          </template>
-        </PropertyEditor>
-        <OwnedDataItemsSection
+      <PropertyEditor
+        ref="propertyEditor"
+        class="properties-pane"
+        :property="selected"
+        :context="fieldContext"
+      >
+        <template #no-props>
+          The selected object has no properties.
+        </template>
+        <template #no-prop>
+          Select a single object to edit its properties.
+        </template>
+        <template
           v-if="ownedDataItemsSectionBlockGuid"
-          :block-guid="ownedDataItemsSectionBlockGuid"
-          @execute="(cmd) => application.execute(cmd)"
-        />
-      </div>
+          #after-contents
+        >
+          <OwnedDataItemsSection
+            :block-guid="ownedDataItemsSectionBlockGuid"
+            @execute="(cmd) => application.execute(cmd)"
+          />
+        </template>
+      </PropertyEditor>
     </AccordionPane>
     <AccordionPane
       name="Problems"
