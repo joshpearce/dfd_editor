@@ -4,19 +4,25 @@
       name="Properties"
       :units="3"
     >
-      <PropertyEditor
-        ref="propertyEditor"
-        class="properties-pane"
-        :property="selected"
-        :context="fieldContext"
-      >
-        <template #no-props>
-          The selected object has no properties.
-        </template>
-        <template #no-prop>
-          Select a single object to edit its properties.
-        </template>
-      </PropertyEditor>
+      <div class="properties-pane">
+        <PropertyEditor
+          ref="propertyEditor"
+          :property="selected"
+          :context="fieldContext"
+        >
+          <template #no-props>
+            The selected object has no properties.
+          </template>
+          <template #no-prop>
+            Select a single object to edit its properties.
+          </template>
+        </PropertyEditor>
+        <OwnedDataItemsSection
+          v-if="ownedDataItemsSectionBlockGuid"
+          :block-guid="ownedDataItemsSectionBlockGuid"
+          @execute="(cmd) => application.execute(cmd)"
+        />
+      </div>
     </AccordionPane>
     <AccordionPane
       name="Problems"
@@ -31,14 +37,14 @@
 // Dependencies
 import { defineComponent } from "vue";
 import { useApplicationStore } from "@/stores/ApplicationStore";
-import { LineView } from "@OpenChart/DiagramView";
-import type { BlockView } from "@OpenChart/DiagramView";
+import { LineView, BlockView } from "@OpenChart/DiagramView";
 import type { DictionaryProperty } from "@OpenChart/DiagramModel";
 // Components
 import AccordionBox from "@/components/Containers/AccordionBox.vue";
 import AccordionPane from "@/components/Containers/AccordionPane.vue";
 import PropertyEditor from "@/components/Elements/PropertyEditor.vue";
 import ValidatorProblems from "@/components/Elements/ValidatorProblems.vue";
+import OwnedDataItemsSection from "@/components/Controls/Fields/OwnedDataItemsSection.vue";
 
 export default defineComponent({
   name: "EditorSidebar",
@@ -62,6 +68,18 @@ export default defineComponent({
         return this.application.getSelection[0].properties;
       }
       return undefined;
+    },
+
+    /**
+     * Returns the block GUID if the sole selection is an eligible element
+     * (process / external_entity / data_store), or null otherwise.
+     */
+    ownedDataItemsSectionBlockGuid(): string | null {
+      if (this.application.hasSelection !== 1) return null;
+      const obj = this.application.getSelection[0];
+      if (!(obj instanceof BlockView)) return null;
+      if (!["process", "external_entity", "data_store"].includes(obj.id)) return null;
+      return obj.instance;
     },
 
     /**
@@ -107,7 +125,8 @@ export default defineComponent({
     AccordionBox,
     AccordionPane,
     PropertyEditor,
-    ValidatorProblems
+    ValidatorProblems,
+    OwnedDataItemsSection
   }
 });
 </script>
