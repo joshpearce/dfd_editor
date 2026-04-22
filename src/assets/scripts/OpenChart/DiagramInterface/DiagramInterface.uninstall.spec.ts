@@ -1,0 +1,132 @@
+/**
+ * Unit tests for DiagramInterface.uninstallPlugin.
+ *
+ * Uses a minimal stub plugin subclass to stay focused on the API contract
+ * rather than the concrete RectangleSelectPlugin / PowerEditPlugin
+ * implementations.
+ *
+ * The global vitest setup (PowerEditPlugin.testing.setup.ts) stubs the
+ * DiagramInterface module for all spec files. This file unmocks the module
+ * so it can test the real implementation. We then bypass the DOM-dependent
+ * constructor by using Object.create + manually seeding only the fields that
+ * installPlugin / uninstallPlugin actually touch (the `plugins` Map).
+ */
+
+// Must be hoisted before any imports that pull in DiagramInterface.
+
+vi.unmock("@OpenChart/DiagramInterface");
+
+import { describe, it, expect, vi } from "vitest";
+import { DiagramInterface } from "./DiagramInterface";
+import { DiagramInterfacePlugin } from "./DiagramInterfacePlugin";
+import type { SubjectTrack } from "./ObjectTrack";
+
+// ---------------------------------------------------------------------------
+// Minimal concrete plugin stubs — just enough to satisfy the abstract class.
+// ---------------------------------------------------------------------------
+
+class StubPluginA extends DiagramInterfacePlugin {
+    public canHandleHover(): boolean { return false; }
+    public canHandleSelection(): boolean { return false; }
+    protected handleHoverStart(): void { return; }
+    protected handleSelectStart(): boolean { return true; }
+    protected handleSelectDrag(_track: SubjectTrack): void { return; }
+    protected handleSelectEnd(): void { return; }
+}
+
+class StubPluginB extends DiagramInterfacePlugin {
+    public canHandleHover(): boolean { return false; }
+    public canHandleSelection(): boolean { return false; }
+    protected handleHoverStart(): void { return; }
+    protected handleSelectStart(): boolean { return true; }
+    protected handleSelectDrag(_track: SubjectTrack): void { return; }
+    protected handleSelectEnd(): void { return; }
+}
+
+class StubPluginC extends DiagramInterfacePlugin {
+    public canHandleHover(): boolean { return false; }
+    public canHandleSelection(): boolean { return false; }
+    protected handleHoverStart(): void { return; }
+    protected handleSelectStart(): boolean { return true; }
+    protected handleSelectDrag(_track: SubjectTrack): void { return; }
+    protected handleSelectEnd(): void { return; }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the private plugins Map for assertion purposes only.
+ * Production code never accesses it directly.
+ */
+function getPluginMap(iface: DiagramInterface): Map<string, DiagramInterfacePlugin> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (iface as any).plugins as Map<string, DiagramInterfacePlugin>;
+}
+
+/**
+ * Build a minimal DiagramInterface without triggering the DOM-dependent
+ * constructor (which calls d3.select(document.createElement("canvas"))).
+ *
+ * We use Object.create to get an instance with the correct prototype, then
+ * manually seed the only private field that installPlugin / uninstallPlugin
+ * actually access: the `plugins` Map.
+ */
+function makeInterface(): DiagramInterface {
+    const iface = Object.create(DiagramInterface.prototype) as DiagramInterface;
+    // Seed the private `plugins` Map that installPlugin / uninstallPlugin use.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (iface as any).plugins = new Map<string, DiagramInterfacePlugin>();
+    return iface;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("DiagramInterface.uninstallPlugin", () => {
+
+    it("removes a previously installed plugin by constructor name", () => {
+        const iface = makeInterface();
+        const pluginA = new StubPluginA();
+        iface.installPlugin(pluginA);
+
+        expect(getPluginMap(iface).has("StubPluginA")).toBe(true);
+
+        iface.uninstallPlugin(StubPluginA);
+
+        expect(getPluginMap(iface).has("StubPluginA")).toBe(false);
+    });
+
+    it("is a no-op when the constructor was never installed", () => {
+        const iface = makeInterface();
+        const pluginA = new StubPluginA();
+        iface.installPlugin(pluginA);
+
+        // Removing a plugin that was never installed must not throw
+        expect(() => iface.uninstallPlugin(StubPluginB)).not.toThrow();
+
+        // The installed plugin is unaffected
+        expect(getPluginMap(iface).has("StubPluginA")).toBe(true);
+    });
+
+    it("removes multiple constructors in one call and leaves unmentioned plugins intact", () => {
+        const iface = makeInterface();
+        iface.installPlugin(new StubPluginA(), new StubPluginB(), new StubPluginC());
+
+        // Sanity: all three installed
+        expect(getPluginMap(iface).size).toBe(3);
+
+        // Remove A and B only
+        iface.uninstallPlugin(StubPluginA, StubPluginB);
+
+        const map = getPluginMap(iface);
+        expect(map.has("StubPluginA")).toBe(false);
+        expect(map.has("StubPluginB")).toBe(false);
+        // C must still be present
+        expect(map.has("StubPluginC")).toBe(true);
+        expect(map.size).toBe(1);
+    });
+
+});
