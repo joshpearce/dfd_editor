@@ -133,8 +133,8 @@ export default defineComponent({
 
 <style scoped>
 .owned-data-items-section {
-  margin-top: 18px;
   margin-bottom: 18px;
+  padding: 0 16px;
 }
 
 .section-title {
