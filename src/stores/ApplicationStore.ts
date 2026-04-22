@@ -35,6 +35,8 @@ for (const theme of Configuration.themes) {
 ///////////////////////////////////////////////////////////////////////////////
 
 
+let _remoteActivityTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useApplicationStore = defineStore("applicationStore", {
     state: () => ({
         themeRegistry: themeRegistry,
@@ -47,9 +49,12 @@ export const useApplicationStore = defineStore("applicationStore", {
         activeFinder: new OpenChartFinder<DiagramViewEditor, DiagramObjectView>(),
         settings: BaseAppSettings,
         readOnlyMode: false,
+        remoteControlLocked: false,
         recentTimezone: DateTime.local().toFormat("ZZ"),
         serverFileId: null as string | null,
-        pendingNameFocus: 0
+        pendingNameFocus: 0,
+        lastRemoteActivityTs: null as number | null,
+        remoteActivityUndoDepth: null as number | null,
     }),
     getters: {
 
@@ -214,6 +219,10 @@ export const useApplicationStore = defineStore("applicationStore", {
                 return [];
             }
             return readDataItems(canvas);
+        },
+
+        isRemotelyActive(state): boolean {
+            return state.lastRemoteActivityTs !== null;
         }
 
     },
@@ -273,6 +282,19 @@ export const useApplicationStore = defineStore("applicationStore", {
          */
         requestNameFocus() {
             this.pendingNameFocus++;
+        },
+
+        markRemoteActivity(): void {
+            if (_remoteActivityTimer !== null) clearTimeout(_remoteActivityTimer);
+            this.lastRemoteActivityTs = Date.now();
+            this.remoteActivityUndoDepth = this.activeEditor.undoDepth;
+            _remoteActivityTimer = setTimeout(() => this.clearRemoteActivity(), 60_000);
+        },
+
+        clearRemoteActivity(): void {
+            if (_remoteActivityTimer !== null) { clearTimeout(_remoteActivityTimer); _remoteActivityTimer = null; }
+            this.lastRemoteActivityTs = null;
+            this.remoteActivityUndoDepth = null;
         }
 
     }

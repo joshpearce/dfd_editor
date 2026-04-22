@@ -4,6 +4,7 @@ import {
     OpenHyperlink,
     RunSearch,
     SetReadonlyMode,
+    SetRemoteControlLocked,
     ShowSearchMenu,
     ShowSplashMenu,
     SwitchToFullscreen,
@@ -162,4 +163,23 @@ export function setReadonlyMode(
     context: ApplicationStore, value: boolean
 ): SetReadonlyMode {
     return new SetReadonlyMode(context, value);
+}
+
+/**
+ * Locks or unlocks the editor for remote-control sessions.
+ * @remarks
+ *  Installs/uninstalls interactive-editing plugins without touching
+ *  `readOnlyMode`, so the application chrome remains visible during agent
+ *  control.
+ * @param context
+ *  The application context.
+ * @param value
+ *  True to lock (remove edit plugins), false to unlock.
+ * @returns
+ *  A command that represents the action.
+ */
+export function setRemoteControlLocked(
+    context: ApplicationStore, value: boolean
+): SetRemoteControlLocked {
+    return new SetRemoteControlLocked(context, value);
 }

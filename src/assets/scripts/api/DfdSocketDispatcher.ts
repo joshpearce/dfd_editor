@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // (Wires a DfdSocketClient to ApplicationStore commands — pure I/O orchestration)
 
-import { prepareEditorFromServerFile, setReadonlyMode, showSplashMenu } from "@/assets/scripts/Application/Commands";
+import { prepareEditorFromServerFile, setRemoteControlLocked, showSplashMenu } from "@/assets/scripts/Application/Commands";
 import type { ApplicationStore } from "@/stores/ApplicationStore";
 import type { DfdSocketClient } from "./DfdSocketClient";
 
@@ -72,6 +72,7 @@ async function handleDisplay(
     }
     try {
         await ctx.execute(await prepareEditorFromServerFile(ctx, id));
+        ctx.markRemoteActivity();
     } catch (err) {
         console.error("DfdSocketDispatcher: failed to display diagram:", err);
     }
@@ -143,6 +144,7 @@ async function handleDiagramUpdated(
             return;
         }
         await ctx.execute(cmd);
+        ctx.markRemoteActivity();
     } catch (err) {
         console.error("DfdSocketDispatcher: failed to reload updated diagram:", err);
     }
@@ -175,6 +177,7 @@ async function handleDiagramDeleted(
         // (validator, save, find) don't operate on a now-deleted file.
         ctx.resetActiveEditor();
         await ctx.execute(showSplashMenu(ctx));
+        ctx.markRemoteActivity();
     } catch (err) {
         console.error("DfdSocketDispatcher: failed to show splash after diagram deleted:", err);
     }
@@ -206,9 +209,9 @@ async function handleRemoteControl(
         return;
     }
     try {
-        await ctx.execute(setReadonlyMode(ctx, state === "on"));
+        await ctx.execute(setRemoteControlLocked(ctx, state === "on"));
     } catch (err) {
-        console.error("DfdSocketDispatcher: failed to set readonly mode:", err);
+        console.error("DfdSocketDispatcher: failed to set remote control lock:", err);
     }
 }
 

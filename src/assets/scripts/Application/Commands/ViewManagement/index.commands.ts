@@ -8,3 +8,4 @@ export * from "./ToNextSearchResult";
 export * from "./ToPreviousSearchResult";
 export * from "./RunSearch";
 export * from "./SetReadonlyMode";
+export * from "./SetRemoteControlLocked";

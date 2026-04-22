@@ -4,30 +4,23 @@ import { PowerEditPlugin, RectangleSelectPlugin } from "@OpenChart/DiagramEditor
 import { installEditPlugins } from "../EditorPlugins";
 import type { ApplicationStore } from "@/stores/ApplicationStore";
 
-export class SetReadonlyMode extends AppCommand {
+export class SetRemoteControlLocked extends AppCommand {
 
-    /**
-     * The application context.
-     */
     public readonly context: ApplicationStore;
-
-    /**
-     * The readonly value.
-     */
     public readonly value: boolean;
 
-
     /**
-     * Sets the application to read-only mode.
+     * Locks or unlocks the editor for remote-control sessions.
      * @remarks
-     *  When a diagram is already loaded, toggling the flag also installs or
-     *  uninstalls the interactive-editing plugins ({@link RectangleSelectPlugin}
-     *  and {@link PowerEditPlugin}) on the live editor's interface, so the
-     *  change takes effect immediately without requiring a page reload.
+     *  Sets `remoteControlLocked` and installs/uninstalls the interactive-
+     *  editing plugins accordingly, but does NOT touch `readOnlyMode` — so
+     *  the application chrome (title bar, sidebar, footer) stays visible.
+     *  Plugins are only reinstalled when both this flag and `readOnlyMode`
+     *  are false.
      * @param context
      *  The application context.
      * @param value
-     *  The read-only state to apply.
+     *  True to lock (uninstall edit plugins), false to unlock.
      */
     constructor(context: ApplicationStore, value: boolean) {
         super();
@@ -35,23 +28,15 @@ export class SetReadonlyMode extends AppCommand {
         this.value = value;
     }
 
-
-    /**
-     * Executes the command.
-     */
     public async execute(): Promise<void> {
-        const prev = this.context.readOnlyMode;
-        this.context.readOnlyMode = this.value;
+        const prev = this.context.remoteControlLocked;
+        this.context.remoteControlLocked = this.value;
         if (prev === this.value) { return; }
         const editor = this.context.activeEditor;
-        // Skip plugin management for the PhantomEditor placeholder.
         if (editor.id === PhantomEditor.id) { return; }
         if (this.value) {
-            // Going read-only: remove interactive-editing plugins.
             editor.interface.uninstallPlugin(RectangleSelectPlugin, PowerEditPlugin);
-        } else if (!this.context.remoteControlLocked) {
-            // Going interactive: (re)install editing plugins only when remote
-            // control is also not holding the lock.
+        } else if (!this.context.readOnlyMode) {
             installEditPlugins(editor, this.context.settings);
         }
     }

@@ -13,6 +13,9 @@
         >
       </span>
     </template>
+    <template #right>
+      <RemoteControlBadge />
+    </template>
   </TitleBar>
 </template>
 
@@ -26,6 +29,7 @@ import type { CommandEmitter } from "@/assets/scripts/Application";
 import type { ContextMenuSubmenu } from "@/assets/scripts/Browser";
 // Components
 import TitleBar from "@/components/Controls/TitleBar.vue";
+import RemoteControlBadge from "@/components/Elements/RemoteControlBadge.vue";
 
 export default defineComponent({
   name: "AppTitleBar",
@@ -74,7 +78,7 @@ export default defineComponent({
     }
 
   },
-  components: { TitleBar }
+  components: { TitleBar, RemoteControlBadge }
 });
 </script>
 

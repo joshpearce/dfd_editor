@@ -33,7 +33,7 @@
         class="metric validity valid"
         v-if="!displayProblems"
       >
-        <span class="icon">✓</span>Valid Attack Flow
+        <span class="icon">✓</span>Valid Diagram
       </div>
       <div
         class="metric validity"

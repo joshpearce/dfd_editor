@@ -18,6 +18,9 @@
         v-if="isActive(menu)"
       />
     </li>
+    <li class="right-slot">
+      <slot name="right" />
+    </li>
   </div>
 </template>
 
@@ -144,6 +147,12 @@ li:not(.icon).focused {
 li.active {
   color: #d1d1d1;
   background: #383838;
+}
+
+li.right-slot {
+  margin-left: auto;
+  padding: 0 12px;
+  pointer-events: none;
 }
 
 /** === Menu Dropdown Listings === */
