@@ -77,6 +77,10 @@ surface.)
   API from arbitrary origins.
 - Port 5050 lives in the npm script, not in code, so `flask run` without the
   wrapper would bind to the wrong port — always use `npm run dev:flask`.
+- `dev:mcp` is invoked as `cd server && .venv/bin/python -m mcp_server` (not
+  `python -m server.mcp_server` from the repo root). The `cd server` is
+  necessary because `mcp_server.py` does `from schema import Diagram` — Python
+  resolves bare `schema` against the cwd, so the cwd must be `server/`.
 
 ## Invariants
 - Each diagram file = exactly one JSON document at `server/data/<uuid>.json`.
