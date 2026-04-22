@@ -32,7 +32,7 @@
     <select
       v-if="unownedItems.length > 0"
       class="data-item-dropdown"
-      @change="onAdopt(($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).value = ''"
+      @change="onSelectChange"
     >
       <option
         value=""
@@ -80,7 +80,8 @@ export default defineComponent({
         return {
             store: useApplicationStore(),
             updateCounter: 0,
-            editListener: null as ((...args: unknown[]) => void) | null
+            editListener: null as ((...args: unknown[]) => void) | null,
+            attachedEditor: null as DiagramViewEditor | null
         };
     },
     computed: {
@@ -97,9 +98,7 @@ export default defineComponent({
             void this.updateCounter;
             const canvas = this.canvas;
             if (!canvas) return [];
-            return readDataItems(canvas).filter(
-                item => !item.parent
-            );
+            return readDataItems(canvas).filter(item => !item.parent);
         }
     },
     watch: {
@@ -107,11 +106,8 @@ export default defineComponent({
             handler() {
                 this.attachEditListener();
             },
-            immediate: false
+            immediate: true
         }
-    },
-    mounted() {
-        this.attachEditListener();
     },
     unmounted() {
         this.detachEditListener();
@@ -122,14 +118,21 @@ export default defineComponent({
             const editor = this.store.activeEditor as DiagramViewEditor | undefined;
             if (!editor || typeof editor.on !== "function") return;
             const handler = () => { this.updateCounter++; };
-            this.editListener = handler;
             editor.on("edit", handler);
+            this.editListener = handler;
+            this.attachedEditor = editor;
         },
         detachEditListener(): void {
-            const editor = this.store.activeEditor as DiagramViewEditor | undefined;
+            const editor = this.attachedEditor;
             if (!editor || !this.editListener || typeof editor.removeEventListener !== "function") return;
             editor.removeEventListener("edit", this.editListener);
             this.editListener = null;
+            this.attachedEditor = null;
+        },
+        onSelectChange(e: Event): void {
+            const select = e.target as HTMLSelectElement;
+            this.onAdopt(select.value);
+            select.value = "";
         },
         parentProperty(itemGuid: string): StringProperty | null {
             const canvas = this.canvas;

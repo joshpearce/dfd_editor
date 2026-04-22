@@ -72,7 +72,8 @@ export default defineComponent({
         return {
             store: useApplicationStore(),
             updateCounter: 0,
-            editListener: null as ((...args: unknown[]) => void) | null
+            editListener: null as ((...args: unknown[]) => void) | null,
+            attachedEditor: null as DiagramViewEditor | null
         };
     },
     computed: {
@@ -105,14 +106,16 @@ export default defineComponent({
             const editor = this.store.activeEditor as DiagramViewEditor | undefined;
             if (!editor || typeof editor.on !== "function") return;
             const handler = () => { this.updateCounter++; };
-            this.editListener = handler;
             editor.on("edit", handler);
+            this.editListener = handler;
+            this.attachedEditor = editor;
         },
         detachEditListener(): void {
-            const editor = this.store.activeEditor as DiagramViewEditor | undefined;
+            const editor = this.attachedEditor;
             if (!editor || !this.editListener || typeof editor.removeEventListener !== "function") return;
             editor.removeEventListener("edit", this.editListener);
             this.editListener = null;
+            this.attachedEditor = null;
         }
     },
     watch: {

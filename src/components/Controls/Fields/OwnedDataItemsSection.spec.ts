@@ -10,8 +10,7 @@ import {
     DataItemParentRefProperty, RootProperty
 } from "@OpenChart/DiagramModel";
 import { useApplicationStore } from "@/stores/ApplicationStore";
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { SetStringProperty } from "@OpenChart/DiagramEditor/Commands/Property/index.commands";
 
 ///////////////////////////////////////////////////////////////////////////////
 //  1. Test Helpers  ///////////////////////////////////////////////////////////
@@ -44,7 +43,9 @@ function makeDataItemDict(parent: string, identifier: string, name: string): Dic
 /**
  * Build a canvas with a data_items ListProperty.
  * Items is an array of [guid, parent, identifier, name].
+ * Typed as `unknown` externally; tests access via typed property casts.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeCanvas(items: Array<[string, string, string, string]> = []): any {
     const rootProps = new RootProperty();
 
@@ -68,30 +69,39 @@ function makeCanvas(items: Array<[string, string, string, string]> = []): any {
  * Build a minimal mock editor supporting .on() / .removeEventListener() and
  * emit() for test-driven "edit" events.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeMockEditor(canvas: any): any {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const listeners: Array<(...args: any[]) => void> = [];
     return {
         file: { canvas },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         on(_event: string, handler: (...args: any[]) => void) {
             listeners.push(handler);
         },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         removeEventListener(_event: string, handler: (...args: any[]) => void) {
             const idx = listeners.indexOf(handler);
             if (idx !== -1) { listeners.splice(idx, 1); }
         },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         emit(_event: string, ...args: any[]) {
             for (const fn of listeners) { fn(...args); }
-        }
+        },
+        listenerCount() { return listeners.length; }
     };
 }
 
 function mountSection(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas: any,
     blockGuid: string = BLOCK_GUID
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): { wrapper: ReturnType<typeof mount>, store: ReturnType<typeof useApplicationStore>, mockEditor: any } {
     const pinia = createTestingPinia({ stubActions: false, createSpy: vi.fn });
     const store = useApplicationStore();
     const mockEditor = makeMockEditor(canvas);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (store as any).activeEditor = mockEditor;
     const wrapper = mount(OwnedDataItemsSection, {
         props: { blockGuid },
@@ -215,10 +225,12 @@ describe("OwnedDataItemsSection", () => {
             const { wrapper } = mountSection(canvas);
             await wrapper.vm.$nextTick();
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (wrapper.vm as any).onUnown("guid-1");
             await wrapper.vm.$nextTick();
 
             expect(wrapper.emitted("execute")).toBeTruthy();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const cmd = wrapper.emitted("execute")![0][0] as any;
             expect(cmd.constructor.name).toBe("SetStringProperty");
             expect(cmd.nextValue).toBeNull();
@@ -229,6 +241,7 @@ describe("OwnedDataItemsSection", () => {
             const { wrapper } = mountSection(canvas);
             await wrapper.vm.$nextTick();
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (wrapper.vm as any).onUnown("not-a-real-guid");
             expect(wrapper.emitted("execute")).toBeFalsy();
         });
@@ -244,6 +257,21 @@ describe("OwnedDataItemsSection", () => {
             const deleteButtons = wrapper.findAll(".delete-button");
             expect(deleteButtons).toHaveLength(2);
         });
+
+        it("clicking × on a chip emits the correct command via template binding", async () => {
+            const canvas = makeCanvas([["guid-1", BLOCK_GUID, "D1", "Card Number"]]);
+            const { wrapper } = mountSection(canvas);
+            await wrapper.vm.$nextTick();
+
+            // Trigger via the real DOM element to exercise the @click template binding
+            wrapper.find(".delete-button").element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            await wrapper.vm.$nextTick();
+
+            const emitted = wrapper.emitted("execute");
+            expect(emitted).toHaveLength(1);
+            expect(emitted![0][0]).toBeInstanceOf(SetStringProperty);
+            expect((emitted![0][0] as SetStringProperty).nextValue).toBeNull();
+        });
     });
 
     describe("adopt action (dropdown selection)", () => {
@@ -252,10 +280,12 @@ describe("OwnedDataItemsSection", () => {
             const { wrapper } = mountSection(canvas);
             await wrapper.vm.$nextTick();
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (wrapper.vm as any).onAdopt("guid-1");
             await wrapper.vm.$nextTick();
 
             expect(wrapper.emitted("execute")).toBeTruthy();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const cmd = wrapper.emitted("execute")![0][0] as any;
             expect(cmd.constructor.name).toBe("SetStringProperty");
             expect(cmd.nextValue).toBe(BLOCK_GUID);
@@ -266,6 +296,7 @@ describe("OwnedDataItemsSection", () => {
             const { wrapper } = mountSection(canvas);
             await wrapper.vm.$nextTick();
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (wrapper.vm as any).onAdopt("guid-1");
 
             expect(wrapper.emitted("execute")).toHaveLength(1);
@@ -276,8 +307,26 @@ describe("OwnedDataItemsSection", () => {
             const { wrapper } = mountSection(canvas);
             await wrapper.vm.$nextTick();
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (wrapper.vm as any).onAdopt("");
             expect(wrapper.emitted("execute")).toBeFalsy();
+        });
+
+        it("selecting an unowned item via the dropdown emits the correct adopt command", async () => {
+            const canvas = makeCanvas([["guid-1", "", "D1", "Unowned Item"]]);
+            const { wrapper } = mountSection(canvas);
+            await wrapper.vm.$nextTick();
+
+            // Set the select value and dispatch a change event to exercise @change template binding
+            const selectEl = wrapper.find(".data-item-dropdown").element as HTMLSelectElement;
+            selectEl.value = "guid-1";
+            selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+            await wrapper.vm.$nextTick();
+
+            const emitted = wrapper.emitted("execute");
+            expect(emitted).toHaveLength(1);
+            expect(emitted![0][0]).toBeInstanceOf(SetStringProperty);
+            expect((emitted![0][0] as SetStringProperty).nextValue).toBe(BLOCK_GUID);
         });
     });
 
@@ -346,6 +395,48 @@ describe("OwnedDataItemsSection", () => {
             const values = wrapper.findAll(".data-item-dropdown option")
                 .map(o => (o.element as HTMLOptionElement).value);
             expect(values).toContain("guid-new");
+        });
+    });
+
+    describe("editor swap listener lifecycle (M2)", () => {
+        it("swapping editors removes listener from old editor and attaches to new one", async () => {
+            const canvas = makeCanvas([]);
+            const pinia = createTestingPinia({ stubActions: false, createSpy: vi.fn });
+            const store = useApplicationStore();
+
+            const editorA = makeMockEditor(canvas);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (store as any).activeEditor = editorA;
+
+            const wrapper = mount(OwnedDataItemsSection, {
+                props: { blockGuid: BLOCK_GUID },
+                global: { plugins: [pinia] }
+            });
+            await wrapper.vm.$nextTick();
+
+            // editorA should have one listener registered
+            expect(editorA.listenerCount()).toBe(1);
+
+            // Swap to editorB
+            const editorB = makeMockEditor(canvas);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (store as any).activeEditor = editorB;
+            await wrapper.vm.$nextTick();
+
+            // The watcher fires: old listener removed from A, new one on B
+            expect(editorA.listenerCount()).toBe(0);
+            expect(editorB.listenerCount()).toBe(1);
+
+            // Emitting on A is now a no-op — counter stays put
+            const counterBefore = (wrapper.vm as { updateCounter: number }).updateCounter;
+            editorA.emit("edit");
+            await wrapper.vm.$nextTick();
+            expect((wrapper.vm as { updateCounter: number }).updateCounter).toBe(counterBefore);
+
+            // Emitting on B increments the counter
+            editorB.emit("edit");
+            await wrapper.vm.$nextTick();
+            expect((wrapper.vm as { updateCounter: number }).updateCounter).toBe(counterBefore + 1);
         });
     });
 

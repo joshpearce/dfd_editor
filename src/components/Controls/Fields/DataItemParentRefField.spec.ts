@@ -8,12 +8,11 @@ import DataItemParentRefField from "./DataItemParentRefField.vue";
 import { DataItemParentRefProperty, StringProperty, RootProperty } from "@OpenChart/DiagramModel";
 import { useApplicationStore } from "@/stores/ApplicationStore";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 ///////////////////////////////////////////////////////////////////////////////
 //  1. Test Helpers  ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeBlock(templateId: string, name: string, instance: string): any {
     const props = new RootProperty();
     const nameProp = new StringProperty({ id: "name", name: "name", editable: true });
@@ -23,11 +22,13 @@ function makeBlock(templateId: string, name: string, instance: string): any {
     return { id: templateId, instance, properties: props, blocks: [], groups: [] };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeCanvas(directBlocks: any[] = [], groups: any[] = []): any {
     const props = new RootProperty();
     return { properties: props, blocks: directBlocks, groups };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeMockFile(canvas: any): any {
     return { canvas };
 }
@@ -44,20 +45,26 @@ function makeProperty(value: string | null = null): DataItemParentRefProperty {
  * Build a minimal mock editor that supports .on() / .removeEventListener() and
  * can emit "edit" events in tests via mockEditor.emit("edit").
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeMockEditor(canvas: any): any {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const listeners: Array<(...args: any[]) => void> = [];
     return {
         file: makeMockFile(canvas),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         on(_event: string, handler: (...args: any[]) => void) {
             listeners.push(handler);
         },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         removeEventListener(_event: string, handler: (...args: any[]) => void) {
             const idx = listeners.indexOf(handler);
             if (idx !== -1) { listeners.splice(idx, 1); }
         },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         emit(_event: string, ...args: any[]) {
             for (const fn of listeners) { fn(...args); }
-        }
+        },
+        listenerCount() { return listeners.length; }
     };
 }
 
@@ -68,11 +75,14 @@ function makeMockEditor(canvas: any): any {
  */
 function mountWithCanvas(
     property: DataItemParentRefProperty,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas: any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): { wrapper: ReturnType<typeof mount>, store: ReturnType<typeof useApplicationStore>, mockEditor: any } {
     const pinia = createTestingPinia({ stubActions: false, createSpy: vi.fn });
     const store = useApplicationStore();
     const mockEditor = makeMockEditor(canvas);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (store as any).activeEditor = mockEditor;
     const wrapper = mount(DataItemParentRefField, {
         props: { property },
@@ -147,10 +157,12 @@ describe("DataItemParentRefField", () => {
         const { wrapper } = mountWithCanvas(makeProperty(), canvas);
         await wrapper.vm.$nextTick();
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (wrapper.vm as any).onChange("guid-p1");
         await wrapper.vm.$nextTick();
 
         expect(wrapper.emitted("execute")).toBeTruthy();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cmd = wrapper.emitted("execute")![0][0] as any;
         expect(cmd.constructor.name).toBe("SetStringProperty");
         expect(cmd.nextValue).toBe("guid-p1");
@@ -164,10 +176,12 @@ describe("DataItemParentRefField", () => {
         const { wrapper } = mountWithCanvas(prop, canvas);
         await wrapper.vm.$nextTick();
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (wrapper.vm as any).onChange("");
         await wrapper.vm.$nextTick();
 
         expect(wrapper.emitted("execute")).toBeTruthy();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cmd = wrapper.emitted("execute")![0][0] as any;
         expect(cmd.constructor.name).toBe("SetStringProperty");
         expect(cmd.nextValue).toBeNull();
@@ -266,6 +280,48 @@ describe("DataItemParentRefField", () => {
         const options = wrapper.findAll("option");
         expect((options[0].element as HTMLOptionElement).value).toBe("");
         expect(options[0].text()).toBe("(unowned)");
+    });
+
+    describe("editor swap listener lifecycle (M2)", () => {
+        it("swapping editors removes listener from old editor and attaches to new one", async () => {
+            const canvas = makeCanvas([]);
+            const pinia = createTestingPinia({ stubActions: false, createSpy: vi.fn });
+            const store = useApplicationStore();
+
+            const editorA = makeMockEditor(canvas);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (store as any).activeEditor = editorA;
+
+            const wrapper = mount(DataItemParentRefField, {
+                props: { property: makeProperty() },
+                global: { plugins: [pinia] }
+            });
+            await wrapper.vm.$nextTick();
+
+            // editorA should have one listener registered (immediate watch fires on mount)
+            expect(editorA.listenerCount()).toBe(1);
+
+            // Swap to editorB
+            const editorB = makeMockEditor(canvas);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (store as any).activeEditor = editorB;
+            await wrapper.vm.$nextTick();
+
+            // Watcher fires: old listener removed from A, new one on B
+            expect(editorA.listenerCount()).toBe(0);
+            expect(editorB.listenerCount()).toBe(1);
+
+            // Emitting on A is now a no-op — counter stays put
+            const counterBefore = (wrapper.vm as { updateCounter: number }).updateCounter;
+            editorA.emit("edit");
+            await wrapper.vm.$nextTick();
+            expect((wrapper.vm as { updateCounter: number }).updateCounter).toBe(counterBefore);
+
+            // Emitting on B increments the counter
+            editorB.emit("edit");
+            await wrapper.vm.$nextTick();
+            expect((wrapper.vm as { updateCounter: number }).updateCounter).toBe(counterBefore + 1);
+        });
     });
 
 });
