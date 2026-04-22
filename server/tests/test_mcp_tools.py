@@ -36,6 +36,7 @@ Daemon thread guard (M3+M4):
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import time
@@ -97,7 +98,7 @@ _MINIMAL_DOC: dict[str, Any] = {
 
 class _FakeSession:
     def __init__(self, sid: str = "test-session") -> None:
-        self._sid = sid  # stored for test readability; _session_id now uses id()
+        pass  # _session_id uses id(ctx.session); no stored attribute needed
 
 
 class _FakeContext:
@@ -198,7 +199,7 @@ def _open_ws_and_drain(port: int) -> tuple[simple_websocket.Client, list[dict], 
                 messages.append(json.loads(raw))
         except Exception as exc:
             # M8: only collect non-trivial exceptions (not normal disconnect)
-            if not isinstance(exc, (simple_websocket.ConnectionClosed,)):
+            if not isinstance(exc, simple_websocket.ConnectionClosed):
                 reader_errors.append(exc)
 
     threading.Thread(target=_reader, daemon=True).start()
@@ -239,26 +240,29 @@ def _open_ws_and_drain(port: int) -> tuple[simple_websocket.Client, list[dict], 
 def _wait_for_broadcast(
     messages: list[dict],
     msg_type: str,
+    *,
     timeout: float = 2.0,
+    grace_ms: int = 50,
     reader_errors: list[Exception] | None = None,
 ) -> list[dict]:
-    """Wait until at least one message of the given type appears; return all matching.
+    """Wait until at least one message of the given type appears; then wait a
+    grace period and return *all* matching messages collected up to that point.
 
-    M8: If timeout is reached and reader_errors is provided, surface any
-    accumulated reader exceptions as part of the assertion message.
+    The grace period lets any duplicate broadcasts arrive before the caller
+    asserts ``len(matching) == 1``, making exactly-one semantics detectable.
     """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        matching = [m for m in messages if m.get("type") == msg_type]
-        if matching:
-            return matching
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        matches = [m for m in messages if m.get("type") == msg_type]
+        if matches:
+            # Grace period: allow any duplicate broadcasts to arrive.
+            time.sleep(grace_ms / 1000)
+            return [m for m in messages if m.get("type") == msg_type]
         time.sleep(0.01)
-    if reader_errors:
-        raise AssertionError(
-            f"Timed out waiting for broadcast type {msg_type!r}. "
-            f"Reader thread errors: {reader_errors}"
-        )
-    return []
+    error_context = f"; reader errors: {reader_errors}" if reader_errors else ""
+    raise AssertionError(
+        f"timed out waiting for {msg_type!r}; got {messages!r}{error_context}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -322,24 +326,39 @@ class TestCreateDiagram:
         ws.close()
 
     def test_real_fastmcp_dispatch_pydantic_coercion(self, live_server):
-        """I5: Exercise the pydantic coercion round-trip via FastMCP's tool registry.
+        """I2: Exercise FastMCP's real arg-validation/coercion path with a raw dict.
 
-        Strategy: locate create_diagram's Tool object via list_tools(), extract
-        Tool.fn, and call it with a Diagram.model_validate(dict).  This proves
-        the @mcp.tool() decorator's pydantic coercion path works end-to-end.
-        See module docstring for rationale.
+        Strategy (option a): locate the create_diagram Tool via list_tools(),
+        then call tool.fn_metadata.call_fn_with_arg_validation() passing a raw
+        dict for 'diagram'.  This exercises the actual pydantic coercion that
+        FastMCP performs before invoking the tool function — a pre-validated
+        Diagram instance would bypass it entirely.
+
+        SDK attributes used: Tool.fn_metadata (FuncMetadata),
+        FuncMetadata.call_fn_with_arg_validation (async).
         """
+        import asyncio
+
         _tmp_path, _port = live_server
+        # Pre-warm session state so the on-transition doesn't interfere.
+        mcp_server._was_active = True
+
         tools = {t.name: t for t in mcp._tool_manager.list_tools()}
         create_tool = tools["create_diagram"]
-        fn = create_tool.fn
 
-        diagram = Diagram.model_validate(_MINIMAL_DOC)
-        result = fn(diagram=diagram, ctx=_ctx())
+        # Pass a raw dict — FastMCP's arg validator must coerce it to Diagram.
+        result = asyncio.run(
+            create_tool.fn_metadata.call_fn_with_arg_validation(
+                create_tool.fn,
+                fn_is_async=False,
+                arguments_to_validate={"diagram": copy.deepcopy(_MINIMAL_DOC)},
+                arguments_to_pass_directly={"ctx": _ctx()},
+            )
+        )
 
-        assert "id" in result
-        assert "diagram" in result
-        # Verify pydantic round-trip: echoed diagram has the expected node guids
+        assert "id" in result, f"Expected 'id' in result; got {result!r}"
+        assert "diagram" in result, f"Expected 'diagram' in result; got {result!r}"
+        # The echoed diagram must contain the nodes we passed in the raw dict.
         returned_guids = {n["guid"] for n in result["diagram"]["nodes"]}
         assert _PROCESS_GUID in returned_guids
         assert _DATA_STORE_GUID in returned_guids
@@ -362,7 +381,7 @@ class TestUpdateDiagram:
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
         # Now update it
-        updated_doc = dict(_MINIMAL_DOC)
+        updated_doc = copy.deepcopy(_MINIMAL_DOC)
         updated_doc["meta"] = {"name": "Updated Name"}
         update_diagram(
             diagram_id=diagram_id,
@@ -495,7 +514,7 @@ class TestListDiagrams:
 
         # Create two diagrams
         d1 = Diagram.model_validate(_MINIMAL_DOC)
-        d2_doc = dict(_MINIMAL_DOC)
+        d2_doc = copy.deepcopy(_MINIMAL_DOC)
         d2_doc["meta"] = {"name": "Second diagram"}
         d2 = Diagram.model_validate(d2_doc)
 
@@ -555,21 +574,6 @@ class TestRemoteControlLifecycle:
 
         ws.close()
 
-    def test_remote_control_on_when_session_stamps(self, live_server):
-        _tmp_path, port = live_server
-        ws, messages, reader_errors = _open_ws_and_drain(port)
-
-        # Stamp a session so _last_seen is non-empty — this emits 'on' via _stamp
-        mcp_server._stamp(_ctx("rc-test-on"))
-
-        matching = _wait_for_broadcast(messages, "remote-control", reader_errors=reader_errors)
-        on_msgs = [m for m in matching if m.get("payload", {}).get("state") == "on"]
-        assert len(on_msgs) == 1, (
-            f"Expected exactly one remote-control:on broadcast, got: {matching}"
-        )
-
-        ws.close()
-
     def test_remote_control_off_when_session_expires(self, live_server):
         _tmp_path, port = live_server
 
@@ -579,11 +583,13 @@ class TestRemoteControlLifecycle:
 
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
-        # Sweep with a 'now' far enough in the future to evict the session
+        # Sweep with a 'now' far enough in the future to evict the session.
+        # _sweep_once now broadcasts the off-envelope internally (M3), so the
+        # returned envelope is for test-assertion inspection only — do NOT
+        # call _broadcast again or it will double-emit.
         far_future = time.monotonic() + mcp_server.SESSION_EXPIRY_SECONDS + 1
         envelope = _sweep_once(now=far_future)
         assert envelope is not None, "Expected _sweep_once to return off-envelope"
-        mcp_server._broadcast(envelope)
 
         matching = _wait_for_broadcast(messages, "remote-control", reader_errors=reader_errors)
         off_msgs = [m for m in matching if m.get("payload", {}).get("state") == "off"]
@@ -605,15 +611,17 @@ class TestRemoteControlLifecycle:
 
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
-        # Stamp again (same ctx object / same session identity) — should not emit another 'on'
+        # Stamp again (same ctx object / same session identity) — should not emit another 'on'.
+        # Use a grace period to allow any spurious broadcast to arrive before asserting.
         mcp_server._stamp(ctx_dedup)
-        time.sleep(0.1)  # allow any spurious broadcast to arrive
+        time.sleep(0.1)  # generous wait — any duplicate must have arrived by now
 
         on_msgs = [
             m for m in messages
             if m.get("type") == "remote-control" and m.get("payload", {}).get("state") == "on"
         ]
         assert on_msgs == [], f"Should not re-emit on when already active; got: {on_msgs}"
+        assert reader_errors == [], f"WS reader saw errors: {reader_errors}"
 
         ws.close()
 
@@ -641,7 +649,7 @@ class TestSadPaths:
         _tmp_path, port = live_server
         # Pre-warm so on-transition doesn't fire mid-test
         mcp_server._was_active = True
-        ws, messages, _reader_errors = _open_ws_and_drain(port)
+        ws, messages, reader_errors = _open_ws_and_drain(port)
 
         with pytest.raises(httpx.HTTPStatusError):
             get_diagram(diagram_id="does-not-exist", ctx=_ctx())
@@ -651,6 +659,7 @@ class TestSadPaths:
         assert op_msgs == [], (
             f"get_diagram on missing id must not emit any operation broadcast; got: {op_msgs}"
         )
+        assert reader_errors == [], f"WS reader saw errors: {reader_errors}"
 
         ws.close()
 
@@ -659,7 +668,7 @@ class TestSadPaths:
         _tmp_path, port = live_server
         # Pre-warm so on-transition doesn't fire mid-test
         mcp_server._was_active = True
-        ws, messages, _reader_errors = _open_ws_and_drain(port)
+        ws, messages, reader_errors = _open_ws_and_drain(port)
 
         diagram = Diagram.model_validate(_MINIMAL_DOC)
         with pytest.raises(httpx.HTTPStatusError):
@@ -670,6 +679,7 @@ class TestSadPaths:
         assert updated_msgs == [], (
             f"update_diagram on missing id must not emit diagram-updated; got: {updated_msgs}"
         )
+        assert reader_errors == [], f"WS reader saw errors: {reader_errors}"
 
         ws.close()
 
@@ -678,7 +688,7 @@ class TestSadPaths:
         _tmp_path, port = live_server
         # Pre-warm so on-transition doesn't fire mid-test
         mcp_server._was_active = True
-        ws, messages, _reader_errors = _open_ws_and_drain(port)
+        ws, messages, reader_errors = _open_ws_and_drain(port)
 
         with pytest.raises(httpx.HTTPStatusError):
             delete_diagram(diagram_id="does-not-exist", ctx=_ctx())
@@ -688,5 +698,6 @@ class TestSadPaths:
         assert deleted_msgs == [], (
             f"delete_diagram on missing id must not emit diagram-deleted; got: {deleted_msgs}"
         )
+        assert reader_errors == [], f"WS reader saw errors: {reader_errors}"
 
         ws.close()

@@ -7,6 +7,7 @@ emits remote-control on/off transitions to Flask's /api/internal/broadcast
 when the active-session count crosses zero.
 """
 
+import atexit
 import logging
 import threading
 import time
@@ -32,6 +33,7 @@ SESSION_EXPIRY_SECONDS = 30  # heartbeat fallback only
 # ---------------------------------------------------------------------------
 
 _http = httpx.Client(base_url=FLASK_URL, timeout=5.0)  # 5s matches realistic localhost upper bound
+atexit.register(_http.close)
 
 # ---------------------------------------------------------------------------
 # Session-lifecycle tracking (heartbeat fallback)
@@ -54,30 +56,31 @@ def _session_id(ctx: Context) -> str:
         return str(id(ctx))
 
 
-def _mark_active(sid: str) -> dict | None:
-    """Record the session as seen and return an on-envelope if this is a 0→1 transition.
+def _mark_active(sid: str) -> None:
+    """Record the session as seen and broadcast on-envelope if this is a 0→1 transition.
 
-    Takes the lock, inserts/updates _last_seen, and atomically checks whether
-    this stamps the first active session.  Returns the envelope to broadcast
-    outside the lock, or None if no transition occurred.
+    Takes the lock, inserts/updates _last_seen, atomically checks whether this
+    stamps the first active session, and broadcasts inside the lock if so.
+    Broadcasting inside the lock eliminates the race between the on/off
+    transition state update and the broadcast delivery ordering.
     """
     global _was_active
+    envelope = None
     with _last_seen_lock:
         prev_has_sessions = bool(_last_seen)
         _last_seen[sid] = time.monotonic()
         if not prev_has_sessions and not _was_active:
             _was_active = True
-            return {"type": "remote-control", "payload": {"state": "on"}}
-    return None
+            envelope = {"type": "remote-control", "payload": {"state": "on"}}
+        if envelope:
+            logger.info("remote-control: on (session count 0 → >0)")
+            _broadcast(envelope)
 
 
 def _stamp(ctx: Context) -> None:
     """Record the current time for the session so the sweeper knows it's alive."""
     sid = _session_id(ctx)
-    envelope = _mark_active(sid)
-    if envelope:
-        logger.info("remote-control: on (session count 0 → >0)")
-        _broadcast(envelope)
+    _mark_active(sid)
 
 
 def _broadcast(envelope: dict) -> None:
@@ -92,14 +95,17 @@ def _broadcast(envelope: dict) -> None:
 def _sweep_once(now: float | None = None) -> dict | None:
     """Evict stale sessions and emit remote-control off transition if sessions dropped to zero.
 
-    Returns the off-envelope if a >0→0 transition occurred (for the caller to
-    broadcast), or None.  Extracted from the daemon loop so tests can drive it
+    Returns the off-envelope if a >0→0 transition occurred (caller may use it
+    for test inspection), or None.  Broadcasting is done inside the lock to
+    eliminate the race between the on/off transition state update and delivery
+    ordering.  Extracted from the daemon loop so tests can drive it
     synchronously without waiting for the 5-second sleep.
     """
     global _was_active
     if now is None:
         now = time.monotonic()
 
+    envelope = None
     with _last_seen_lock:
         stale = [sid for sid, ts in _last_seen.items()
                  if now - ts > SESSION_EXPIRY_SECONDS]
@@ -110,20 +116,19 @@ def _sweep_once(now: float | None = None) -> dict | None:
         prev_was_active = _was_active
         if not is_active and prev_was_active:
             _was_active = False
+            envelope = {"type": "remote-control", "payload": {"state": "off"}}
+        if envelope:
+            logger.info("remote-control: off (session count >0 → 0)")
+            _broadcast(envelope)
 
-    if not is_active and prev_was_active:
-        logger.info("remote-control: off (session count >0 → 0)")
-        return {"type": "remote-control", "payload": {"state": "off"}}
-    return None
+    return envelope
 
 
 def _sweep() -> None:
     """Daemon thread: calls _sweep_once every 5 seconds."""
     while True:
         time.sleep(5)
-        envelope = _sweep_once()
-        if envelope:
-            _broadcast(envelope)
+        _sweep_once()
 
 
 def start_daemon() -> None:
@@ -189,9 +194,6 @@ def create_diagram(diagram: Diagram, ctx: Context) -> dict:
     No broadcast is emitted — call display_diagram to make the browser show it.
     """
     _stamp(ctx)
-    # Normalize defensively — idempotent if FastMCP already coerced the value,
-    # and protective if a future SDK version passes a raw dict.
-    diagram = Diagram.model_validate(diagram.model_dump(mode="json"))
     resp = _http.post("/api/diagrams/import", json=diagram.model_dump(mode="json"))
     resp.raise_for_status()
     diagram_id = resp.json()["id"]
@@ -210,9 +212,6 @@ def update_diagram(diagram_id: str, diagram: Diagram, ctx: Context) -> dict:
     Emits a diagram-updated broadcast so any connected browser reloads.
     """
     _stamp(ctx)
-    # Normalize defensively — idempotent if FastMCP already coerced the value,
-    # and protective if a future SDK version passes a raw dict.
-    diagram = Diagram.model_validate(diagram.model_dump(mode="json"))
     resp = _http.put(f"/api/diagrams/{diagram_id}/import", json=diagram.model_dump(mode="json"))
     resp.raise_for_status()
     echo = _http.get(f"/api/diagrams/{diagram_id}/export")
@@ -255,8 +254,6 @@ def display_diagram(diagram_id: str, ctx: Context) -> dict:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import atexit
-    atexit.register(_http.close)
     logging.basicConfig(level=logging.INFO)  # INFO so MCP SDK transport logs surface during `dev:mcp`
     logger.info("starting MCP server on %s:%d", MCP_HOST, MCP_PORT)
     start_daemon()
