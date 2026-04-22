@@ -6,7 +6,7 @@ import { CombinationIndex } from "../DiagramObject";
 import {
     Anchor, Block, Canvas, DateProperty, DictionaryProperty,
     EnumProperty, FloatProperty, Group, Handle, IntProperty,
-    Latch, Line, ListProperty, Property, RootProperty,
+    Latch, Line, ListProperty, DataItemRefListProperty, Property, RootProperty,
     StringProperty, TupleProperty
 } from "../DiagramObject";
 import type { Constructor } from "@OpenChart/Utilities";
@@ -16,7 +16,7 @@ import type {
 } from "../DiagramObject";
 import type {
     AtomicPropertyDescriptors, CanvasTemplate, DiagramObjectTemplate,
-    DiagramSchemaConfiguration, DictionaryPropertyDescriptor,
+    DataItemRefListPropertyDescriptor, DiagramSchemaConfiguration, DictionaryPropertyDescriptor,
     ListPropertyDescriptor, PropertyDescriptor, RootPropertyDescriptor,
     TuplePropertyDescriptor
 } from ".";
@@ -280,9 +280,9 @@ export class DiagramObjectFactory {
             case DiagramObjectType.Line:
                 object = this.createBaseDiagramObject(template, Line);
                 // Attach latches
-                const { source, target } = template.latch_template;
-                object.source = this.createNewDiagramObject(source, Latch);
-                object.target = this.createNewDiagramObject(target, Latch);
+                const { node1, node2 } = template.latch_template;
+                object.node1 = this.createNewDiagramObject(node1, Latch);
+                object.node2 = this.createNewDiagramObject(node2, Latch);
                 break;
 
             default:
@@ -391,6 +391,15 @@ export class DiagramObjectFactory {
                     return this.createDictionaryProperty(id, descriptor, value);
                 }
                 throw new Error(`Invalid JSON entries: '${value}'.`);
+            case PropertyType.DataItemRefList:
+                if (value === undefined || Array.isArray(value)) {
+                    return this.createListProperty(id, descriptor as DataItemRefListPropertyDescriptor, value, DataItemRefListProperty);
+                }
+                if (value && typeof value === "object") {
+                    value = Object.entries(value);
+                    return this.createListProperty(id, descriptor as DataItemRefListPropertyDescriptor, value, DataItemRefListProperty);
+                }
+                throw new Error(`Invalid JSON entries: '${value}'.`);
             case PropertyType.List:
                 if (value === undefined || Array.isArray(value)) {
                     return this.createListProperty(id, descriptor, value);
@@ -472,8 +481,9 @@ export class DiagramObjectFactory {
      */
     private createListProperty(
         id: string,
-        descriptor: ListPropertyDescriptor,
-        values?: JsonEntries
+        descriptor: ListPropertyDescriptor | DataItemRefListPropertyDescriptor,
+        values?: JsonEntries,
+        propertyClass?: Constructor<ListProperty>
     ): ListProperty {
         // Resolve value
         if (values === undefined) {
@@ -481,7 +491,8 @@ export class DiagramObjectFactory {
         }
         // Create property
         const desc = descriptor.form;
-        const property = new ListProperty({
+        const PropertyClass = propertyClass ?? ListProperty;
+        const property = new PropertyClass({
             id       : id,
             name     : descriptor.name,
             metadata : descriptor.metadata,

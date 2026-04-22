@@ -8,14 +8,14 @@ import type { RootProperty } from "../Property";
 export class Line extends DiagramObject {
 
     /**
-     * The line's (internal) source latch.
+     * The line's (internal) node1 latch.
      */
-    protected _sourceLatch: Latch | null;
+    protected _node1Latch: Latch | null;
 
     /**
-     * The line's (internal) target latch.
+     * The line's (internal) node2 latch.
      */
-    protected _targetLatch: Latch | null;
+    protected _node2Latch: Latch | null;
 
     /**
      * The line's (internal) handles.
@@ -24,71 +24,71 @@ export class Line extends DiagramObject {
 
 
     /**
-     * The line's source latch.
+     * The line's node1 latch.
      */
-    public get source(): Latch {
-        if (this._sourceLatch) {
-            return this._sourceLatch;
+    public get node1(): Latch {
+        if (this._node1Latch) {
+            return this._node1Latch;
         } else {
-            throw new Error("No source latch assigned.");
+            throw new Error("No node1 latch assigned.");
         }
     }
 
     /**
-     * The line's source latch.
+     * The line's node1 latch.
      */
-    public set source(latch: Latch | null) {
-        this.setSource(latch);
+    public set node1(latch: Latch | null) {
+        this.setNode1(latch);
     }
 
     /**
-     * The line's source object.
+     * The line's node1 object.
      */
-    public get sourceObject(): DiagramObject | null {
-        return this.source.anchor?.parent ?? null;
+    public get node1Object(): DiagramObject | null {
+        return this.node1.anchor?.parent ?? null;
     }
 
     /**
-     * The line's target latch.
+     * The line's node2 latch.
      */
-    public get target(): Latch {
-        if (this._targetLatch) {
-            return this._targetLatch;
+    public get node2(): Latch {
+        if (this._node2Latch) {
+            return this._node2Latch;
         } else {
-            throw new Error("No target latch assigned.");
+            throw new Error("No node2 latch assigned.");
         }
     }
 
     /**
-     * The line's target latch.
+     * The line's node2 latch.
      */
-    public set target(latch: Latch | null) {
-        this.setTarget(latch);
+    public set node2(latch: Latch | null) {
+        this.setNode2(latch);
     }
 
     /**
-     * The line's target object.
+     * The line's node2 object.
      */
-    public get targetObject(): DiagramObject | null {
-        return this.target.anchor?.parent ?? null;
+    public get node2Object(): DiagramObject | null {
+        return this.node2.anchor?.parent ?? null;
     }
 
     /**
-     * The line's source latch.
+     * The line's node1 latch.
      * @remarks
-     *  Provides direct access to the source latch without null checks.
+     *  Provides direct access to the node1 latch without null checks.
      */
-    public get rawSourceLatch(): Latch | null {
-        return this._sourceLatch;
+    public get rawNode1Latch(): Latch | null {
+        return this._node1Latch;
     }
 
     /**
-     * The line's target latch.
+     * The line's node2 latch.
      * @remarks
-     *  Provides direct access to the target latch without null checks.
+     *  Provides direct access to the node2 latch without null checks.
      */
-    public get rawTargetLatch(): Latch | null {
-        return this._targetLatch;
+    public get rawNode2Latch(): Latch | null {
+        return this._node2Latch;
     }
 
     /**
@@ -117,8 +117,8 @@ export class Line extends DiagramObject {
         properties: RootProperty
     ) {
         super(id, instance, attributes, properties);
-        this._sourceLatch = null;
-        this._targetLatch = null;
+        this._node1Latch = null;
+        this._node2Latch = null;
         this._handles = [];
     }
 
@@ -129,22 +129,22 @@ export class Line extends DiagramObject {
 
 
     /**
-     * Sets the line's source latch.
+     * Sets the line's node1 latch.
      * @param latch
-     *  The line's source latch.
+     *  The line's node1 latch.
      * @param update
      *  Whether to update the diagram or not.
      *  (Default: `false`)
      */
-    public setSource(latch: Latch | null, update: boolean = false) {
+    public setNode1(latch: Latch | null, update: boolean = false) {
         // Set latch
-        if (this._sourceLatch) {
-            this.makeChild(this._sourceLatch, null);
+        if (this._node1Latch) {
+            this.makeChild(this._node1Latch, null);
         }
         if (latch) {
             this.makeChild(latch);
         }
-        this._sourceLatch = latch;
+        this._node1Latch = latch;
         // Update layout
         if (update) {
             const reason = latch ?
@@ -155,22 +155,22 @@ export class Line extends DiagramObject {
     }
 
     /**
-     * Sets the line's target latch.
+     * Sets the line's node2 latch.
      * @param latch
-     *  The line's target latch.
+     *  The line's node2 latch.
      * @param update
      *  Whether to update the diagram or not.
      *  (Default: `false`)
      */
-    public setTarget(latch: Latch | null, update: boolean = false) {
+    public setNode2(latch: Latch | null, update: boolean = false) {
         // Set latch
-        if (this._targetLatch) {
-            this.makeChild(this._targetLatch, null);
+        if (this._node2Latch) {
+            this.makeChild(this._node2Latch, null);
         }
         if (latch) {
             this.makeChild(latch);
         }
-        this._targetLatch = latch;
+        this._node2Latch = latch;
         // Update layout
         if (update) {
             const reason = latch ?
@@ -296,11 +296,11 @@ export class Line extends DiagramObject {
             object.addHandle(handle.clone(undefined, instanceMap));
         }
         // Clone latches
-        if (this._sourceLatch) {
-            object.setSource(this.source.clone(undefined, instanceMap));
+        if (this._node1Latch) {
+            object.setNode1(this.node1.clone(undefined, instanceMap));
         }
-        if (this._targetLatch) {
-            object.setTarget(this.target.clone(undefined, instanceMap));
+        if (this._node2Latch) {
+            object.setNode2(this.node2.clone(undefined, instanceMap));
         }
         return object;
     }

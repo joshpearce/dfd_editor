@@ -117,13 +117,13 @@ function makeGroup(
 
 /**
  * Builds a minimal SerializableLine stub.
- * Pass `null` for sourceObject or targetObject to simulate a floating latch.
+ * Pass `null` for node1Object or node2Object to simulate a floating latch.
  */
 function makeLine(
-    sourceObject: { instance: string } | null,
-    targetObject: { instance: string } | null
+    node1Object: { instance: string } | null,
+    node2Object: { instance: string } | null
 ): SerializableLine {
-    return { sourceObject, targetObject };
+    return { node1Object, node2Object };
 }
 
 /**
@@ -475,12 +475,12 @@ describe("serializeToD2", () => {
         });
 
         it("skips a line that throws when accessing endpoints (I1 — null-safe resolution)", () => {
-            // Simulate a LineView where sourceObject getter throws (null latch).
+            // Simulate a LineView where node1Object getter throws (null latch).
             const throwingLine: SerializableLine = {
-                get sourceObject(): { instance: string } | null {
-                    throw new Error("No source latch assigned.");
+                get node1Object(): { instance: string } | null {
+                    throw new Error("No node1 latch assigned.");
                 },
-                targetObject: { instance: "tgt-id" }
+                node2Object: { instance: "tgt-id" }
             };
             const tgt    = makeBlock("tgt-id", "", 100, 50);
             const canvas = makeCanvas([tgt], [], [throwingLine]);
@@ -575,6 +575,65 @@ describe("serializeToD2", () => {
 
             // The id should appear unquoted (immediately followed by a space then `{`)
             expect(output).toContain(`${id} {`);
+        });
+
+    });
+
+    // -------------------------------------------------------------------------
+
+    describe("D2Bridge.serializeToD2 — edge emission invariants (bidirectional flow)", () => {
+
+        it("emits one edge per Flow as `node1 -> node2`", () => {
+            const blockA = makeBlock("block-a", "A", 100, 50);
+            const blockB = makeBlock("block-b", "B", 100, 50);
+            const line = makeLine(blockA, blockB);
+            const canvas = makeCanvas([blockA, blockB], [], [line]);
+
+            const output = serializeToD2(canvas);
+
+            // Exactly one arrow statement.
+            const arrowCount = (output.match(/ -> /g) ?? []).length;
+            expect(arrowCount).toBe(1);
+            expect(output).toContain("block-a -> block-b");
+        });
+
+        it("emits no attributes on the edge", () => {
+            const blockA = makeBlock("block-a", "A", 100, 50);
+            const blockB = makeBlock("block-b", "B", 100, 50);
+            const line = makeLine(blockA, blockB);
+            const canvas = makeCanvas([blockA, blockB], [], [line]);
+
+            const output = serializeToD2(canvas);
+
+            // No `{` directly after the arrow line (which would be an attribute block).
+            const lineWithArrow = output.split("\n").find(l => l.includes(" -> "));
+            expect(lineWithArrow).toBeDefined();
+            expect(lineWithArrow!).not.toMatch(/ -> .*\{/);
+        });
+
+        it("never emits `<-`, `<->`, or `--`", () => {
+            const blockA = makeBlock("block-a", "A", 100, 50);
+            const blockB = makeBlock("block-b", "B", 100, 50);
+            const line = makeLine(blockA, blockB);
+            const canvas = makeCanvas([blockA, blockB], [], [line]);
+
+            const output = serializeToD2(canvas);
+
+            expect(output).not.toMatch(/ <- /);
+            expect(output).not.toMatch(/ <-> /);
+            expect(output).not.toMatch(/ -- /);
+        });
+
+        it("SerializableLine interface is invariant to ref-array state", () => {
+            // Structural invariant: the interface the D2 bridge consumes exposes only
+            // node1Object and node2Object — it does NOT carry ref-array fields. If
+            // adding a ref array ever required exposing them on SerializableLine,
+            // this test would guide the fix. We verify by reading the interface
+            // shape off a stub and asserting no unexpected ref-array properties.
+            const stub = makeLine({ instance: "x" }, { instance: "y" });
+            const keys = Object.keys(stub).sort();
+            expect(keys).toEqual(["node1Object", "node2Object"]);
+            // No node1_src_data_item_refs, node2_src_data_item_refs, etc.
         });
 
     });

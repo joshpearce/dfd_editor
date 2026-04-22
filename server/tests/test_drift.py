@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from schema import (
     ContainerType,
     DataClassification,
+    DataFlowProps,
     EntityType,
     NodeType,
     PrivilegeLevel,
@@ -149,6 +150,76 @@ def _parse_block_names(text: str, object_type: str) -> set[str]:
     return names
 
 
+def _parse_data_flow_properties(text: str) -> set[str]:
+    """Return the set of property keys declared in the data_flow template.
+
+    Locates the template with ``name: "data_flow"`` and extracts all property
+    keys from its ``properties: { ... }`` block.
+
+    Only top-level keys within properties (not nested validator/metadata keys)
+    are extracted.
+    """
+    # Find the template with name: "data_flow"
+    data_flow_template = None
+    depth = 0
+    block_start = -1
+    for i, ch in enumerate(text):
+        if ch == '{':
+            if depth == 0:
+                block_start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and block_start != -1:
+                block = text[block_start:i + 1]
+                if 'name: "data_flow"' in block:
+                    data_flow_template = block
+                    break
+                block_start = -1
+
+    if not data_flow_template:
+        raise ValueError("data_flow template not found in DfdObjects.ts")
+
+    # Extract the properties block from the template
+    # Pattern: properties: { ... }
+    props_match = re.search(r'properties:\s*\{', data_flow_template)
+    if not props_match:
+        raise ValueError("properties block not found in data_flow template")
+
+    # Extract the properties block contents
+    props_block = _extract_brace_block(data_flow_template, props_match.end() - 1)
+
+    # Parse top-level property keys by tracking depth within the properties block.
+    # A top-level key is at depth 1 (inside the properties: {...} but not
+    # inside any nested {...} for that property).
+    property_keys = set()
+    depth = 0
+    i = 0
+    while i < len(props_block):
+        ch = props_block[i]
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+        elif depth == 1 and ch.isalpha():
+            # We're at depth 1 and found the start of an identifier.
+            # Extract the full identifier.
+            j = i
+            while j < len(props_block) and (props_block[j].isalnum() or props_block[j] == '_'):
+                j += 1
+            key = props_block[i:j]
+            # Verify it's followed by a colon (property key, not stray word)
+            k = j
+            while k < len(props_block) and props_block[k] in ' \t\n\r':
+                k += 1
+            if k < len(props_block) and props_block[k] == ':':
+                property_keys.add(key)
+            i = j - 1
+        i += 1
+
+    return property_keys
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -163,6 +234,11 @@ def ts_text() -> str:
 @pytest.fixture(scope="module")
 def ts_enums(ts_text: str) -> dict[str, set[str]]:
     return _parse_ts(ts_text)
+
+
+@pytest.fixture(scope="module")
+def ts_data_flow_props(ts_text: str) -> set[str]:
+    return _parse_data_flow_properties(ts_text)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +257,20 @@ def _assert_parity(enum_class, ts_values: set[str], label: str) -> None:
         lines.append(f"  in Python but not in TS: {sorted(missing_in_ts)}")
     if extra_in_ts:
         lines.append(f"  in TS but not in Python: {sorted(extra_in_ts)}")
+    assert False, "\n".join(lines)
+
+
+def _assert_parity_sets(actual: set[str], expected: set[str], label: str) -> None:
+    """Assert that two sets of strings are equal, with informative diff on failure."""
+    if actual == expected:
+        return
+    missing_in_actual = expected - actual
+    extra_in_actual = actual - expected
+    lines = [f"Property drift detected for '{label}':"]
+    if missing_in_actual:
+        lines.append(f"  in expected but not in actual: {sorted(missing_in_actual)}")
+    if extra_in_actual:
+        lines.append(f"  in actual but not in expected: {sorted(extra_in_actual)}")
     assert False, "\n".join(lines)
 
 
@@ -232,6 +322,19 @@ def test_container_type_parity(ts_text: str) -> None:
     _assert_parity(
         ContainerType, ts_group_names, "ContainerType / DiagramObjectType.Group names"
     )
+
+
+def test_data_flow_props_parity(ts_data_flow_props: set[str]) -> None:
+    """Assert that data_flow template properties match DataFlowProps fields.
+
+    The TS template uses `encrypted_in_transit` while pydantic uses `encrypted`;
+    apply the known adapter so the parity check compares apples-to-apples.
+    """
+    expected = set(DataFlowProps.model_fields.keys())
+    # The TS template uses `encrypted_in_transit` while pydantic uses `encrypted`;
+    # apply the known adapter so the parity check compares apples-to-apples.
+    expected = (expected - {"encrypted"}) | {"encrypted_in_transit"}
+    _assert_parity_sets(ts_data_flow_props, expected, "data_flow template properties")
 
 
 # ---------------------------------------------------------------------------

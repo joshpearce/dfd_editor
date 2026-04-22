@@ -73,7 +73,7 @@ export class SemanticGraphNode {
      * The node's inbound nodes.
      */
     public get prevNodes(): SemanticGraphNode[] {
-        const nodes = this.nextEdges.map(o => o.source).filter(Boolean);
+        const nodes = this.nextEdges.map(o => o.node1).filter(Boolean);
         return nodes as SemanticGraphNode[];
     }
 
@@ -81,7 +81,7 @@ export class SemanticGraphNode {
      * The node's outbound nodes.
      */
     public get nextNodes(): SemanticGraphNode[] {
-        const nodes = this.nextEdges.map(o => o.target).filter(Boolean);
+        const nodes = this.nextEdges.map(o => o.node2).filter(Boolean);
         return nodes as SemanticGraphNode[];
     }
 
@@ -115,8 +115,8 @@ export class SemanticGraphNode {
         this.next.get(position)!.push(edge);
         // Configure edge
         const _edge = edge as unknown as SemanticGraphEdgeInternalState;
-        _edge._source = this;
-        _edge._sourceVia = position;
+        _edge._node1 = this;
+        _edge._node1Via = position;
     }
 
     /**
@@ -134,8 +134,8 @@ export class SemanticGraphNode {
         this.prev.get(position)!.push(edge);
         // Configure edge
         const _edge = edge as unknown as SemanticGraphEdgeInternalState;
-        _edge._target = this;
-        _edge._targetVia = position;
+        _edge._node2 = this;
+        _edge._node2Via = position;
     }
 
 }

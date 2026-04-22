@@ -11,6 +11,7 @@ export * from "./Property";
 export * from "./CollectionProperty/CollectionProperty";
 export * from "./CollectionProperty/DictionaryProperty";
 export * from "./CollectionProperty/ListProperty";
+export * from "./CollectionProperty/DataItemRefListProperty";
 export * from "./CollectionProperty/TupleProperty";
 export * from "./CollectionProperty/RootProperty";
 export * from "./AtomicProperty/DateProperty";

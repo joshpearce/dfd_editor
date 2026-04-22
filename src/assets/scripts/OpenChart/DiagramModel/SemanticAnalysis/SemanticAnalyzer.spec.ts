@@ -82,8 +82,8 @@ const testSchema: DiagramSchemaConfiguration = {
             name: "data_flow",
             type: DiagramObjectType.Line,
             latch_template: {
-                source: "generic_latch",
-                target: "generic_latch"
+                node1: "generic_latch",
+                node2: "generic_latch"
             },
             handle_template: "generic_handle",
             properties: {
@@ -155,8 +155,8 @@ let canvas: Canvas;
 function connect(line: Line, blockA: Block, blockB: Block): void {
     const srcAnchor = [...blockA.anchors.values()][0];
     const tgtAnchor = [...blockB.anchors.values()][0];
-    line.source.link(srcAnchor);
-    line.target.link(tgtAnchor);
+    line.node1.link(srcAnchor);
+    line.node2.link(tgtAnchor);
 }
 
 
@@ -356,13 +356,13 @@ describe("SemanticAnalyzer — edge crossings enrichment", () => {
     it("unbound edge has empty crossings", () => {
         const line = factory.createNewDiagramObject("data_flow", Line);
         canvas.addObject(line);
-        // No latch links — edge remains unbound (source/target null)
+        // No latch links — edge remains unbound (node1/node2 null)
 
         const graph = SemanticAnalyzer.toGraph(canvas);
         const edge = graph.edges.get(line.instance)!;
 
-        expect(edge.source).toBeNull();
-        expect(edge.target).toBeNull();
+        expect(edge.node1).toBeNull();
+        expect(edge.node2).toBeNull();
         expect(edge.crossings).toHaveLength(0);
     });
 

@@ -110,15 +110,15 @@ interface RebindableHandleSurface {
 }
 
 interface RebindableLineSurface {
-    readonly source:  RebindableLatchWithAnchor;
-    readonly target:  RebindableLatchWithAnchor;
+    readonly node1:   RebindableLatchWithAnchor;
+    readonly node2:   RebindableLatchWithAnchor;
     readonly handles: ReadonlyArray<RebindableHandleSurface>;
 }
 
 /**
  * Runtime-narrows a raw line object to a {@link RebindableLineSurface}.
  *
- * The `source` / `target` getters on a real `LineView` throw when the
+ * The `node1` / `node2` getters on a real `LineView` throw when the
  * underlying latch has no attached endpoint.  A try/catch on each getter
  * turns that throw into a `null` return so the caller skips the line
  * silently — consistent with `serializeToD2`'s existing behavior for
@@ -134,14 +134,14 @@ function asRebindableLine(
     try {
         const l = line as RebindableLineSurface;
         // Access both getters — real LineView throws when the latch is null.
-        const src = l.source;
-        const tgt = l.target;
+        const src = l.node1;
+        const tgt = l.node2;
         if (!src || !tgt) {
             return null;
         }
         return l;
     } catch {
-        // source / target threw — floating latch or dangling line.
+        // node1 / node2 threw — floating latch or dangling line.
         return null;
     }
 }
@@ -597,8 +597,8 @@ function centerOf(block: BlockWithAnchors): Point {
  */
 function rebindLinesGeometric(lines: ReadonlyArray<RebindableLineSurface>): void {
     for (const line of lines) {
-        const srcBlock = resolveEndpointBlock(line.source);
-        const tgtBlock = resolveEndpointBlock(line.target);
+        const srcBlock = resolveEndpointBlock(line.node1);
+        const tgtBlock = resolveEndpointBlock(line.node2);
         if (!srcBlock || !tgtBlock) {
             continue;
         }
@@ -609,10 +609,10 @@ function rebindLinesGeometric(lines: ReadonlyArray<RebindableLineSurface>): void
         const newSrcAnchor = srcBlock.anchors.get(srcPos);
         const newTgtAnchor = tgtBlock.anchors.get(tgtPos);
         if (newSrcAnchor) {
-            rebindLatchToAnchor(line.source, newSrcAnchor);
+            rebindLatchToAnchor(line.node1, newSrcAnchor);
         }
         if (newTgtAnchor) {
-            rebindLatchToAnchor(line.target, newTgtAnchor);
+            rebindLatchToAnchor(line.node2, newTgtAnchor);
         }
     }
 }
@@ -709,8 +709,8 @@ function rebindLinesTala(
     edges: TalaEdge[]
 ): void {
     for (const line of lines) {
-        const srcBlock = resolveEndpointBlock(line.source);
-        const tgtBlock = resolveEndpointBlock(line.target);
+        const srcBlock = resolveEndpointBlock(line.node1);
+        const tgtBlock = resolveEndpointBlock(line.node2);
         if (!srcBlock || !tgtBlock) {
             continue;
         }
@@ -773,8 +773,8 @@ function rebindLinesTala(
             const tgtPos = pickNearestAnchor(tgtBlock, bestEdge.end);
             const newSrcAnchor = srcPos !== null ? srcBlock.anchors.get(srcPos) : undefined;
             const newTgtAnchor = tgtPos !== null ? tgtBlock.anchors.get(tgtPos) : undefined;
-            if (newSrcAnchor) { rebindLatchToAnchor(line.source, newSrcAnchor); }
-            if (newTgtAnchor) { rebindLatchToAnchor(line.target, newTgtAnchor); }
+            if (newSrcAnchor) { rebindLatchToAnchor(line.node1, newSrcAnchor); }
+            if (newTgtAnchor) { rebindLatchToAnchor(line.node2, newTgtAnchor); }
 
             // Steer the line's single handle onto TALA's bend point when the
             // polyline isn't a straight segment.  DynamicLine's layout

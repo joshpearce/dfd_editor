@@ -57,8 +57,8 @@ export const sampleSchema: DiagramSchemaConfiguration = {
             name: "dynamic_line",
             type: DiagramObjectType.Line,
             latch_template: {
-                source: "generic_latch",
-                target: "generic_latch"
+                node1: "generic_latch",
+                node2: "generic_latch"
             },
             handle_template: "generic_handle"
         },
@@ -100,8 +100,8 @@ export const sampleExport: DiagramModelExport = {
         {
             id: "dynamic_line",
             instance: "1dd3ff00-4931-4005-9e7b-b6511e9cd246",
-            source: "0827b25c-19c9-4dc0-9f53-af7bd70e0d8d",
-            target: "1cddb68c-57d6-4660-9b28-59444725da5d",
+            node1: "0827b25c-19c9-4dc0-9f53-af7bd70e0d8d",
+            node2: "1cddb68c-57d6-4660-9b28-59444725da5d",
             handles: [
                 "64b4385e-d7f8-4d40-a011-4132755b01e2"
             ]

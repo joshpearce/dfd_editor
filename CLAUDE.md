@@ -128,11 +128,15 @@ skip TALA and reuse the stable positions.
   persistence, or validation behavior.
 - `server/data/` — user diagram storage. Do not hand-edit; do not commit.
 - `node_modules/`, `dist/`, `package-lock.json` — generated, never hand-edit.
-- `docs/` — forward-looking requirements and pre-plan notes only
-  (historical phase plans have been purged). Currently just
-  `flow-schema-overhaul-requirements.md`, which describes a proposed
-  bidirectional `Flow` replacement for the current directional `DataFlow`
-  — that work has not landed, so treat it as a design sketch, not
-  current-state documentation.
+- `docs/` — human-authored design and implementation notes.
+  `flow-schema-overhaul-requirements.md` is the pre-plan requirements doc
+  that motivated the bidirectional `Flow` rework (that work has now
+  landed on the `bidirectional-flow` branch — see the Conventions
+  section). `docs/implementation-plans/2026-04-21-bidirectional-flow/`
+  contains the seven-phase plan and test-requirements that drove the
+  cutover; phase plans are kept (not purged) as the authoritative record
+  of scope transfers and amendments. Treat implementation-plan contents
+  as historical context — current-state contracts live in the relevant
+  domain `CLAUDE.md`.
 - `src/assets/scripts/StixToAttackFlow/` — upstream vestige; safe to ignore
   but don't delete without confirming no stray imports.

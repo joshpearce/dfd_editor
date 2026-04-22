@@ -106,14 +106,14 @@ export type LineTemplate = BaseDiagramObjectTemplate<TemplateType.Line> & {
     latch_template: {
 
         /**
-         * The source latch template.
+         * The node1 latch template.
          */
-        source: string;
+        node1: string;
 
         /**
-         * The target latch template.
+         * The node2 latch template.
          */
-        target: string;
+        node2: string;
 
     };
 

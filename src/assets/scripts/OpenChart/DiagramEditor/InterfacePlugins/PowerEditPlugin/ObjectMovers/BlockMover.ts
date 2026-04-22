@@ -191,8 +191,8 @@ export class BlockMover extends ObjectMover {
                 const line = latch.parent;
                 if (!(line instanceof LineView) || seen.has(line)) { continue; }
                 seen.add(line);
-                const src = line.sourceObject;
-                const tgt = line.targetObject;
+                const src = line.node1Object;
+                const tgt = line.node2Object;
                 const target = src && tgt
                     ? (findLowestCommonContainer(src, tgt) ?? canvas)
                     : canvas;
@@ -214,9 +214,9 @@ export class BlockMover extends ObjectMover {
         for (const object of objects) {
             if (
                 object instanceof LineView &&
-                object.sourceObject !== this.block &&
-                object.targetObject !== this.block &&
-                (object.sourceObject || object.targetObject)
+                object.node1Object !== this.block &&
+                object.node2Object !== this.block &&
+                (object.node1Object || object.node2Object)
             ) {
                 this.selectLine(object, object.overlaps(bb));
             }

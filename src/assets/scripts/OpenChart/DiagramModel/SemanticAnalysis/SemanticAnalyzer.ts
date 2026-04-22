@@ -42,8 +42,8 @@ export class SemanticAnalyzer {
                     }
                     const edge = edges.get(line.instance)!;
                     // Resolve direction
-                    const source = line.source.anchor?.instance;
-                    const target = line.target.anchor?.instance;
+                    const source = line.node1.anchor?.instance;
+                    const target = line.node2.anchor?.instance;
                     if (source === anchor.instance) {
                         node.addNextEdge(position, edge);
                     }
@@ -66,14 +66,14 @@ export class SemanticAnalyzer {
         }
         // Pass 4 — crossings
         for (const [, edge] of edges) {
-            if (!edge.source || !edge.target) { continue; }
-            const sa = edge.source.trustBoundaryAncestors;
-            const ta = edge.target.trustBoundaryAncestors;
-            const taSet = new Set(ta);
-            const saSet = new Set(sa);
+            if (!edge.node1 || !edge.node2) { continue; }
+            const n1a = edge.node1.trustBoundaryAncestors;
+            const n2a = edge.node2.trustBoundaryAncestors;
+            const n2aSet = new Set(n2a);
+            const n1aSet = new Set(n1a);
             edge.crossings = [
-                ...sa.filter(n => !taSet.has(n)),
-                ...ta.filter(n => !saSet.has(n))
+                ...n1a.filter(n => !n2aSet.has(n)),
+                ...n2a.filter(n => !n1aSet.has(n))
             ];
         }
         return { edges, nodes };
@@ -118,14 +118,14 @@ export class SemanticAnalyzer {
         const blocks = new Map<string, B>();
 
         // Resolve direction
-        let dirSource: "source" | "target";
-        let dirTarget: "source" | "target";
+        let dirSource: "node1" | "node2";
+        let dirTarget: "node1" | "node2";
         if (direction === "outgoing") {
-            dirSource = "source";
-            dirTarget = "target";
+            dirSource = "node1";
+            dirTarget = "node2";
         } else {
-            dirSource = "target";
-            dirTarget = "source";
+            dirSource = "node2";
+            dirTarget = "node1";
         }
 
         // Collect lines

@@ -171,16 +171,16 @@ export class DiagramObjectSerializer {
         // Yield object
         exportMap.set(line.instance, {
             ...this.toGenericObjectExport(line),
-            source: line.rawSourceLatch?.instance ?? undefined,
-            target: line.rawTargetLatch?.instance ?? undefined,
+            node1: line.rawNode1Latch?.instance ?? undefined,
+            node2: line.rawNode2Latch?.instance ?? undefined,
             handles: line.handles.map(o => o.instance)
         });
         // Yield children
-        if (line.rawSourceLatch) {
-            this.yieldExportFromDiagramObject(line.source, exportMap);
+        if (line.rawNode1Latch) {
+            this.yieldExportFromDiagramObject(line.node1, exportMap);
         }
-        if (line.rawTargetLatch) {
-            this.yieldExportFromDiagramObject(line.target, exportMap);
+        if (line.rawNode2Latch) {
+            this.yieldExportFromDiagramObject(line.node2, exportMap);
         }
         for (const object of line.handles) {
             this.yieldExportFromDiagramObject(object, exportMap);
@@ -474,14 +474,14 @@ export class DiagramObjectSerializer {
         }
         // Yield line
         importMap.set(line.instance, line);
-        // Yield source
-        const srcMethod = this.pickImportMethod(obj?.source, latch.source);
-        line.source = this.yieldImportFromDiagramObject(
+        // Yield node1
+        const srcMethod = this.pickImportMethod(obj?.node1, latch.node1);
+        line.node1 = this.yieldImportFromDiagramObject(
             ...srcMethod, factory, exportMap, importMap, Latch
         );
-        // Yield target
-        const trgMethod = this.pickImportMethod(obj?.target, latch.target);
-        line.target = this.yieldImportFromDiagramObject(
+        // Yield node2
+        const trgMethod = this.pickImportMethod(obj?.node2, latch.node2);
+        line.node2 = this.yieldImportFromDiagramObject(
             ...trgMethod, factory, exportMap, importMap, Latch
         );
         // Yield handles

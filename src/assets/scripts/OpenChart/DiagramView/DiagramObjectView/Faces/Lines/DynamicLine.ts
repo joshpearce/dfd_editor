@@ -6,7 +6,6 @@ import {
     drawAbsoluteMultiElbowPath,
     drawAbsolutePolygon,
     drawBoundingRegion,
-    getAbsoluteArrowHead,
     isInsideRegion
 } from "@OpenChart/Utilities";
 import {
@@ -66,9 +65,14 @@ export class DynamicLine extends LineFace {
     private vertices: number[];
 
     /**
-     * The line's arrow head shape.
+     * The line's arrow head shape at node1 end (when data flows node2 → node1).
      */
-    private arrow: number[];
+    private arrowAtNode1: number[] | null;
+
+    /**
+     * The line's arrow head shape at node2 end (when data flows node1 → node2).
+     */
+    private arrowAtNode2: number[] | null;
 
     /**
      * The line's hitboxes.
@@ -89,7 +93,8 @@ export class DynamicLine extends LineFace {
         this.grid = grid;
         this.points = [];
         this.vertices = [];
-        this.arrow = getAbsoluteArrowHead(0, 0, 0, 0, style.capSize);
+        this.arrowAtNode1 = null;
+        this.arrowAtNode2 = null;
         this.hitboxes = [];
     }
 
@@ -149,9 +154,9 @@ export class DynamicLine extends LineFace {
      *  True if the layout changed, false otherwise.
      */
     public calculateLayout(): boolean {
-        const src = this.view.source;
+        const src = this.view.node1;
         const hdl = this.view.handles[0];
-        const trg = this.view.target;
+        const trg = this.view.node2;
         if (!src || !hdl || !trg) {
             // Bail if object incomplete
             return false;
@@ -251,9 +256,15 @@ export class DynamicLine extends LineFace {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Draw arrow head
-        drawAbsolutePolygon(ctx, this.arrow);
-        ctx.fill();
+        // Draw arrow heads
+        if (this.arrowAtNode1 !== null) {
+            drawAbsolutePolygon(ctx, this.arrowAtNode1);
+            ctx.fill();
+        }
+        if (this.arrowAtNode2 !== null) {
+            drawAbsolutePolygon(ctx, this.arrowAtNode2);
+            ctx.fill();
+        }
 
         // Draw handles and ends
         if (this.view.focused) {

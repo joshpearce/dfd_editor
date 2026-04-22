@@ -151,13 +151,16 @@ export function dataItemsForParent(canvas: Canvas, nodeGuid: string): DataItem[]
 }
 
 /**
- * Returns the filtered, non-empty GUID strings from a `data_item_refs`
- * ListProperty held in the supplied `RootProperty`.  Returns an empty array
- * when the property does not exist or has no entries.
+ * Returns per-direction GUID arrays from a bidirectional flow's ref properties.
  *
- * This is the single authoritative place to extract ref GUIDs — avoids
- * duplicating the ListProperty-iteration pattern in LabeledDynamicLine,
- * DfdValidator, and any future caller.
+ * Reads `node1_src_data_item_refs` and `node2_src_data_item_refs` as separate
+ * `ListProperty<StringProperty>` objects, extracting non-empty string GUIDs
+ * in order. If either key is absent or the wrong type, that direction returns
+ * an empty array (no silent fallback to legacy `data_item_refs`; hard cutover).
+ *
+ * This is the single authoritative place to extract per-direction ref GUIDs —
+ * avoids duplicating the ListProperty-iteration pattern in DfdValidator,
+ * DfdPublisher, and any future caller.
  *
  * Accepts a `RootProperty` rather than a full `DiagramObject` so that it
  * works for both model objects (`DiagramObject.properties`) and semantic-graph
@@ -165,20 +168,37 @@ export function dataItemsForParent(canvas: Canvas, nodeGuid: string): DataItem[]
  * type but differ in their containing class API.
  *
  * @param props  The root property bag of the object to inspect.
+ * @returns      Object with `node1ToNode2` and `node2ToNode1` ref arrays.
  */
-export function readDataItemRefs(props: RootProperty): string[] {
-    const refsProp = props.value.get("data_item_refs");
-    if (!(refsProp instanceof ListProperty)) {
-        return [];
-    }
-    const guids: string[] = [];
-    for (const [, entry] of refsProp.value) {
-        const val = entry.toJson();
-        if (typeof val === "string" && val.length > 0) {
-            guids.push(val);
+export function readFlowRefs(props: RootProperty): {
+    node1ToNode2: string[];
+    node2ToNode1: string[];
+} {
+    const result = { node1ToNode2: [] as string[], node2ToNode1: [] as string[] };
+
+    // Read node1 → node2 direction
+    const node1Prop = props.value.get("node1_src_data_item_refs");
+    if (node1Prop instanceof ListProperty) {
+        for (const [, entry] of node1Prop.value) {
+            const val = entry.toJson();
+            if (typeof val === "string" && val.length > 0) {
+                result.node1ToNode2.push(val);
+            }
         }
     }
-    return guids;
+
+    // Read node2 → node1 direction
+    const node2Prop = props.value.get("node2_src_data_item_refs");
+    if (node2Prop instanceof ListProperty) {
+        for (const [, entry] of node2Prop.value) {
+            const val = entry.toJson();
+            if (typeof val === "string" && val.length > 0) {
+                result.node2ToNode1.push(val);
+            }
+        }
+    }
+
+    return result;
 }
 
 /**

@@ -59,7 +59,8 @@ _FLOW_PROP_ORDER: tuple[str, ...] = (
     "protocol",
     "authenticated",
     "encrypted_in_transit",
-    "data_item_refs",
+    "node1_src_data_item_refs",
+    "node2_src_data_item_refs",
 )
 
 # Ordered property keys for the canvas (dfd) object.
@@ -285,21 +286,21 @@ def to_native(minimal: dict) -> dict:
     # --- Step 7: data flow objects + latches + handles ------------------------
     for flow in diagram.data_flows:
         flow_guid = str(flow.guid)
-        source_block = str(flow.source)
-        target_block = str(flow.target)
+        node1_block = str(flow.node1)
+        node2_block = str(flow.node2)
 
-        source_latch_inst = str(uuid.uuid4())
-        target_latch_inst = str(uuid.uuid4())
+        node1_latch_inst = str(uuid.uuid4())
+        node2_latch_inst = str(uuid.uuid4())
         handle_inst = str(uuid.uuid4())
 
-        # Attach latches to angle-0 anchors of source/target blocks
-        source_anchor = angle_zero_anchors.get(source_block)
-        if source_anchor is not None:
-            source_anchor["latches"].append(source_latch_inst)
+        # Attach latches to angle-0 anchors of node1/node2 blocks
+        node1_anchor = angle_zero_anchors.get(node1_block)
+        if node1_anchor is not None:
+            node1_anchor["latches"].append(node1_latch_inst)
 
-        target_anchor = angle_zero_anchors.get(target_block)
-        if target_anchor is not None:
-            target_anchor["latches"].append(target_latch_inst)
+        node2_anchor = angle_zero_anchors.get(node2_block)
+        if node2_anchor is not None:
+            node2_anchor["latches"].append(node2_latch_inst)
 
         flow_props = _build_flow_props(flow)
         objects.append(
@@ -307,13 +308,13 @@ def to_native(minimal: dict) -> dict:
                 "id": "data_flow",
                 "instance": flow_guid,
                 "properties": flow_props,
-                "source": source_latch_inst,
-                "target": target_latch_inst,
+                "node1": node1_latch_inst,
+                "node2": node2_latch_inst,
                 "handles": [handle_inst],
             }
         )
-        objects.append({"id": "generic_latch", "instance": source_latch_inst})
-        objects.append({"id": "generic_latch", "instance": target_latch_inst})
+        objects.append({"id": "generic_latch", "instance": node1_latch_inst})
+        objects.append({"id": "generic_latch", "instance": node2_latch_inst})
         objects.append({"id": "generic_handle", "instance": handle_inst})
 
     return {"schema": "dfd_v1", "theme": "dark_theme", "objects": objects}
@@ -588,19 +589,19 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
     """Emit a minimal data_flow dict from a native data_flow object."""
     instance: str = obj["instance"]
 
-    source_latch: str = obj.get("source", "")
-    target_latch: str = obj.get("target", "")
+    node1_latch: str = obj.get("node1", "")
+    node2_latch: str = obj.get("node2", "")
 
-    source_block = latch_to_block.get(source_latch)
-    if source_block is None:
+    node1_block = latch_to_block.get(node1_latch)
+    if node1_block is None:
         raise InvalidNativeError(
-            f"data_flow {instance!r}: source latch {source_latch!r} is not attached to any block"
+            f"data_flow {instance!r}: node1 latch {node1_latch!r} is not attached to any block"
         )
 
-    target_block = latch_to_block.get(target_latch)
-    if target_block is None:
+    node2_block = latch_to_block.get(node2_latch)
+    if node2_block is None:
         raise InvalidNativeError(
-            f"data_flow {instance!r}: target latch {target_latch!r} is not attached to any block"
+            f"data_flow {instance!r}: node2 latch {node2_latch!r} is not attached to any block"
         )
 
     raw_props = _props_to_dict(obj.get("properties", []), drop_nulls=True)
@@ -622,6 +623,7 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
 
     # authenticated — string bool → real bool; drop key if raw value is not
     # "true"/"false" (or absent), letting the Diagram default take effect.
+    # Emit both True and explicit False values (AC2.3 requires round-trip preservation).
     authenticated_raw = raw_props.get("authenticated")
     if authenticated_raw is not None:
         converted = _convert_string_bool(authenticated_raw)
@@ -629,40 +631,53 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
             flow_props["authenticated"] = converted
 
     # encrypted_in_transit → encrypted; same defensiveness as authenticated.
+    # Emit both True and explicit False values (AC2.3 requires round-trip preservation).
     encrypted_raw = raw_props.get("encrypted_in_transit")
     if encrypted_raw is not None:
         converted = _convert_string_bool(encrypted_raw)
         if converted is not None:
             flow_props["encrypted"] = converted
 
-    # Recover data_item_refs from native properties.
-    # Native shape (post I3): [[syntheticKey, guidStr], ...] — a ListProperty
-    # wire format where each sub-entry is [opaqueKey, guidStr].  We flatten to
-    # a list of UUIDs for the minimal format.
-    # Legacy native files that stored a plain string list are also handled
-    # gracefully: if an entry is a plain string rather than a [k, v] pair,
-    # treat it directly as the guid string.
-    refs_raw = raw_props.get("data_item_refs")
-    if refs_raw:
-        ref_guids = []
-        for entry in refs_raw:
-            if isinstance(entry, list) and len(entry) == 2:
-                # [[key, guidStr], ...] — standard post-I3 shape.
-                guid_str = entry[1]
-            else:
-                # Plain string — legacy pre-I3 shape; accept gracefully.
-                guid_str = entry
+    # Recover node1_src_data_item_refs from native properties (AC2.4).
+    # Native shape: [[syntheticKey, guidStr], ...] — a ListProperty wire format.
+    # Only accept [[key, guidStr], ...]; plain strings are a hard error (no legacy tolerance).
+    # AC2.4 requires both arrays to be emitted even when empty so empty-both-sides
+    # flows survive the round-trip and appear in the exported output.
+    node1_refs_raw = raw_props.get("node1_src_data_item_refs")
+    node1_ref_guids = []
+    if node1_refs_raw:
+        for entry in node1_refs_raw:
+            if not isinstance(entry, list) or len(entry) != 2:
+                raise InvalidNativeError(
+                    f"data_item_refs entry is not [key, guid]: {entry!r}"
+                )
+            guid_str = entry[1]
             if isinstance(guid_str, str):
-                ref_guids.append(uuid.UUID(guid_str))
+                node1_ref_guids.append(uuid.UUID(guid_str))
             elif isinstance(guid_str, uuid.UUID):
-                ref_guids.append(guid_str)
-        if ref_guids:
-            flow_props["data_item_refs"] = ref_guids
+                node1_ref_guids.append(guid_str)
+    flow_props["node1_src_data_item_refs"] = node1_ref_guids
+
+    # Recover node2_src_data_item_refs from native properties.
+    node2_refs_raw = raw_props.get("node2_src_data_item_refs")
+    node2_ref_guids = []
+    if node2_refs_raw:
+        for entry in node2_refs_raw:
+            if not isinstance(entry, list) or len(entry) != 2:
+                raise InvalidNativeError(
+                    f"data_item_refs entry is not [key, guid]: {entry!r}"
+                )
+            guid_str = entry[1]
+            if isinstance(guid_str, str):
+                node2_ref_guids.append(uuid.UUID(guid_str))
+            elif isinstance(guid_str, uuid.UUID):
+                node2_ref_guids.append(guid_str)
+    flow_props["node2_src_data_item_refs"] = node2_ref_guids
 
     return {
         "guid": instance,
-        "source": source_block,
-        "target": target_block,
+        "node1": node1_block,
+        "node2": node2_block,
         "properties": flow_props,
     }
 
@@ -818,7 +833,7 @@ def _build_flow_props(flow: Any) -> list[list]:
         elif key == "authenticated":
             val = props.authenticated
             result.append([key, _bool_to_native(val if val is not None else False)])
-        elif key == "data_item_refs":
+        elif key == "node1_src_data_item_refs":
             # Emit in the OpenChart ListProperty<StringProperty> wire shape:
             # [[syntheticKey, guidStr], ...].  This mirrors
             # CollectionProperty.toOrderedJson() so that DfdFilePreprocessor
@@ -826,7 +841,14 @@ def _build_flow_props(flow: Any) -> list[list]:
             # expects without any normalization step.
             pairs = [
                 [str(uuid.uuid4()), str(ref)]
-                for ref in props.data_item_refs
+                for ref in props.node1_src_data_item_refs
+            ]
+            result.append([key, pairs])
+        elif key == "node2_src_data_item_refs":
+            # Same wire shape as node1_src_data_item_refs.
+            pairs = [
+                [str(uuid.uuid4()), str(ref)]
+                for ref in props.node2_src_data_item_refs
             ]
             result.append([key, pairs])
         else:

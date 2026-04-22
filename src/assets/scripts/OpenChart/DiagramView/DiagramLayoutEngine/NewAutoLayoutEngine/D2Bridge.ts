@@ -68,8 +68,8 @@ export interface SerializableEndpoint {
 
 /** Minimal line surface that serializeToD2 reads. */
 export interface SerializableLine {
-    readonly sourceObject: SerializableEndpoint | null;
-    readonly targetObject: SerializableEndpoint | null;
+    readonly node1Object: SerializableEndpoint | null;
+    readonly node2Object: SerializableEndpoint | null;
 }
 
 /** Minimal canvas surface that serializeToD2 reads. */
@@ -151,33 +151,33 @@ function serializeBlock(
 }
 
 /**
- * Resolves the source/target instance identifiers for a line.
+ * Resolves the node1/node2 instance identifiers for a line.
  * Returns null for either endpoint that cannot be traced to an instance.
  *
- * Reads `line.sourceObject` / `line.targetObject` directly.  On a real
+ * Reads `line.node1Object` / `line.node2Object` directly.  On a real
  * `LineView` those getters throw when the underlying latch has no
- * attached endpoint ("No source/target latch assigned"); the try/catch
+ * attached endpoint ("No node1/node2 latch assigned"); the try/catch
  * here turns that throw into a null return so the caller silently
  * skips the line.  Test stubs pass through the same path because they
  * set the properties as plain fields.
  *
  * @param line - The line to resolve endpoints for.
- * @returns An object with `sourceInstance` and `targetInstance`, or null
+ * @returns An object with `node1Instance` and `node2Instance`, or null
  *          if either endpoint is unresolvable (floating latch, dangling
  *          line, etc.).
  */
 function resolveLineEndpoints(
     line: SerializableLine
-): { sourceInstance: string, targetInstance: string } | null {
+): { node1Instance: string, node2Instance: string } | null {
     try {
-        const src = line.sourceObject;
-        const tgt = line.targetObject;
+        const src = line.node1Object;
+        const tgt = line.node2Object;
         if (!src || !tgt) {
             return null;
         }
-        return { sourceInstance: src.instance, targetInstance: tgt.instance };
+        return { node1Instance: src.instance, node2Instance: tgt.instance };
     } catch {
-        // sourceObject / targetObject throw when the underlying latch is null.
+        // node1Object / node2Object throw when the underlying latch is null.
         return null;
     }
 }
@@ -325,9 +325,9 @@ export function serializeToD2(canvas: SerializableCanvas): string {
             if (!endpoints) {
                 continue;
             }
-            const { sourceInstance, targetInstance } = endpoints;
+            const { node1Instance, node2Instance } = endpoints;
             parts.push(
-                `${absoluteD2Path(sourceInstance, index)} -> ${absoluteD2Path(targetInstance, index)}`
+                `${absoluteD2Path(node1Instance, index)} -> ${absoluteD2Path(node2Instance, index)}`
             );
         }
     }

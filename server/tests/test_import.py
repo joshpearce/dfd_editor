@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import uuid
 
 import pytest
 
@@ -21,6 +22,8 @@ _TRUST_BOUNDARY_GUID = "44444444-0000-0000-0000-000000000004"
 _CONTAINER_GUID = "55555555-0000-0000-0000-000000000005"
 _FLOW_1_GUID = "66666666-0000-0000-0000-000000000006"
 _FLOW_2_GUID = "77777777-0000-0000-0000-000000000007"
+_DATA_ITEM_1_GUID = "88888888-0000-0000-0000-000000000008"
+_DATA_ITEM_2_GUID = "99999999-0000-0000-0000-000000000009"
 
 # The container nesting:
 #   trust_boundary contains: [process, external_entity, container]
@@ -90,24 +93,44 @@ _MINIMAL_DOC: dict = {
     "data_flows": [
         {
             "guid": _FLOW_1_GUID,
-            "source": _PROCESS_GUID,
-            "target": _DATA_STORE_GUID,
+            "node1": _PROCESS_GUID,
+            "node2": _DATA_STORE_GUID,
             "properties": {
                 "name": "Write Flow",
                 "data_classification": "confidential",
                 "protocol": "gRPC",
                 "authenticated": True,
                 "encrypted": True,
+                "node1_src_data_item_refs": [_DATA_ITEM_1_GUID],
+                "node2_src_data_item_refs": [_DATA_ITEM_2_GUID],
             },
         },
         {
             "guid": _FLOW_2_GUID,
-            "source": _EXTERNAL_GUID,
-            "target": _PROCESS_GUID,
+            "node1": _PROCESS_GUID,
+            "node2": _EXTERNAL_GUID,
             "properties": {
                 "authenticated": False,
                 "encrypted": False,
+                "node1_src_data_item_refs": [],
+                "node2_src_data_item_refs": [],
             },
+        },
+    ],
+    "data_items": [
+        {
+            "guid": _DATA_ITEM_1_GUID,
+            "parent": _PROCESS_GUID,
+            "identifier": "item1",
+            "name": "Data Item 1",
+            "classification": "pii",
+        },
+        {
+            "guid": _DATA_ITEM_2_GUID,
+            "parent": _DATA_STORE_GUID,
+            "identifier": "item2",
+            "name": "Data Item 2",
+            "classification": "secret",
         },
     ],
 }
@@ -119,13 +142,16 @@ _MINIMAL_DOC: dict = {
 
 
 def _canonicalize(doc: dict) -> dict:
-    """Return a copy of the minimal doc with all lists sorted by guid for comparison."""
+    """Return a copy of the minimal doc with all lists sorted by guid for comparison.
+
+    Also normalizes UUID objects to strings in ref arrays to handle round-trip comparisons.
+    """
     result = copy.deepcopy(doc)
 
     def sort_key(item: dict) -> str:
         return str(item.get("guid", ""))
 
-    for key in ("nodes", "containers", "data_flows"):
+    for key in ("nodes", "containers", "data_flows", "data_items"):
         if key in result:
             result[key] = sorted(result[key], key=sort_key)
 
@@ -134,18 +160,194 @@ def _canonicalize(doc: dict) -> dict:
         if "children" in container:
             container["children"] = sorted(container["children"])
 
-    # Normalize assumptions order within process nodes (to_native/to_minimal preserves
-    # list order, so this is only needed if our fixture has a deterministic order already)
+    # Normalize UUID objects to strings in flow properties
+    for flow in result.get("data_flows", []):
+        props = flow.get("properties", {})
+        for ref_key in ("node1_src_data_item_refs", "node2_src_data_item_refs"):
+            if ref_key in props:
+                props[ref_key] = [str(ref) for ref in props[ref_key]]
 
     return result
 
 
 # ---------------------------------------------------------------------------
-# Test 1: Round-trip to_minimal(to_native(m)) == m
+# Test 1: Round-trip to_minimal(to_native(m)) == m with four ref-array states
 # ---------------------------------------------------------------------------
 
 
 class TestRoundTrip:
+    def test_round_trip_both_empty(self):
+        """Both ref arrays empty: node1_src_data_item_refs=[], node2_src_data_item_refs=[]."""
+        doc = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
+                {"type": "process", "guid": _EXTERNAL_GUID, "properties": {"name": "P2", "assumptions": []}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_1_GUID,
+                    "node1": _PROCESS_GUID,
+                    "node2": _EXTERNAL_GUID,
+                    "properties": {
+                        "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
+                        "node1_src_data_item_refs": [],
+                        "node2_src_data_item_refs": [],
+                    },
+                }
+            ],
+        }
+        native = to_native(doc)
+        back = to_minimal(native)
+        assert _canonicalize(back) == _canonicalize(doc)
+
+    def test_round_trip_only_node1_src(self):
+        """Only node1_src_data_item_refs populated."""
+        doc = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
+                {"type": "process", "guid": _EXTERNAL_GUID, "properties": {"name": "P2", "assumptions": []}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_1_GUID,
+                    "node1": _PROCESS_GUID,
+                    "node2": _EXTERNAL_GUID,
+                    "properties": {
+                        "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
+                        "node1_src_data_item_refs": [_DATA_ITEM_1_GUID],
+                        "node2_src_data_item_refs": [],
+                    },
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "item1",
+                    "name": "Item 1",
+                }
+            ],
+        }
+        native = to_native(doc)
+        back = to_minimal(native)
+        assert _canonicalize(back) == _canonicalize(doc)
+
+    def test_round_trip_only_node2_src(self):
+        """Only node2_src_data_item_refs populated."""
+        doc = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
+                {"type": "process", "guid": _EXTERNAL_GUID, "properties": {"name": "P2", "assumptions": []}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_1_GUID,
+                    "node1": _PROCESS_GUID,
+                    "node2": _EXTERNAL_GUID,
+                    "properties": {
+                        "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
+                        "node1_src_data_item_refs": [],
+                        "node2_src_data_item_refs": [_DATA_ITEM_2_GUID],
+                    },
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_2_GUID,
+                    "parent": _EXTERNAL_GUID,
+                    "identifier": "item2",
+                    "name": "Item 2",
+                }
+            ],
+        }
+        native = to_native(doc)
+        back = to_minimal(native)
+        assert _canonicalize(back) == _canonicalize(doc)
+
+    def test_round_trip_both_populated(self):
+        """Both ref arrays populated with different items."""
+        doc = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
+                {"type": "process", "guid": _EXTERNAL_GUID, "properties": {"name": "P2", "assumptions": []}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_1_GUID,
+                    "node1": _PROCESS_GUID,
+                    "node2": _EXTERNAL_GUID,
+                    "properties": {
+                        "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
+                        "node1_src_data_item_refs": [_DATA_ITEM_1_GUID],
+                        "node2_src_data_item_refs": [_DATA_ITEM_2_GUID],
+                    },
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "item1",
+                    "name": "Item 1",
+                },
+                {
+                    "guid": _DATA_ITEM_2_GUID,
+                    "parent": _EXTERNAL_GUID,
+                    "identifier": "item2",
+                    "name": "Item 2",
+                },
+            ],
+        }
+        native = to_native(doc)
+        back = to_minimal(native)
+        assert _canonicalize(back) == _canonicalize(doc)
+
+    def test_round_trip_shared_property_preservation(self):
+        """Shared flow properties (name, data_classification, protocol, authenticated, encrypted) survive round-trip."""
+        doc = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
+                {"type": "process", "guid": _EXTERNAL_GUID, "properties": {"name": "P2", "assumptions": []}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_1_GUID,
+                    "node1": _PROCESS_GUID,
+                    "node2": _EXTERNAL_GUID,
+                    "properties": {
+                        "name": "My Flow",
+                        "data_classification": "confidential",
+                        "protocol": "gRPC",
+                        "authenticated": True,
+                        "encrypted": True,
+                        "node1_src_data_item_refs": [],
+                        "node2_src_data_item_refs": [],
+                    },
+                }
+            ],
+        }
+        native = to_native(doc)
+        back = to_minimal(native)
+        result_flow = back["data_flows"][0]
+        assert result_flow["properties"]["name"] == "My Flow"
+        assert result_flow["properties"]["data_classification"] == "confidential"
+        assert result_flow["properties"]["protocol"] == "gRPC"
+        assert result_flow["properties"]["authenticated"] is True
+        assert result_flow["properties"]["encrypted"] is True
+
     def test_round_trip_full_document(self):
         """to_minimal(to_native(m)) == m for a doc covering all template types."""
         native = to_native(_MINIMAL_DOC)
@@ -250,6 +452,41 @@ class TestDuplicateParentError:
         # Input must be unchanged
         assert doc == original
 
+    def test_round_trip_explicit_false_booleans(self):
+        """Explicit False values for authenticated and encrypted must round-trip (AC2.3).
+
+        Previously, False values were dropped during to_minimal, but AC2.3 requires
+        all shared flow properties to survive the round-trip unchanged.
+        """
+        doc = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
+                {"type": "process", "guid": _EXTERNAL_GUID, "properties": {"name": "P2", "assumptions": []}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_1_GUID,
+                    "node1": _PROCESS_GUID,
+                    "node2": _EXTERNAL_GUID,
+                    "properties": {
+                        "name": "Flow",
+                        "authenticated": False,
+                        "encrypted": False,
+                        "node1_src_data_item_refs": [],
+                        "node2_src_data_item_refs": [],
+                    },
+                }
+            ],
+        }
+        native = to_native(doc)
+        back = to_minimal(native)
+        assert _canonicalize(back) == _canonicalize(doc)
+        # Explicitly check that both booleans come back as False, not absent
+        flow = back["data_flows"][0]
+        assert flow["properties"]["authenticated"] is False
+        assert flow["properties"]["encrypted"] is False
+
 
 # ---------------------------------------------------------------------------
 # Test 3: Shape checks on to_native output
@@ -275,7 +512,11 @@ class TestNativeShape:
         assert len(canvas_objs) == 1
         canvas = canvas_objs[0]
         prop_keys = [p[0] for p in canvas["properties"]]
-        assert prop_keys == ["name", "description", "author", "created"]
+        # Canvas props include meta fields + data_items if present
+        expected_base = ["name", "description", "author", "created"]
+        # Since _MINIMAL_DOC has data_items, they should appear in canvas properties
+        expected = expected_base + ["data_items"]
+        assert prop_keys == expected
 
     def test_each_node_has_12_anchors(self):
         native = self._native_from_fixture()
@@ -292,8 +533,8 @@ class TestNativeShape:
             for angle_str, anchor_inst in anchors.items():
                 assert anchor_inst in by_instance, f"anchor instance {anchor_inst} not found"
 
-    def test_flow_latches_in_source_block_angle_zero(self):
-        """Each data_flow's source latch must appear in its source block's angle-0 anchor latches."""
+    def test_flow_latches_in_node_block_angle_zero(self):
+        """Each data_flow's node1 latch must appear in its node1 block's angle-0 anchor latches."""
         native = self._native_from_fixture()
         by_instance = {o["instance"]: o for o in native["objects"] if "instance" in o}
 
@@ -302,37 +543,37 @@ class TestNativeShape:
         assert len(flow_objs) == 2  # fixture has 2 flows
 
         for flow_obj in flow_objs:
-            source_latch = flow_obj["source"]
-            target_latch = flow_obj["target"]
+            node1_latch = flow_obj["node1"]
+            node2_latch = flow_obj["node2"]
             assert len(flow_obj["handles"]) == 1
 
-            # The source latch must be in some block's angle-0 anchor's latches
-            found_source = False
-            found_target = False
+            # The node1 latch must be in some block's angle-0 anchor's latches
+            found_node1 = False
+            found_node2 = False
             for node_obj in [o for o in native["objects"] if o.get("id") in ("process", "external_entity", "data_store")]:
                 anchors = node_obj.get("anchors", {})
                 angle_zero_inst = anchors.get("0")
                 if angle_zero_inst:
                     anchor_obj = by_instance.get(angle_zero_inst)
                     if anchor_obj:
-                        if source_latch in anchor_obj.get("latches", []):
-                            found_source = True
-                        if target_latch in anchor_obj.get("latches", []):
-                            found_target = True
-            assert found_source, f"flow {flow_obj['instance']}: source latch not in any angle-0 anchor"
-            assert found_target, f"flow {flow_obj['instance']}: target latch not in any angle-0 anchor"
+                        if node1_latch in anchor_obj.get("latches", []):
+                            found_node1 = True
+                        if node2_latch in anchor_obj.get("latches", []):
+                            found_node2 = True
+            assert found_node1, f"flow {flow_obj['instance']}: node1 latch not in any angle-0 anchor"
+            assert found_node2, f"flow {flow_obj['instance']}: node2 latch not in any angle-0 anchor"
 
     def test_flow_latch_objects_present(self):
-        """Each data_flow's source/target latches and handle must exist as objects."""
+        """Each data_flow's node1/node2 latches and handle must exist as objects."""
         native = self._native_from_fixture()
         by_instance = {o["instance"]: o for o in native["objects"] if "instance" in o}
         flow_objs = [o for o in native["objects"] if o.get("id") == "data_flow"]
         for flow_obj in flow_objs:
-            src = flow_obj["source"]
-            tgt = flow_obj["target"]
+            node1 = flow_obj["node1"]
+            node2 = flow_obj["node2"]
             handle = flow_obj["handles"][0]
-            assert src in by_instance and by_instance[src]["id"] == "generic_latch"
-            assert tgt in by_instance and by_instance[tgt]["id"] == "generic_latch"
+            assert node1 in by_instance and by_instance[node1]["id"] == "generic_latch"
+            assert node2 in by_instance and by_instance[node2]["id"] == "generic_latch"
             assert handle in by_instance and by_instance[handle]["id"] == "generic_handle"
 
     def test_single_root_object(self):
@@ -349,10 +590,10 @@ class TestNativeShape:
                 referenced.update(o["anchors"].values())
             referenced.update(o.get("latches", []))
             referenced.update(o.get("handles", []))
-            if "source" in o:
-                referenced.add(o["source"])
-            if "target" in o:
-                referenced.add(o["target"])
+            if "node1" in o:
+                referenced.add(o["node1"])
+            if "node2" in o:
+                referenced.add(o["node2"])
         roots = all_instances - referenced
         assert len(roots) == 1, f"expected single root, got {len(roots)}: {roots}"
         root_obj = next(o for o in native["objects"] if o["instance"] in roots)
@@ -436,3 +677,102 @@ class TestNativeShape:
         c_obj = next(o for o in native["objects"] if o.get("id") == "container")
         keys = [p[0] for p in c_obj["properties"]]
         assert keys == ["name", "description"]
+
+    def test_all_flow_properties_in_order(self):
+        """Flow properties emitted in _FLOW_PROP_ORDER with both ref arrays."""
+        native = self._native_from_fixture()
+        flow_obj = next(o for o in native["objects"] if o.get("id") == "data_flow")
+        keys = [p[0] for p in flow_obj["properties"]]
+        expected = [
+            "name",
+            "data_classification",
+            "protocol",
+            "authenticated",
+            "encrypted_in_transit",
+            "node1_src_data_item_refs",
+            "node2_src_data_item_refs",
+        ]
+        assert keys == expected
+
+    def test_ref_arrays_in_wire_format(self):
+        """Both ref arrays appear as [key, [[uuid, guid], ...]] in properties list."""
+        native = self._native_from_fixture()
+        flow_obj = next(o for o in native["objects"] if o.get("id") == "data_flow"
+                        and o["instance"] == _FLOW_1_GUID)
+        props_dict = {p[0]: p[1] for p in flow_obj["properties"]}
+
+        # Both keys must be present
+        assert "node1_src_data_item_refs" in props_dict
+        assert "node2_src_data_item_refs" in props_dict
+
+        # Both should be lists of [key, guid] pairs
+        node1_refs = props_dict["node1_src_data_item_refs"]
+        node2_refs = props_dict["node2_src_data_item_refs"]
+
+        assert isinstance(node1_refs, list)
+        assert isinstance(node2_refs, list)
+
+        # The fixture has data items in both directions
+        assert len(node1_refs) == 1
+        assert len(node2_refs) == 1
+
+        # Check structure: each entry is [key, guid_str]
+        for entry in node1_refs:
+            assert isinstance(entry, list) and len(entry) == 2
+            assert isinstance(entry[0], str)  # synthetic key
+            assert isinstance(entry[1], str)  # guid string
+
+        for entry in node2_refs:
+            assert isinstance(entry, list) and len(entry) == 2
+            assert isinstance(entry[0], str)  # synthetic key
+            assert isinstance(entry[1], str)  # guid string
+
+    def test_canonical_swap_at_transform_layer(self):
+        """Canonical swap happens at transform layer: node1 > node2 gets swapped."""
+        # Build minimal with node1 > node2 (reversed order)
+        doc = {
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
+                {"type": "process", "guid": _EXTERNAL_GUID, "properties": {"name": "P2", "assumptions": []}},
+            ],
+            "containers": [],
+            "data_flows": [
+                {
+                    "guid": _FLOW_1_GUID,
+                    "node1": _EXTERNAL_GUID,  # Greater UUID
+                    "node2": _PROCESS_GUID,   # Lesser UUID
+                    "properties": {
+                        "name": "Flow",
+                        "node1_src_data_item_refs": [_DATA_ITEM_1_GUID],
+                        "node2_src_data_item_refs": [_DATA_ITEM_2_GUID],
+                    },
+                }
+            ],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_1_GUID,
+                    "parent": _EXTERNAL_GUID,
+                    "identifier": "item1",
+                    "name": "Item 1",
+                },
+                {
+                    "guid": _DATA_ITEM_2_GUID,
+                    "parent": _PROCESS_GUID,
+                    "identifier": "item2",
+                    "name": "Item 2",
+                },
+            ],
+        }
+
+        # to_native should canonicalize: swap endpoints AND swap ref arrays
+        native = to_native(doc)
+        back = to_minimal(native)
+
+        # Result should have endpoints swapped
+        result_flow = back["data_flows"][0]
+        assert str(result_flow["node1"]) == _PROCESS_GUID  # Lesser UUID first
+        assert str(result_flow["node2"]) == _EXTERNAL_GUID  # Greater UUID second
+
+        # Ref arrays should also be swapped: what was node1_src is now node2_src
+        assert [str(ref) for ref in result_flow["properties"]["node1_src_data_item_refs"]] == [_DATA_ITEM_2_GUID]
+        assert [str(ref) for ref in result_flow["properties"]["node2_src_data_item_refs"]] == [_DATA_ITEM_1_GUID]

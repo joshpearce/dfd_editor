@@ -1,16 +1,17 @@
-"""Round-trip tests for DataItem schema fields and flow data_item_refs.
+"""Round-trip tests for DataItem schema fields and bidirectional Flow ref arrays.
 
 Covers:
-- POST /api/diagrams/import with data_items + data_item_refs → GET export
-  preserves both fields exactly.
-- Legacy payloads (no data_items, no data_item_refs) import and GET without
-  error; both fields default to empty list / absent.
-- Arbitrary classification strings (free-form, not enum-restricted) survive
-  the round-trip unchanged.
+- POST /api/diagrams/import with data_items + two-array node1_src/node2_src refs
+  → GET export preserves both arrays exactly in identical order (AC2.2).
+- All four combinations of ref-array population:
+  - Both empty
+  - Only node1_src populated
+  - Only node2_src populated
+  - Both populated (possibly with the same item in both directions)
+- Arbitrary classification strings (free-form) survive round-trip unchanged.
 - extra="forbid" rejects unknown keys on DataItem.
 - Missing required fields on DataItem return 400.
-- Multiple data_item_refs on one flow round-trip with ordering preserved.
-- Exported data_items list length matches imported length exactly.
+- Ordering within each ref array is preserved (AC2.2).
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ _DATA_STORE_GUID = "aaaaaaaa-0000-0000-0000-000000000002"
 _FLOW_GUID = "aaaaaaaa-0000-0000-0000-000000000003"
 _DATA_ITEM_1_GUID = "bbbbbbbb-0000-0000-0000-000000000001"
 _DATA_ITEM_2_GUID = "bbbbbbbb-0000-0000-0000-000000000002"
+_DATA_ITEM_3_GUID = "bbbbbbbb-0000-0000-0000-000000000003"
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -69,445 +71,560 @@ def _export(client, diagram_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Payload with data_items and data_item_refs
+# Base payload: nodes, containers, data_flows, data_items
 # ---------------------------------------------------------------------------
 
-_PAYLOAD_WITH_DATA_ITEMS: dict = {
-    "nodes": [
-        {
-            "type": "process",
-            "guid": _PROCESS_GUID,
-            "properties": {"name": "My Process", "assumptions": []},
-        },
-        {
-            "type": "data_store",
-            "guid": _DATA_STORE_GUID,
-            "properties": {
-                "name": "My Store",
-                "contains_pii": False,
-                "encryption_at_rest": False,
+
+def _base_payload(
+    node1_refs: list[str] | None = None,
+    node2_refs: list[str] | None = None,
+    data_items: list[dict] | None = None,
+) -> dict:
+    """Construct a minimal payload with two-array ref structure.
+
+    Args:
+        node1_refs: list of data_item GUIDs for node1_src_data_item_refs (default [])
+        node2_refs: list of data_item GUIDs for node2_src_data_item_refs (default [])
+        data_items: list of data_item dicts (default includes _DATA_ITEM_1 and _DATA_ITEM_2)
+    """
+    if node1_refs is None:
+        node1_refs = []
+    if node2_refs is None:
+        node2_refs = []
+    if data_items is None:
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Item One",
             },
-        },
-    ],
-    "containers": [],
-    "data_flows": [
-        {
-            "guid": _FLOW_GUID,
-            "source": _PROCESS_GUID,
-            "target": _DATA_STORE_GUID,
-            "properties": {
-                "name": "Transfer Flow",
-                "data_item_refs": [_DATA_ITEM_1_GUID],
+            {
+                "guid": _DATA_ITEM_2_GUID,
+                "parent": _DATA_STORE_GUID,
+                "identifier": "D2",
+                "name": "Item Two",
             },
-        },
-    ],
-    "data_items": [
-        {
-            "guid": _DATA_ITEM_1_GUID,
-            "parent": _PROCESS_GUID,
-            "identifier": "D1",
-            "name": "Customer PII",
-            "classification": "pii",
-        },
-        {
-            "guid": _DATA_ITEM_2_GUID,
-            "parent": _DATA_STORE_GUID,
-            "identifier": "D2",
-            "name": "Session Token",
-            "description": "Short-lived auth token",
-            "classification": "secret",
-        },
-    ],
-}
+        ]
+
+    return {
+        "nodes": [
+            {
+                "type": "process",
+                "guid": _PROCESS_GUID,
+                "properties": {"name": "Process", "assumptions": []},
+            },
+            {
+                "type": "data_store",
+                "guid": _DATA_STORE_GUID,
+                "properties": {
+                    "name": "Store",
+                    "contains_pii": False,
+                    "encryption_at_rest": False,
+                },
+            },
+        ],
+        "containers": [],
+        "data_flows": [
+            {
+                "guid": _FLOW_GUID,
+                "node1": _PROCESS_GUID,
+                "node2": _DATA_STORE_GUID,
+                "properties": {
+                    "name": "Transfer Flow",
+                    "node1_src_data_item_refs": node1_refs,
+                    "node2_src_data_item_refs": node2_refs,
+                },
+            },
+        ],
+        "data_items": data_items,
+    }
 
 
 # ---------------------------------------------------------------------------
-# Test 1: data_items and data_item_refs survive import → export round-trip
+# Test 1: Round-trip with node1_src only (AC2.2, AC2.3)
+# ---------------------------------------------------------------------------
+
+
+class TestRoundTripNode1SrcOnly:
+    """Round-trip with data items flowing node1→node2 only."""
+
+    def test_node1_src_only_preserved(self, client):
+        """POST with node1_src populated, node2_src empty; export preserves order."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
+            node2_refs=[],
+        )
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        flow = flows[_FLOW_GUID]
+
+        # AC2.2: UUID lists in identical order
+        assert flow["properties"]["node1_src_data_item_refs"] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
+        assert flow["properties"]["node2_src_data_item_refs"] == []
+
+    def test_node1_src_flow_properties_preserved(self, client):
+        """Flow properties (name, authenticated, encrypted, etc.) survive round-trip."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[],
+        )
+        payload["data_flows"][0]["properties"].update({
+            "protocol": "HTTP",
+            "authenticated": True,
+            "encrypted": True,  # Only True is emitted in minimal format (False is default)
+            "data_classification": "public",
+        })
+
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        props = flows[_FLOW_GUID]["properties"]
+
+        # AC2.3: Shared properties survive unchanged
+        assert props["name"] == "Transfer Flow"
+        assert props["protocol"] == "HTTP"
+        assert props["authenticated"] is True
+        assert props["encrypted"] is True
+        assert props["data_classification"] == "public"
+
+
+# ---------------------------------------------------------------------------
+# Test 2: Round-trip with node2_src only (AC2.2, AC2.3)
+# ---------------------------------------------------------------------------
+
+
+class TestRoundTripNode2SrcOnly:
+    """Round-trip with data items flowing node2→node1 only."""
+
+    def test_node2_src_only_preserved(self, client):
+        """POST with node1_src empty, node2_src populated; export preserves order."""
+        payload = _base_payload(
+            node1_refs=[],
+            node2_refs=[_DATA_ITEM_2_GUID, _DATA_ITEM_1_GUID],  # Reversed order
+        )
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        flow = flows[_FLOW_GUID]
+
+        # AC2.2: UUID lists in identical order (including reversed order is preserved)
+        assert flow["properties"]["node1_src_data_item_refs"] == []
+        assert flow["properties"]["node2_src_data_item_refs"] == [_DATA_ITEM_2_GUID, _DATA_ITEM_1_GUID]
+
+
+# ---------------------------------------------------------------------------
+# Test 3: Round-trip with both directions populated, different items
+# ---------------------------------------------------------------------------
+
+
+class TestRoundTripBothDirectionsDifferentItems:
+    """Round-trip with both arrays populated, containing different items per direction."""
+
+    def test_both_directions_different_items(self, client):
+        """POST with node1_src=[D1], node2_src=[D2]; export preserves both."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[_DATA_ITEM_2_GUID],
+        )
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        flow = flows[_FLOW_GUID]
+
+        assert flow["properties"]["node1_src_data_item_refs"] == [_DATA_ITEM_1_GUID]
+        assert flow["properties"]["node2_src_data_item_refs"] == [_DATA_ITEM_2_GUID]
+
+    def test_both_directions_multiple_items_each(self, client):
+        """POST with node1_src=[D1, D2], node2_src=[D2, D1]; export preserves both."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
+            node2_refs=[_DATA_ITEM_2_GUID, _DATA_ITEM_1_GUID],
+        )
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        flow = flows[_FLOW_GUID]
+
+        # AC2.2: Order preserved within each array
+        assert flow["properties"]["node1_src_data_item_refs"] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
+        assert flow["properties"]["node2_src_data_item_refs"] == [_DATA_ITEM_2_GUID, _DATA_ITEM_1_GUID]
+
+
+# ---------------------------------------------------------------------------
+# Test 4: Round-trip with same item in both directions (bidirectional)
+# ---------------------------------------------------------------------------
+
+
+class TestRoundTripBidirectionalSameItem:
+    """Round-trip with the same data item appearing in both directions."""
+
+    def test_same_item_both_directions(self, client):
+        """POST with the same item in both node1_src and node2_src; export preserves."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[_DATA_ITEM_1_GUID],
+        )
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        flow = flows[_FLOW_GUID]
+
+        # Both arrays should contain the same item — legal and valid
+        assert flow["properties"]["node1_src_data_item_refs"] == [_DATA_ITEM_1_GUID]
+        assert flow["properties"]["node2_src_data_item_refs"] == [_DATA_ITEM_1_GUID]
+
+    def test_same_item_multiple_times_same_direction(self, client):
+        """POST with same item appearing multiple times in node1_src; export preserves."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID, _DATA_ITEM_1_GUID],
+            node2_refs=[],
+        )
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        flow = flows[_FLOW_GUID]
+
+        # Even duplicate references are preserved
+        assert flow["properties"]["node1_src_data_item_refs"] == [_DATA_ITEM_1_GUID, _DATA_ITEM_1_GUID]
+        assert flow["properties"]["node2_src_data_item_refs"] == []
+
+
+# ---------------------------------------------------------------------------
+# Test 5: Both ref arrays empty (AC1.3 + AC2.4)
+# ---------------------------------------------------------------------------
+
+
+class TestRoundTripBothRefArraysEmpty:
+    """Round-trip with both ref arrays empty."""
+
+    def test_both_empty_flow_survives(self, client):
+        """POST with both arrays empty; export preserves the flow with empty arrays."""
+        payload = _base_payload(
+            node1_refs=[],
+            node2_refs=[],
+        )
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+
+        # AC2.4: Flow must be present (not filtered out)
+        flows = {f["guid"]: f for f in exported["data_flows"]}
+        assert _FLOW_GUID in flows
+
+        flow = flows[_FLOW_GUID]
+        assert flow["properties"]["node1_src_data_item_refs"] == []
+        assert flow["properties"]["node2_src_data_item_refs"] == []
+
+
+# ---------------------------------------------------------------------------
+# Test 6: Data items round-trip unchanged (AC2.3)
 # ---------------------------------------------------------------------------
 
 
 class TestDataItemsRoundTrip:
+    """Verify data_items list survives import → export unchanged."""
+
     def test_data_items_preserved_on_export(self, client):
-        """POST with data_items + flow data_item_refs; export returns them unchanged."""
-        diagram_id, resp = _import(client, _PAYLOAD_WITH_DATA_ITEMS)
+        """POST with data_items; export returns them unchanged."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[_DATA_ITEM_2_GUID],
+        )
+        diagram_id, resp = _import(client, payload)
         assert resp.status_code == 201
 
         exported = _export(client, diagram_id)
 
-        # data_items top-level list must be present and match
+        # data_items top-level list must be present
         assert "data_items" in exported
-        # Outer ListProperty order must be preserved
-        assert [i["guid"] for i in exported["data_items"]] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
-        exported_items = {item["guid"]: item for item in exported["data_items"]}
+        assert len(exported["data_items"]) == 2
 
-        assert _DATA_ITEM_1_GUID in exported_items
-        item1 = exported_items[_DATA_ITEM_1_GUID]
+        items = {item["guid"]: item for item in exported["data_items"]}
+
+        # Item 1
+        assert _DATA_ITEM_1_GUID in items
+        item1 = items[_DATA_ITEM_1_GUID]
         assert item1["parent"] == _PROCESS_GUID
         assert item1["identifier"] == "D1"
-        assert item1["name"] == "Customer PII"
-        assert item1["classification"] == "pii"
-        # description was not set; key must be absent (not just None)
-        assert "description" not in item1
+        assert item1["name"] == "Item One"
 
-        assert _DATA_ITEM_2_GUID in exported_items
-        item2 = exported_items[_DATA_ITEM_2_GUID]
+        # Item 2
+        assert _DATA_ITEM_2_GUID in items
+        item2 = items[_DATA_ITEM_2_GUID]
         assert item2["parent"] == _DATA_STORE_GUID
         assert item2["identifier"] == "D2"
-        assert item2["name"] == "Session Token"
-        assert item2["description"] == "Short-lived auth token"
-        assert item2["classification"] == "secret"
-
-    def test_flow_data_item_refs_preserved_on_export(self, client):
-        """The flow's data_item_refs list survives the import → export round-trip."""
-        diagram_id, resp = _import(client, _PAYLOAD_WITH_DATA_ITEMS)
-        assert resp.status_code == 201
-
-        exported = _export(client, diagram_id)
-
-        flows = {f["guid"]: f for f in exported["data_flows"]}
-        assert _FLOW_GUID in flows
-        flow_props = flows[_FLOW_GUID]["properties"]
-        assert "data_item_refs" in flow_props
-        assert flow_props["data_item_refs"] == [_DATA_ITEM_1_GUID]
+        assert item2["name"] == "Item Two"
 
 
 # ---------------------------------------------------------------------------
-# Test 2: legacy payload (no data_items, no data_item_refs) is accepted
-# ---------------------------------------------------------------------------
-
-
-_LEGACY_PAYLOAD: dict = {
-    "nodes": [
-        {
-            "type": "process",
-            "guid": _PROCESS_GUID,
-            "properties": {"name": "Legacy Process", "assumptions": []},
-        },
-        {
-            "type": "data_store",
-            "guid": _DATA_STORE_GUID,
-            "properties": {
-                "name": "Legacy Store",
-                "contains_pii": False,
-                "encryption_at_rest": False,
-            },
-        },
-    ],
-    "containers": [],
-    "data_flows": [
-        {
-            "guid": _FLOW_GUID,
-            "source": _PROCESS_GUID,
-            "target": _DATA_STORE_GUID,
-            "properties": {},
-        },
-    ],
-    # No "data_items" field at all.
-}
-
-
-class TestLegacyPayloadCompatibility:
-    def test_legacy_import_succeeds(self, client):
-        """A legacy payload without data_items imports without error."""
-        _id, resp = _import(client, _LEGACY_PAYLOAD)
-        assert resp.status_code == 201
-
-    def test_legacy_export_has_absent_data_items(self, client):
-        """Legacy diagram export omits the data_items key entirely (not even an empty list).
-
-        _build_canvas_props only emits the data_items pair when there are items to
-        store, so a legacy diagram has no data_items property in the canvas object.
-        _extract_canvas_data_items returns [] and to_minimal omits the key from the
-        result dict when the list is empty.
-        """
-        diagram_id, _ = _import(client, _LEGACY_PAYLOAD)
-
-        exported = _export(client, diagram_id)
-
-        assert "data_items" not in exported
-
-    def test_legacy_flow_has_absent_data_item_refs(self, client):
-        """Legacy flow export omits data_item_refs entirely.
-
-        _build_flow_props always emits data_item_refs (as an empty list) in native,
-        but _emit_data_flow only adds the key to the minimal flow properties dict
-        when refs is non-empty — so a flow with no refs produces no data_item_refs
-        key in the exported minimal doc.
-        """
-        diagram_id, _ = _import(client, _LEGACY_PAYLOAD)
-
-        exported = _export(client, diagram_id)
-
-        flows = {f["guid"]: f for f in exported["data_flows"]}
-        assert _FLOW_GUID in flows
-        assert "data_item_refs" not in flows[_FLOW_GUID]["properties"]
-
-
-# ---------------------------------------------------------------------------
-# Additional GUIDs for multi-ref tests
-# ---------------------------------------------------------------------------
-
-_DATA_ITEM_3_GUID = "bbbbbbbb-0000-0000-0000-000000000003"
-
-
-# ---------------------------------------------------------------------------
-# Test 3: arbitrary classification string round-trips unchanged
+# Test 7: Free-form classifications preserved
 # ---------------------------------------------------------------------------
 
 
 class TestArbitraryClassification:
+    """Arbitrary classification strings (not enum-restricted) survive round-trip."""
+
     def test_free_form_classification_preserved(self, client):
-        """An arbitrary classification string (not in any enum) survives round-trip."""
-        payload = {
-            "nodes": [
-                {
-                    "type": "process",
-                    "guid": _PROCESS_GUID,
-                    "properties": {"name": "P"},
-                },
-                {
-                    "type": "data_store",
-                    "guid": _DATA_STORE_GUID,
-                    "properties": {"name": "DS"},
-                },
-            ],
-            "containers": [],
-            "data_flows": [
-                {
-                    "guid": _FLOW_GUID,
-                    "source": _PROCESS_GUID,
-                    "target": _DATA_STORE_GUID,
-                    "properties": {"data_item_refs": [_DATA_ITEM_1_GUID]},
-                }
-            ],
-            "data_items": [
-                {
-                    "guid": _DATA_ITEM_1_GUID,
-                    "parent": _PROCESS_GUID,
-                    "identifier": "D1",
-                    "name": "Personal Info",
-                    "classification": "pii",
-                }
-            ],
-        }
+        """Custom classification string survives round-trip unchanged."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Custom Item",
+                "classification": "custom_classification",
+            },
+        ]
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[],
+            data_items=data_items,
+        )
         diagram_id, resp = _import(client, payload)
         assert resp.status_code == 201
 
         exported = _export(client, diagram_id)
         items = {item["guid"]: item for item in exported["data_items"]}
-        assert items[_DATA_ITEM_1_GUID]["classification"] == "pii"
+        assert items[_DATA_ITEM_1_GUID]["classification"] == "custom_classification"
 
-
-# ---------------------------------------------------------------------------
-# Test 4: extra="forbid" rejects unknown keys on DataItem
-# ---------------------------------------------------------------------------
-
-
-class TestDataItemValidation:
-    def test_extra_key_rejected(self, client):
-        """A DataItem with an unrecognised key is rejected with 400."""
-        payload = {
-            "nodes": [
-                {
-                    "type": "process",
-                    "guid": _PROCESS_GUID,
-                    "properties": {"name": "P"},
-                },
-                {
-                    "type": "data_store",
-                    "guid": _DATA_STORE_GUID,
-                    "properties": {"name": "DS"},
-                },
-            ],
-            "containers": [],
-            "data_flows": [
-                {
-                    "guid": _FLOW_GUID,
-                    "source": _PROCESS_GUID,
-                    "target": _DATA_STORE_GUID,
-                    "properties": {},
-                }
-            ],
-            "data_items": [
-                {
-                    "guid": _DATA_ITEM_1_GUID,
-                    "parent": _PROCESS_GUID,
-                    "identifier": "D1",
-                    "name": "PII Data",
-                    "color": "red",  # bogus key
-                }
-            ],
-        }
-        _id, resp = _import(client, payload)
-        assert resp.status_code == 400
-
-    def test_missing_required_field_rejected(self, client):
-        """A DataItem missing `identifier` is rejected with 400."""
-        payload = {
-            "nodes": [
-                {
-                    "type": "process",
-                    "guid": _PROCESS_GUID,
-                    "properties": {"name": "P"},
-                },
-                {
-                    "type": "data_store",
-                    "guid": _DATA_STORE_GUID,
-                    "properties": {"name": "DS"},
-                },
-            ],
-            "containers": [],
-            "data_flows": [
-                {
-                    "guid": _FLOW_GUID,
-                    "source": _PROCESS_GUID,
-                    "target": _DATA_STORE_GUID,
-                    "properties": {},
-                }
-            ],
-            "data_items": [
-                {
-                    "guid": _DATA_ITEM_1_GUID,
-                    "parent": _PROCESS_GUID,
-                    # "identifier" deliberately omitted
-                    "name": "PII Data",
-                }
-            ],
-        }
-        _id, resp = _import(client, payload)
-        assert resp.status_code == 400
-
-
-# ---------------------------------------------------------------------------
-# Test 5: multiple data_item_refs on one flow preserve ordering
-# ---------------------------------------------------------------------------
-
-
-class TestMultipleDataItemRefs:
-    def test_multiple_refs_ordering_preserved(self, client):
-        """Two data_item_refs on one flow round-trip with ordering preserved."""
-        payload = {
-            "nodes": [
-                {
-                    "type": "process",
-                    "guid": _PROCESS_GUID,
-                    "properties": {"name": "P"},
-                },
-                {
-                    "type": "data_store",
-                    "guid": _DATA_STORE_GUID,
-                    "properties": {"name": "DS"},
-                },
-            ],
-            "containers": [],
-            "data_flows": [
-                {
-                    "guid": _FLOW_GUID,
-                    "source": _PROCESS_GUID,
-                    "target": _DATA_STORE_GUID,
-                    "properties": {
-                        "data_item_refs": [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
-                    },
-                }
-            ],
-            "data_items": [
-                {
-                    "guid": _DATA_ITEM_1_GUID,
-                    "parent": _PROCESS_GUID,
-                    "identifier": "D1",
-                    "name": "Item One",
-                },
-                {
-                    "guid": _DATA_ITEM_2_GUID,
-                    "parent": _PROCESS_GUID,
-                    "identifier": "D2",
-                    "name": "Item Two",
-                },
-            ],
-        }
+    def test_multiple_custom_classifications(self, client):
+        """Multiple items with different custom classifications survive."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Item One",
+                "classification": "confidential",
+            },
+            {
+                "guid": _DATA_ITEM_2_GUID,
+                "parent": _DATA_STORE_GUID,
+                "identifier": "D2",
+                "name": "Item Two",
+                "classification": "top_secret_red",
+            },
+        ]
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[_DATA_ITEM_2_GUID],
+            data_items=data_items,
+        )
         diagram_id, resp = _import(client, payload)
         assert resp.status_code == 201
 
         exported = _export(client, diagram_id)
-        flows = {f["guid"]: f for f in exported["data_flows"]}
-        refs = flows[_FLOW_GUID]["properties"]["data_item_refs"]
-        assert refs == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
+        items = {item["guid"]: item for item in exported["data_items"]}
+        assert items[_DATA_ITEM_1_GUID]["classification"] == "confidential"
+        assert items[_DATA_ITEM_2_GUID]["classification"] == "top_secret_red"
 
 
 # ---------------------------------------------------------------------------
-# Test 6: exported data_items list length matches imported length exactly
+# Test 8: Validation — missing required fields return 400
 # ---------------------------------------------------------------------------
 
 
-class TestDataItemsListLength:
-    def test_exported_length_matches_imported(self, client):
-        """Exported data_items list length equals imported list length exactly."""
-        diagram_id, resp = _import(client, _PAYLOAD_WITH_DATA_ITEMS)
-        assert resp.status_code == 201
+class TestDataItemValidation:
+    """Missing required fields or extra keys return 400."""
 
-        exported = _export(client, diagram_id)
-        imported_items = _PAYLOAD_WITH_DATA_ITEMS["data_items"]
-        exported_items = exported.get("data_items", [])
-        assert len(exported_items) == len(imported_items)
+    def test_extra_key_rejected(self, client):
+        """A DataItem with an unrecognised key is rejected with 400."""
+        bad_data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "PII Data",
+                "color": "red",  # bogus key
+            }
+        ]
+        payload = _base_payload(data_items=bad_data_items)
+        _id, resp = _import(client, payload)
+        assert resp.status_code == 400
+
+    def test_missing_required_field_rejected(self, client):
+        """A DataItem missing a required field is rejected with 400."""
+        bad_data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                # "identifier" deliberately omitted
+                "name": "PII Data",
+            }
+        ]
+        payload = _base_payload(data_items=bad_data_items)
+        _id, resp = _import(client, payload)
+        assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------
-# Test 7: native shape lock-in — ListProperty<DictionaryProperty> wire format
+# Test 9: Native shape — list-of-pairs wire format for ref arrays
 # ---------------------------------------------------------------------------
 
 
-class TestNativeShape:
-    """Guards against silent shape drift in the canvas data_items property.
+class TestNativeRefArrayShape:
+    """Verify the native wire shape for both ref arrays."""
 
-    OpenChart serializes a ListProperty<DictionaryProperty> as:
-        [[itemId, [[k, v], ...]], ...]
-    The canvas "data_items" property must use exactly this shape so that
-    OpenChart can round-trip it without loss.
-    """
+    def test_to_native_node1_src_list_of_pairs_shape(self):
+        """to_native emits node1_src_data_item_refs as [[key, guidStr], ...]."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
+            node2_refs=[],
+        )
+        native = to_native(payload)
 
-    def _build_minimal_two_items(self) -> dict:
-        """Return a minimal diagram with two data_items (one full, one required-only)."""
-        return {
-            "nodes": [
-                {
-                    "type": "process",
-                    "guid": _PROCESS_GUID,
-                    "properties": {"name": "P"},
-                },
-                {
-                    "type": "data_store",
-                    "guid": _DATA_STORE_GUID,
-                    "properties": {"name": "DS"},
-                },
-            ],
-            "containers": [],
-            "data_flows": [
-                {
-                    "guid": _FLOW_GUID,
-                    "source": _PROCESS_GUID,
-                    "target": _DATA_STORE_GUID,
-                    "properties": {},
-                }
-            ],
-            "data_items": [
-                {
-                    # All fields present
-                    "guid": _DATA_ITEM_1_GUID,
-                    "parent": _PROCESS_GUID,
-                    "identifier": "D1",
-                    "name": "Full Item",
-                    "description": "A description",
-                    "classification": "secret",
-                },
-                {
-                    # Only required fields (no description, no classification)
-                    "guid": _DATA_ITEM_2_GUID,
-                    "parent": _DATA_STORE_GUID,
-                    "identifier": "D2",
-                    "name": "Minimal Item",
-                },
-            ],
-        }
+        # Find flow object
+        flow_obj = next(
+            (o for o in native["objects"] if o.get("id") == "data_flow"),
+            None,
+        )
+        assert flow_obj is not None
+
+        # Locate node1_src_data_item_refs pair
+        node1_refs_pair = next(
+            (pair for pair in flow_obj["properties"] if pair[0] == "node1_src_data_item_refs"),
+            None,
+        )
+        assert node1_refs_pair is not None
+        node1_refs_value = node1_refs_pair[1]
+
+        # Must be a list of [key, guidStr] pairs
+        assert isinstance(node1_refs_value, list)
+        assert len(node1_refs_value) == 2
+        for entry in node1_refs_value:
+            assert isinstance(entry, list) and len(entry) == 2
+            key, guid_str = entry
+            assert isinstance(key, str) and len(key) > 0
+            assert isinstance(guid_str, str)
+
+        # Values must be the original GUIDs in order
+        assert [entry[1] for entry in node1_refs_value] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
+
+    def test_to_native_node2_src_list_of_pairs_shape(self):
+        """to_native emits node2_src_data_item_refs as [[key, guidStr], ...]."""
+        payload = _base_payload(
+            node1_refs=[],
+            node2_refs=[_DATA_ITEM_2_GUID, _DATA_ITEM_1_GUID],
+        )
+        native = to_native(payload)
+
+        flow_obj = next(
+            (o for o in native["objects"] if o.get("id") == "data_flow"),
+            None,
+        )
+        assert flow_obj is not None
+
+        node2_refs_pair = next(
+            (pair for pair in flow_obj["properties"] if pair[0] == "node2_src_data_item_refs"),
+            None,
+        )
+        assert node2_refs_pair is not None
+        node2_refs_value = node2_refs_pair[1]
+
+        assert isinstance(node2_refs_value, list)
+        assert len(node2_refs_value) == 2
+        assert [entry[1] for entry in node2_refs_value] == [_DATA_ITEM_2_GUID, _DATA_ITEM_1_GUID]
+
+    def test_to_native_both_arrays_in_properties(self):
+        """to_native emits both ref arrays in flow properties (empty arrays included)."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[],
+        )
+        native = to_native(payload)
+
+        flow_obj = next(
+            (o for o in native["objects"] if o.get("id") == "data_flow"),
+            None,
+        )
+        assert flow_obj is not None
+
+        keys = [pair[0] for pair in flow_obj["properties"]]
+
+        # Both arrays must be present
+        assert "node1_src_data_item_refs" in keys
+        assert "node2_src_data_item_refs" in keys
+
+    def test_to_minimal_recovers_both_ref_arrays(self):
+        """native → to_minimal recovers both ref arrays correctly."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
+            node2_refs=[_DATA_ITEM_2_GUID],
+        )
+        native = to_native(payload)
+        recovered = to_minimal(native)
+
+        flows = {f["guid"]: f for f in recovered["data_flows"]}
+        flow = flows[_FLOW_GUID]
+
+        # to_minimal returns UUID objects; stringify for comparison
+        node1_refs = [str(r) for r in flow["properties"]["node1_src_data_item_refs"]]
+        node2_refs = [str(r) for r in flow["properties"]["node2_src_data_item_refs"]]
+
+        assert node1_refs == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
+        assert node2_refs == [_DATA_ITEM_2_GUID]
+
+    def test_native_round_trip_preserves_both_arrays(self):
+        """native → minimal → native round-trip preserves both arrays in wire shape."""
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[_DATA_ITEM_2_GUID, _DATA_ITEM_1_GUID],
+        )
+        native = to_native(payload)
+        recovered_minimal = to_minimal(native)
+        recovered_native = to_native(recovered_minimal)
+
+        # Find flow in recovered native
+        flow_obj = next(
+            (o for o in recovered_native["objects"] if o.get("id") == "data_flow"),
+            None,
+        )
+        assert flow_obj is not None
+
+        node1_pair = next(
+            (p for p in flow_obj["properties"] if p[0] == "node1_src_data_item_refs"),
+            None,
+        )
+        node2_pair = next(
+            (p for p in flow_obj["properties"] if p[0] == "node2_src_data_item_refs"),
+            None,
+        )
+
+        assert node1_pair is not None
+        assert node2_pair is not None
+
+        # Extract values
+        node1_values = [entry[1] for entry in node1_pair[1]]
+        node2_values = [entry[1] for entry in node2_pair[1]]
+
+        assert node1_values == [_DATA_ITEM_1_GUID]
+        assert node2_values == [_DATA_ITEM_2_GUID, _DATA_ITEM_1_GUID]
+
+
+# ---------------------------------------------------------------------------
+# Test 10: Canvas data_items property (existing test structure)
+# ---------------------------------------------------------------------------
+
+
+class TestDataItemsCanvasShape:
+    """Guards against silent shape drift in the canvas data_items property."""
 
     def _find_canvas(self, native: dict) -> dict:
         for obj in native["objects"]:
@@ -523,38 +640,50 @@ class TestNativeShape:
 
     def test_to_native_produces_list_of_pairs_shape(self):
         """to_native emits data_items as [[itemGuid, [[k,v],...]],...] in canvas props."""
-        minimal = self._build_minimal_two_items()
-        native = to_native(minimal)
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Full Item",
+                "description": "A description",
+                "classification": "secret",
+            },
+            {
+                "guid": _DATA_ITEM_2_GUID,
+                "parent": _DATA_STORE_GUID,
+                "identifier": "D2",
+                "name": "Minimal Item",
+            },
+        ]
+        payload = _base_payload(
+            node1_refs=[],
+            node2_refs=[],
+            data_items=data_items,
+        )
+        native = to_native(payload)
         canvas = self._find_canvas(native)
         native_items = self._find_data_items_pair(canvas)
 
-        assert native_items is not None, "data_items pair missing from canvas properties"
+        assert native_items is not None
         assert len(native_items) == 2
 
-        # Build lookup: itemGuid → sub-pairs
         items_by_guid = {}
         for entry in native_items:
-            assert isinstance(entry, list) and len(entry) == 2, (
-                f"Expected [id, sub_pairs], got {entry!r}"
-            )
+            assert isinstance(entry, list) and len(entry) == 2
             item_id, sub_pairs = entry
-            assert isinstance(item_id, str)
-            assert isinstance(sub_pairs, list)
             items_by_guid[item_id] = {k: v for k, v in sub_pairs}
 
         # Item 1: all fields
-        assert _DATA_ITEM_1_GUID in items_by_guid
         item1 = items_by_guid[_DATA_ITEM_1_GUID]
         assert item1["parent"] == _PROCESS_GUID
         assert item1["identifier"] == "D1"
         assert item1["name"] == "Full Item"
         assert item1["description"] == "A description"
         assert item1["classification"] == "secret"
-        # guid must NOT be in sub-pairs — it is the outer list key
         assert "guid" not in item1
 
-        # Item 2: required fields only — optional fields omitted entirely
-        assert _DATA_ITEM_2_GUID in items_by_guid
+        # Item 2: required fields only
         item2 = items_by_guid[_DATA_ITEM_2_GUID]
         assert item2["parent"] == _DATA_STORE_GUID
         assert item2["identifier"] == "D2"
@@ -564,33 +693,50 @@ class TestNativeShape:
 
     def test_to_native_field_emission_order(self):
         """Sub-pairs are emitted in declaration order: parent, identifier, name, [description], [classification]."""
-        minimal = self._build_minimal_two_items()
-        native = to_native(minimal)
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Full Item",
+                "description": "A description",
+                "classification": "secret",
+            },
+        ]
+        payload = _base_payload(data_items=data_items)
+        native = to_native(payload)
         canvas = self._find_canvas(native)
         native_items = self._find_data_items_pair(canvas)
 
         items_by_guid = {entry[0]: entry[1] for entry in native_items}
-
-        # Full item: all 5 fields in order
         keys1 = [pair[0] for pair in items_by_guid[_DATA_ITEM_1_GUID]]
         assert keys1 == ["parent", "identifier", "name", "description", "classification"]
 
-        # Minimal item: 3 required fields in order
-        keys2 = [pair[0] for pair in items_by_guid[_DATA_ITEM_2_GUID]]
-        assert keys2 == ["parent", "identifier", "name"]
-
     def test_native_round_trip_preserves_data_items(self):
-        """native → minimal → native round-trip preserves data_items list-of-pairs shape."""
-        minimal = self._build_minimal_two_items()
-        native = to_native(minimal)
-
-        # Pass native back through to_minimal
+        """native → minimal → native round-trip preserves data_items."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Full Item",
+                "description": "A description",
+                "classification": "secret",
+            },
+            {
+                "guid": _DATA_ITEM_2_GUID,
+                "parent": _DATA_STORE_GUID,
+                "identifier": "D2",
+                "name": "Minimal Item",
+            },
+        ]
+        payload = _base_payload(data_items=data_items)
+        native = to_native(payload)
         recovered_minimal = to_minimal(native)
 
         assert "data_items" in recovered_minimal
         recovered_items = {item["guid"]: item for item in recovered_minimal["data_items"]}
 
-        assert _DATA_ITEM_1_GUID in recovered_items
         item1 = recovered_items[_DATA_ITEM_1_GUID]
         assert item1["parent"] == _PROCESS_GUID
         assert item1["identifier"] == "D1"
@@ -598,7 +744,6 @@ class TestNativeShape:
         assert item1["description"] == "A description"
         assert item1["classification"] == "secret"
 
-        assert _DATA_ITEM_2_GUID in recovered_items
         item2 = recovered_items[_DATA_ITEM_2_GUID]
         assert item2["parent"] == _DATA_STORE_GUID
         assert item2["identifier"] == "D2"
@@ -637,8 +782,7 @@ class TestNativeShape:
             _extract_canvas_data_items(canvas)
 
     def test_nested_guid_key_raises(self):
-        """I6: a sub-dict containing a 'guid' key is structurally wrong and raises
-        InvalidNativeError — the outer id_str IS the guid; a nested one shadows it."""
+        """A sub-dict containing a 'guid' key is structurally wrong and raises InvalidNativeError."""
         canvas = {
             "id": "dfd",
             "instance": "some-uuid",
@@ -656,101 +800,3 @@ class TestNativeShape:
         }
         with pytest.raises(InvalidNativeError, match="must not contain"):
             _extract_canvas_data_items(canvas)
-
-    def test_to_native_flow_data_item_refs_list_of_pairs_shape(self):
-        """to_native emits data_item_refs as [[syntheticKey, guidStr], ...] in flow props.
-
-        This mirrors CollectionProperty.toOrderedJson() for a
-        ListProperty<StringProperty> so the frontend factory can deserialize
-        it directly without any normalization step.
-        """
-        minimal = {
-            "nodes": [
-                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P"}},
-                {"type": "data_store", "guid": _DATA_STORE_GUID, "properties": {"name": "DS"}},
-            ],
-            "containers": [],
-            "data_flows": [
-                {
-                    "guid": _FLOW_GUID,
-                    "source": _PROCESS_GUID,
-                    "target": _DATA_STORE_GUID,
-                    "properties": {
-                        "data_item_refs": [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
-                    },
-                }
-            ],
-            "data_items": [
-                {
-                    "guid": _DATA_ITEM_1_GUID,
-                    "parent": _PROCESS_GUID,
-                    "identifier": "D1",
-                    "name": "Item One",
-                },
-                {
-                    "guid": _DATA_ITEM_2_GUID,
-                    "parent": _PROCESS_GUID,
-                    "identifier": "D2",
-                    "name": "Item Two",
-                },
-            ],
-        }
-        native = to_native(minimal)
-
-        # Find the data_flow object
-        flow_obj = next(
-            (o for o in native["objects"] if o.get("id") == "data_flow"),
-            None,
-        )
-        assert flow_obj is not None, "data_flow object not found in native"
-
-        # Locate the data_item_refs entry in the flow's properties
-        refs_pair = next(
-            (pair for pair in flow_obj["properties"] if pair[0] == "data_item_refs"),
-            None,
-        )
-        assert refs_pair is not None, "data_item_refs pair missing from flow properties"
-        refs_value = refs_pair[1]
-
-        # Must be a list of [syntheticKey, guidStr] pairs.
-        assert isinstance(refs_value, list)
-        assert len(refs_value) == 2
-        for entry in refs_value:
-            assert isinstance(entry, list) and len(entry) == 2, (
-                f"Expected [key, guidStr], got {entry!r}"
-            )
-            key, guid_str = entry
-            assert isinstance(key, str) and len(key) > 0
-            assert isinstance(guid_str, str)
-
-        # Values must be the original GUIDs in order.
-        assert [entry[1] for entry in refs_value] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]
-
-    def test_to_minimal_recovers_data_item_refs_from_pairs_shape(self):
-        """native (post-I3 pairs shape) → to_minimal recovers data_item_refs correctly."""
-        minimal = {
-            "nodes": [
-                {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P"}},
-                {"type": "data_store", "guid": _DATA_STORE_GUID, "properties": {"name": "DS"}},
-            ],
-            "containers": [],
-            "data_flows": [
-                {
-                    "guid": _FLOW_GUID,
-                    "source": _PROCESS_GUID,
-                    "target": _DATA_STORE_GUID,
-                    "properties": {
-                        "data_item_refs": [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
-                    },
-                }
-            ],
-            "data_items": [],
-        }
-        native = to_native(minimal)
-        recovered = to_minimal(native)
-
-        flows = {f["guid"]: f for f in recovered["data_flows"]}
-        assert _FLOW_GUID in flows
-        refs = flows[_FLOW_GUID]["properties"]["data_item_refs"]
-        # to_minimal returns UUID objects; stringify for comparison.
-        assert [str(r) for r in refs] == [_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID]

@@ -22,52 +22,52 @@ export class SemanticGraphEdge {
     public crossings: SemanticGraphNode[] = [];
 
     /**
-     * The edge's source node.
+     * The edge's node1 (first node endpoint).
      */
-    private _source: SemanticGraphNode | null;
+    private _node1: SemanticGraphNode | null;
 
     /**
-     * The source anchor's position.
+     * The node1 anchor's position.
      */
-    private _sourceVia: string | null;
+    private _node1Via: string | null;
 
     /**
-     * The edge's target node.
+     * The edge's node2 (second node endpoint).
      */
-    private _target: SemanticGraphNode | null;
+    private _node2: SemanticGraphNode | null;
 
     /**
-     * The target anchor's position.
+     * The node2 anchor's position.
      */
-    private _targetVia: string | null;
+    private _node2Via: string | null;
 
 
     /**
-     * The edge's source node.
+     * The edge's node1 (first node endpoint).
      */
-    public get source(): SemanticGraphNode | null {
-        return this._source;
+    public get node1(): SemanticGraphNode | null {
+        return this._node1;
     }
 
     /**
-     * The source anchor's position.
+     * The node1 anchor's position.
      */
-    public get sourceVia(): string | null {
-        return this._sourceVia;
+    public get node1Via(): string | null {
+        return this._node1Via;
     }
 
     /**
-     * The edge's target node.
+     * The edge's node2 (second node endpoint).
      */
-    public get target(): SemanticGraphNode | null {
-        return this._target;
+    public get node2(): SemanticGraphNode | null {
+        return this._node2;
     }
 
     /**
-     * The target anchor's position.
+     * The node2 anchor's position.
      */
-    public get targetVia(): string | null {
-        return this._targetVia;
+    public get node2Via(): string | null {
+        return this._node2Via;
     }
 
 
@@ -79,10 +79,10 @@ export class SemanticGraphEdge {
     constructor(object: DiagramObject) {
         this.id = object.id;
         this.props = object.properties;
-        this._source = null;
-        this._target = null;
-        this._sourceVia = null;
-        this._targetVia = null;
+        this._node1 = null;
+        this._node2 = null;
+        this._node1Via = null;
+        this._node2Via = null;
     }
 
 }

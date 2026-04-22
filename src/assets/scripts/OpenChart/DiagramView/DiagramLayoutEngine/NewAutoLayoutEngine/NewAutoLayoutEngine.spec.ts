@@ -254,29 +254,29 @@ describe("NewAutoLayoutEngine", () => {
     }
 
     /**
-     * Creates a line stub whose `source` / `target` getters throw when null —
+     * Creates a line stub whose `node1` / `node2` getters throw when null —
      * mirroring `LineView`'s runtime semantics.  `handles` defaults to an
      * empty array so existing tests remain unchanged; pass one or more to
      * exercise the tala-polyline-elbow waypoint pass.
      */
     function makeLineStub(
-        sourceLatch: LatchStub | null,
-        targetLatch: LatchStub | null,
+        node1Latch: LatchStub | null,
+        node2Latch: LatchStub | null,
         handles: HandleStub[] = []
     ) {
         return {
             handles,
-            get source() {
-                if (sourceLatch === null) {
-                    throw new Error("LineView: source latch is null");
+            get node1() {
+                if (node1Latch === null) {
+                    throw new Error("LineView: node1 latch is null");
                 }
-                return sourceLatch;
+                return node1Latch;
             },
-            get target() {
-                if (targetLatch === null) {
-                    throw new Error("LineView: target latch is null");
+            get node2() {
+                if (node2Latch === null) {
+                    throw new Error("LineView: node2 latch is null");
                 }
-                return targetLatch;
+                return node2Latch;
             }
         };
     }
@@ -909,7 +909,7 @@ describe("NewAutoLayoutEngine", () => {
             const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
             const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
-            // Null source latch → line.source getter throws → asRebindableLine returns null.
+            // Null source latch → line.node1 getter throws → asRebindableLine returns null.
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
 
             const line   = makeLineStub(null, tgtLatch);
@@ -1300,7 +1300,7 @@ describe("NewAutoLayoutEngine", () => {
             const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
             const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
 
-            // Null source latch → line.source getter throws → asRebindableLine returns null.
+            // Null source latch → line.node1 getter throws → asRebindableLine returns null.
             const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D0)!);
             const line   = makeLineStub(null, tgtLatch);
             const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);

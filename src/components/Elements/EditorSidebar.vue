@@ -8,6 +8,7 @@
         ref="propertyEditor"
         class="properties-pane"
         :property="selected"
+        :context="fieldContext"
       >
         <template #no-props>
           The selected object has no properties.
@@ -30,6 +31,8 @@
 // Dependencies
 import { defineComponent } from "vue";
 import { useApplicationStore } from "@/stores/ApplicationStore";
+import { LineView } from "@OpenChart/DiagramView";
+import type { BlockView } from "@OpenChart/DiagramView";
 import type { DictionaryProperty } from "@OpenChart/DiagramModel";
 // Components
 import AccordionBox from "@/components/Containers/AccordionBox.vue";
@@ -59,6 +62,25 @@ export default defineComponent({
         return this.application.getSelection[0].properties;
       }
       return undefined;
+    },
+
+    /**
+     * Computes context for data-item ref fields when a Line is selected.
+     * @returns
+     *  Context object keyed by property name, or empty object if no Line selected.
+     */
+    fieldContext(): Record<string, unknown> {
+      const app = this.application;
+      if (app.hasSelection !== 1) return {};
+      const obj = app.getSelection[0];
+      if (!(obj instanceof LineView)) return {};
+      const node1View = obj.node1Object as BlockView | null;
+      const node2View = obj.node2Object as BlockView | null;
+      if (!node1View || !node2View) return {};
+      return {
+        node1_src_data_item_refs: { node1View, node2View, direction: "node1ToNode2" },
+        node2_src_data_item_refs: { node1View, node2View, direction: "node2ToNode1" }
+      };
     }
 
   },

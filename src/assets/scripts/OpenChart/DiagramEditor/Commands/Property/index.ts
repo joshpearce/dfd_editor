@@ -6,7 +6,8 @@ import {
     SetNumberProperty,
     SetDatePropertyTime,
     SetDatePropertyTimezone,
-    SetTupleSubproperty
+    SetTupleSubproperty,
+    AddDataItemRef
 } from "./index.commands";
 import type { DateTime } from "luxon";
 import type {
@@ -137,4 +138,19 @@ export function deleteSubproperty(
     property: ListProperty, id: string
 ): DeleteSubproperty {
     return new DeleteSubproperty(property, id);
+}
+
+/**
+ * Adds a data-item reference to a {@link ListProperty}.
+ * @param property
+ *  The {@link ListProperty}.
+ * @param guid
+ *  The GUID of the data item to reference.
+ * @returns
+ *  A command that represents the action.
+ */
+export function addDataItemRef(
+    property: ListProperty, guid: string
+): AddDataItemRef {
+    return new AddDataItemRef(property, guid);
 }

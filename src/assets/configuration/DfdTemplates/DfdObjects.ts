@@ -153,8 +153,8 @@ export const DfdObjects: DiagramObjectTemplate[] = [
         type: DiagramObjectType.Line,
         handle_template: "generic_handle",
         latch_template: {
-            source: "generic_latch",
-            target: "generic_latch"
+            node1: "generic_latch",
+            node2: "generic_latch"
         },
         properties: {
             name: {
@@ -206,11 +206,19 @@ export const DfdObjects: DiagramObjectTemplate[] = [
                 },
                 default: "false"
             },
-            // GUIDs of canvas-level data items that flow through this edge.
+            // GUIDs of canvas-level data items that flow from node1 to node2.
             // Each entry's key is opaque (auto-generated); the value is the
             // data-item guid as a plain string.
-            data_item_refs: {
-                type: PropertyType.List,
+            node1_src_data_item_refs: {
+                type: PropertyType.DataItemRefList,
+                form: { type: PropertyType.String },
+                default: []
+            },
+            // GUIDs of canvas-level data items that flow from node2 to node1.
+            // Each entry's key is opaque (auto-generated); the value is the
+            // data-item guid as a plain string.
+            node2_src_data_item_refs: {
+                type: PropertyType.DataItemRefList,
                 form: { type: PropertyType.String },
                 default: []
             }

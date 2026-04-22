@@ -41,7 +41,7 @@ export function *traverse<T extends DiagramObject>(
         } else if (obj instanceof Block) {
             children = obj.anchors.values();
         } else if (obj instanceof Line) {
-            children = [obj.source, obj.target, ...obj.handles];
+            children = [obj.node1, obj.node2, ...obj.handles];
         } else {
             continue;
         }
@@ -97,7 +97,7 @@ export function *traverseDFS<T extends DiagramObject>(
         } else if (obj instanceof Block) {
             children = obj.anchors.values();
         } else if (obj instanceof Line) {
-            children = [obj.source, obj.target, ...obj.handles];
+            children = [obj.node1, obj.node2, ...obj.handles];
         } else {
             continue;
         }
@@ -132,7 +132,7 @@ export function *traversePostfix<T extends DiagramObject>(
     } else if (obj instanceof Block) {
         children = obj.anchors.values() as Iterable<T>;
     } else if (obj instanceof Line) {
-        children = [obj.source, obj.target, ...obj.handles] as Iterable<T>;
+        children = [obj.node1, obj.node2, ...obj.handles] as Iterable<T>;
     }
     for (const child of children) {
         yield *traversePostfix<T>(child);

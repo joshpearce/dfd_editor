@@ -319,10 +319,10 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
             // Configure line
             const { addObjectToGroup, attachLatchToAnchor, moveObjectsTo } = EditorCommands;
             execute(addObjectToGroup(line, canvas));
-            execute(moveObjectsTo([line.source, line.target], anchor.x, anchor.y));
-            execute(attachLatchToAnchor(line.source, anchor));
+            execute(moveObjectsTo([line.node1, line.node2], anchor.x, anchor.y));
+            execute(attachLatchToAnchor(line.node1, anchor));
             // Return mover
-            return this.handleLatch(execute, line.target, event);
+            return this.handleLatch(execute, line.node2, event);
         }
     }
 

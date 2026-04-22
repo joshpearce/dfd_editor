@@ -208,20 +208,20 @@ describe("OpenChart", () => {
             });
             it("correctly scales by", async () => {
                 const line = await createTestingLine();
-                line.source.moveTo(5, 5);
-                line.target.moveBy(5, 5);
+                line.node1.moveTo(5, 5);
+                line.node2.moveBy(5, 5);
                 expect(line.handles[0].x).toBe(55);
                 expect(line.handles[0].y).toBe(55);
             });
             it("correctly scales to", async () => {
                 const line = await createTestingLine();
-                line.target.moveTo(20, 20);
+                line.node2.moveTo(20, 20);
                 expect(line.handles[0].x).toBe(10);
                 expect(line.handles[0].y).toBe(10);
             });
             it("correctly computes bounding box", async () => {
                 const line = await createTestingLine();
-                line.target.moveTo(3, 3);
+                line.node2.moveTo(3, 3);
                 expect(line.face.boundingBox).toEqual({
                     xMin: 0, yMin: 0,
                     x: 1.5,  y: 1.5,
@@ -249,19 +249,19 @@ describe("OpenChart", () => {
             it("correctly links to line", async () => {
                 const line = await createTestingLine();
                 const anchor = await createTestingAnchor();
-                anchor.link(line.source);
-                expect(line.source.isLinked(anchor)).toBe(true);
+                anchor.link(line.node1);
+                expect(line.node1.isLinked(anchor)).toBe(true);
             });
             it("moves linked latch", async () => {
                 const line = await createTestingLine();
                 const anchor = await createTestingAnchor();
-                anchor.link(line.source);
+                anchor.link(line.node1);
                 anchor.moveTo(10, 15);
-                expect(line.source.x).toBe(10);
-                expect(line.source.y).toBe(15);
+                expect(line.node1.x).toBe(10);
+                expect(line.node1.y).toBe(15);
                 anchor.moveBy(5, -5);
-                expect(line.source.x).toBe(15);
-                expect(line.source.y).toBe(10);
+                expect(line.node1.x).toBe(15);
+                expect(line.node1.y).toBe(10);
             });
             it("is selectable", async () => {
                 const anchor = await createTestingAnchor();

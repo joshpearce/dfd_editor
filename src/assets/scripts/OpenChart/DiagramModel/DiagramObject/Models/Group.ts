@@ -291,13 +291,13 @@ export class Group extends DiagramObject {
             const clone = line.clone(undefined, instanceMap);
             object.addObject(clone);
             // Link lines
-            const srcAnchor = line.source.anchor;
+            const srcAnchor = line.node1.anchor;
             if (srcAnchor && anchorMap.has(srcAnchor.instance)) {
-                clone.source.link(anchorMap.get(srcAnchor.instance)!);
+                clone.node1.link(anchorMap.get(srcAnchor.instance)!);
             }
-            const trgAnchor = line.target.anchor;
+            const trgAnchor = line.node2.anchor;
             if (trgAnchor && anchorMap.has(trgAnchor.instance)) {
-                clone.target.link(anchorMap.get(trgAnchor.instance)!);
+                clone.node2.link(anchorMap.get(trgAnchor.instance)!);
             }
         }
         return object;

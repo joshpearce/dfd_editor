@@ -202,13 +202,13 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                 object = this.createBaseDiagramObject(template, LineView);
                 // Create latches
                 const latch = template.latch_template;
-                object.source = this.createNewDiagramObject(latch.source, LatchView);
-                object.target = this.createNewDiagramObject(latch.target, LatchView);
+                object.node1 = this.createNewDiagramObject(latch.node1, LatchView);
+                object.node2 = this.createNewDiagramObject(latch.node2, LatchView);
                 // Attach reference handle
                 const handle = template.handle_template;
                 object.addHandle(this.createNewDiagramObject(handle, HandleView));
                 // Provide line volume
-                object.target.moveBy(100, 100);
+                object.node2.moveBy(100, 100);
                 break;
 
             default:

@@ -1,8 +1,8 @@
 /**
  * @file DfdValidator.spec.ts
  *
- * Tests for DfdValidator's `data_item_refs` dangling-ref warning introduced
- * in Step 5 of the data-items-on-canvas plan.
+ * Tests for DfdValidator's per-direction dangling-ref warning on a Flow's
+ * `node1_src_data_item_refs` / `node2_src_data_item_refs` arrays.
  *
  * SCOPE: Only the dangling-ref validator behaviour is tested here.  Existing
  * validation rules (required fields, trust-boundary constraints, edge auth)
@@ -39,8 +39,8 @@ const dfdSchema: DiagramSchemaConfiguration = {
 function connect(line: Line, src: Block, trg: Block): void {
     const srcAnchor = [...src.anchors.values()][0];
     const trgAnchor = [...trg.anchors.values()][0];
-    line.source.link(srcAnchor);
-    line.target.link(trgAnchor);
+    line.node1.link(srcAnchor);
+    line.node2.link(trgAnchor);
 }
 
 /** Sets the required `name` string property on a diagram object. */
@@ -52,7 +52,7 @@ function setName(obj: DiagramObject, name: string): void {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => {
+describe("DfdValidator — ref-array dangling-ref warning (AC5.2, AC5.3)", () => {
 
     let factory: DiagramObjectFactory;
     let validator: DfdValidator;
@@ -66,7 +66,7 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
     // 1. Valid ref — no warning
     // -----------------------------------------------------------------------
 
-    describe("valid ref", () => {
+    describe("valid refs", () => {
 
         it("does not emit a warning when all refs resolve to known data items", () => {
             const file = new DiagramModelFile(factory);
@@ -80,9 +80,9 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             canvas.addObject(flow);
             connect(flow, procA, procB);
 
-            // Add a valid data item and reference it from the flow
+            // Add a valid data item and reference it from the flow in node1 direction
             addDataItem(canvas, "item-1", procA.instance, "D1", "My Item", undefined, "pii");
-            addDataItemRef(flow, "item-1");
+            addDataItemRef(flow, "item-1", "node1");
 
             // Set required fields to avoid unrelated errors
             setName(procA, "ProcA");
@@ -96,15 +96,45 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             expect(danglingWarnings).toHaveLength(0);
         });
 
+        it("does not warn when both directions are populated and valid", () => {
+            const file = new DiagramModelFile(factory);
+            const canvas = file.canvas;
+            const procA = factory.createNewDiagramObject("process", Block);
+            const procB = factory.createNewDiagramObject("process", Block);
+            canvas.addObject(procA);
+            canvas.addObject(procB);
+
+            const flow = factory.createNewDiagramObject("data_flow", Line);
+            canvas.addObject(flow);
+            connect(flow, procA, procB);
+
+            // Add two data items and reference them in opposite directions
+            addDataItem(canvas, "item-a", procA.instance, "D1", "Item A");
+            addDataItem(canvas, "item-b", procB.instance, "D2", "Item B");
+            addDataItemRef(flow, "item-a", "node1");
+            addDataItemRef(flow, "item-b", "node2");
+
+            setName(procA, "ProcA");
+            setName(procB, "ProcB");
+            setName(flow, "Flow1");
+
+            validator.run(file);
+
+            const danglingWarnings = validator.getWarnings().filter(
+                w => w.reason.includes("unknown data item")
+            );
+            expect(danglingWarnings).toHaveLength(0);
+        });
+
     });
 
     // -----------------------------------------------------------------------
-    // 2. Dangling ref — warning emitted
+    // 2. Dangling ref — warning emitted per-direction
     // -----------------------------------------------------------------------
 
-    describe("dangling ref", () => {
+    describe("dangling refs — per-direction warnings (AC5.2)", () => {
 
-        it("emits a warning (not an error) for a ref that doesn't match any data item", () => {
+        it("emits a warning (not an error) for a ref in node1 direction that doesn't match any data item", () => {
             const file = new DiagramModelFile(factory);
             const canvas = file.canvas;
             const procA = factory.createNewDiagramObject("process", Block);
@@ -118,8 +148,8 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
 
             // Add a VALID data item to the canvas
             addDataItem(canvas, "item-1", procA.instance, "D1", "My Item");
-            // Add a DANGLING ref (not in canvas data_items)
-            addDataItemRef(flow, "dangling-guid-xyz");
+            // Add a DANGLING ref in node1 direction (not in canvas data_items)
+            addDataItemRef(flow, "dangling-guid-xyz", "node1");
 
             setName(procA, "ProcA");
             setName(procB, "ProcB");
@@ -133,10 +163,40 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             const danglingWarnings = warnings.filter(w => w.reason.includes("unknown data item"));
             expect(danglingWarnings).toHaveLength(1);
             expect(danglingWarnings[0].reason).toContain("dangling-guid-xyz");
+            expect(danglingWarnings[0].reason).toContain("node1_src_data_item_refs");
 
             // Must not have been added to errors
             const danglingErrors = errors.filter(e => e.reason.includes("unknown data item"));
             expect(danglingErrors).toHaveLength(0);
+        });
+
+        it("includes direction key name for node2 direction dangling ref", () => {
+            const file = new DiagramModelFile(factory);
+            const canvas = file.canvas;
+            const procA = factory.createNewDiagramObject("process", Block);
+            const procB = factory.createNewDiagramObject("process", Block);
+            canvas.addObject(procA);
+            canvas.addObject(procB);
+
+            const flow = factory.createNewDiagramObject("data_flow", Line);
+            canvas.addObject(flow);
+            connect(flow, procA, procB);
+
+            addDataItem(canvas, "item-1", procA.instance, "D1", "My Item");
+            // Dangling ref in node2 direction
+            addDataItemRef(flow, "dangling-xyz", "node2");
+
+            setName(procA, "ProcA");
+            setName(procB, "ProcB");
+            setName(flow, "Flow1");
+
+            validator.run(file);
+
+            const danglingWarnings = validator.getWarnings().filter(
+                w => w.reason.includes("unknown data item")
+            );
+            expect(danglingWarnings).toHaveLength(1);
+            expect(danglingWarnings[0].reason).toContain("node2_src_data_item_refs");
         });
 
         it("does not block validation — inValidState() is true even with dangling refs", () => {
@@ -152,7 +212,7 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             connect(flow, procA, procB);
 
             addDataItem(canvas, "item-1", procA.instance, "D1", "My Item");
-            addDataItemRef(flow, "dangling-guid-xyz");
+            addDataItemRef(flow, "dangling-guid-xyz", "node1");
 
             setName(procA, "ProcA");
             setName(procB, "ProcB");
@@ -164,7 +224,7 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             expect(validator.inValidState()).toBe(true);
         });
 
-        it("emits one warning per dangling ref (multiple dangling refs)", () => {
+        it("emits one warning per dangling ref (multiple dangling refs in different directions)", () => {
             const file = new DiagramModelFile(factory);
             const canvas = file.canvas;
             const procA = factory.createNewDiagramObject("process", Block);
@@ -177,9 +237,9 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             connect(flow, procA, procB);
 
             addDataItem(canvas, "item-1", procA.instance, "D1", "My Item");
-            // Two dangling refs
-            addDataItemRef(flow, "dangling-a");
-            addDataItemRef(flow, "dangling-b");
+            // Two dangling refs in opposite directions
+            addDataItemRef(flow, "dangling-a", "node1");
+            addDataItemRef(flow, "dangling-b", "node2");
 
             setName(procA, "ProcA");
             setName(procB, "ProcB");
@@ -191,6 +251,35 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
                 w => w.reason.includes("unknown data item")
             );
             expect(danglingWarnings).toHaveLength(2);
+            const node1Warnings = danglingWarnings.filter(w => w.reason.includes("node1_src"));
+            const node2Warnings = danglingWarnings.filter(w => w.reason.includes("node2_src"));
+            expect(node1Warnings).toHaveLength(1);
+            expect(node2Warnings).toHaveLength(1);
+        });
+
+        it("does not warn when both ref arrays are empty (AC5.3)", () => {
+            const file = new DiagramModelFile(factory);
+            const canvas = file.canvas;
+            const procA = factory.createNewDiagramObject("process", Block);
+            const procB = factory.createNewDiagramObject("process", Block);
+            canvas.addObject(procA);
+            canvas.addObject(procB);
+
+            const flow = factory.createNewDiagramObject("data_flow", Line);
+            canvas.addObject(flow);
+            connect(flow, procA, procB);
+
+            // No data items on canvas; no refs on flow (both directions empty)
+            setName(procA, "ProcA");
+            setName(procB, "ProcB");
+            setName(flow, "Flow1");
+
+            validator.run(file);
+
+            const danglingWarnings = validator.getWarnings().filter(
+                w => w.reason.includes("unknown data item")
+            );
+            expect(danglingWarnings).toHaveLength(0);
         });
 
     });
@@ -218,7 +307,7 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             connect(flow, procA, procB);
 
             // No data items on canvas; add a ref that is dangling by definition
-            addDataItemRef(flow, "some-guid");
+            addDataItemRef(flow, "some-guid", "node1");
 
             setName(procA, "ProcA");
             setName(procB, "ProcB");
@@ -279,8 +368,8 @@ describe("DfdValidator — data_item_refs dangling-ref warning (Step 5)", () => 
             connect(flow, procA, procB);
 
             addDataItem(canvas, "valid-guid", procA.instance, "D1", "Valid");
-            addDataItemRef(flow, "valid-guid");
-            addDataItemRef(flow, "dangling-guid");
+            addDataItemRef(flow, "valid-guid", "node1");
+            addDataItemRef(flow, "dangling-guid", "node1");
 
             setName(procA, "ProcA");
             setName(procB, "ProcB");

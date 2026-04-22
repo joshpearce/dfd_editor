@@ -13,11 +13,11 @@ This directory is what turns the upstream attack-flow builder scaffold into a DF
   - Every non-base template has exactly one `is_representative: true` property (currently `name`).
   - Every template name referenced by a theme `designs` map corresponds to a real template (and vice versa for renderable types).
   - `DfdCanvas` carries a `data_items` `ListProperty<DictionaryProperty>` keyed by item GUID; each sub-dict has `parent`, `identifier`, `name` (required) plus optional `description` and `classification`.
-  - `data_flow` template carries `data_item_refs`: `ListProperty<StringProperty>` (default `[]`), holding GUIDs of canvas-level data items that flow through the edge.
+  - `data_flow` template carries TWO `ListProperty<StringProperty>` properties — `node1_src_data_item_refs` and `node2_src_data_item_refs` (both default `[]`) — holding the GUIDs of data items flowing in each direction of the bidirectional Flow. Both are declared with `PropertyType.DataItemRefList` (a `ListProperty` subclass, serialization-identical to `List`) so that `PropertyEditor` dispatches to the purpose-built `DataItemRefListField.vue` when a single `data_flow` is selected, instead of the generic `ListField`.
   - `DfdPublisher` emits `{ nodes, edges }` JSON via `SemanticAnalyzer.toGraph`, with node `parent` and edge `crosses` preserved — so trust-boundary containment and crossings round-trip.
   - `DfdFilePreprocessor` is currently pass-through (no legacy migration).
   - `DfdCommandProcessor` is currently pass-through (returns `undefined`).
-  - Both themes assign `FaceType.DynamicLine` to `data_flow`. The `data_item_refs` property still round-trips (schema, publisher, preprocessor, validator all intact) for a future properties-panel / hover-tooltip feature.
+  - Both themes assign `FaceType.DynamicLine` to `data_flow`. Both ref arrays round-trip through schema, publisher, preprocessor, validator for properties-panel editing and per-direction arrow rendering.
 - **Expects**: OpenChart's `DiagramObjectType`, `PropertyType`, `FaceType`, `FaceDesign`, `CanvasTemplate`, `DiagramObjectTemplate`, `DiagramThemeConfiguration` contracts from `@OpenChart/*`; `AppConfiguration`, `FilePublisher`, `FilePreprocessor`, `FileValidator` from `src/assets/scripts/Application/`.
 
 ## Dependencies
@@ -36,7 +36,7 @@ This directory is what turns the upstream attack-flow builder scaffold into a DF
 - Every `name` appearing in `DfdObjects` / `BaseTemplates` / `DfdCanvas` must have a matching entry in each theme's `designs` map.
 - `data_flow.handle_template` and `latch_template` names must resolve to entries in `BaseTemplates`.
 - `DfdValidator.PRIVILEGE_RANK` keys must stay in sync with the `trust_boundary.privilege_level` enum options.
-- `data_item_refs` GUIDs must resolve to entries in the canvas `data_items` list; dangling refs produce validator warnings (non-blocking). `DfdValidator.validateDataItemRefs` enforces this.
+- For dangling-ref detection: any ref GUID in either `node1_src_data_item_refs` or `node2_src_data_item_refs` must resolve to an entry in the canvas `data_items` list; dangling refs produce per-direction validator warnings. `DfdValidator.validateDataItemRefs` uses `DataItemLookup.readFlowRefs` and emits separate warnings per direction.
 
 ## Key Files
 - `app.configuration.ts` — single plug-in point assembling schema, themes, and processor factories into the exported `AppConfiguration`.

@@ -36,14 +36,14 @@ export class LineView extends Line implements ViewObject {
     declare protected _parent: DiagramObjectView | null;
 
     /**
-     * The line's (internal) source latch.
+     * The line's (internal) node1 latch.
      */
-    declare protected _sourceLatch: LatchView | null;
+    declare protected _node1Latch: LatchView | null;
 
     /**
-     * The line's (internal) target latch.
+     * The line's (internal) node2 latch.
      */
-    declare protected _targetLatch: LatchView | null;
+    declare protected _node2Latch: LatchView | null;
 
     /**
      * The line's (internal) handles.
@@ -58,45 +58,45 @@ export class LineView extends Line implements ViewObject {
     }
 
     /**
-     * The line's source latch.
+     * The line's node1 latch.
      */
-    public get source(): LatchView {
-        return super.source as LatchView;
+    public get node1(): LatchView {
+        return super.node1 as LatchView;
     }
 
     /**
-     * The line's source latch.
+     * The line's node1 latch.
      */
-    public set source(latch: LatchView | null) {
-        this.setSource(latch);
+    public set node1(latch: LatchView | null) {
+        this.setNode1(latch);
     }
 
     /**
-     * The line's source object.
+     * The line's node1 object.
      */
-    public get sourceObject(): DiagramObjectView | null {
-        return super.sourceObject as DiagramObjectView | null;
+    public get node1Object(): DiagramObjectView | null {
+        return super.node1Object as DiagramObjectView | null;
     }
 
     /**
-     * The line's target latch.
+     * The line's node2 latch.
      */
-    public get target(): LatchView {
-        return super.target as LatchView;
+    public get node2(): LatchView {
+        return super.node2 as LatchView;
     }
 
     /**
-     * The line's target latch.
+     * The line's node2 latch.
      */
-    public set target(latch: LatchView | null) {
-        this.setTarget(latch);
+    public set node2(latch: LatchView | null) {
+        this.setNode2(latch);
     }
 
     /**
-     * The line's target object.
+     * The line's node2 object.
      */
-    public get targetObject(): DiagramObjectView | null {
-        return super.targetObject as DiagramObjectView | null;
+    public get node2Object(): DiagramObjectView | null {
+        return super.node2Object as DiagramObjectView | null;
     }
 
     /**
@@ -337,8 +337,8 @@ export class LineView extends Line implements ViewObject {
      *  context of this library.
      */
     public calculateLayout(): void {
-        this.source.calculateLayout();
-        this.target.calculateLayout();
+        this.node1.calculateLayout();
+        this.node2.calculateLayout();
         for (const handle of this.handles) {
             handle.calculateLayout();
         }

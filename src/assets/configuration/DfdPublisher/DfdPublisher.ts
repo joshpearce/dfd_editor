@@ -1,6 +1,6 @@
-import { DiagramModelFile, ListProperty, SemanticAnalyzer } from "@OpenChart/DiagramModel";
+import { DiagramModelFile, SemanticAnalyzer } from "@OpenChart/DiagramModel";
 import type { Canvas } from "@OpenChart/DiagramModel";
-import { readDataItems } from "@OpenChart/DiagramModel/DataItemLookup";
+import { readDataItems, readFlowRefs } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { DataItem } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { FilePublisher } from "@/assets/scripts/Application";
 
@@ -28,16 +28,18 @@ class DfdPublisher implements FilePublisher {
         }
 
         for (const [id, edge] of graph.edges) {
-            const dataItemRefs = this.projectDataItemRefs(edge.props.value.get("data_item_refs"));
+            // Emit both ref arrays as separate fields, always (even when empty).
+            // AC2.4 requires empty-both-sides flows to survive round-trip and be
+            // emitted in the output.
+            const flowRefs = readFlowRefs(edge.props);
             const edgeRecord: Record<string, unknown> = {
                 id,
-                source: edge.source?.instance ?? null,
-                target: edge.target?.instance ?? null,
-                crosses: edge.crossings.map(n => n.instance)
+                node1: edge.node1?.instance ?? null,
+                node2: edge.node2?.instance ?? null,
+                crosses: edge.crossings.map(n => n.instance),
+                node1_src_data_item_refs: flowRefs.node1ToNode2,
+                node2_src_data_item_refs: flowRefs.node2ToNode1
             };
-            if (dataItemRefs.length > 0) {
-                edgeRecord["data_item_refs"] = dataItemRefs;
-            }
             edges.push(edgeRecord);
         }
 
@@ -64,27 +66,6 @@ class DfdPublisher implements FilePublisher {
      */
     private projectCanvasDataItems(canvas: Canvas): DataItem[] {
         return readDataItems(canvas);
-    }
-
-    /**
-     * Projects a flow's data_item_refs ListProperty to a string[] of GUIDs.
-     * @param prop
-     *  The data_item_refs property (may be undefined for legacy flows).
-     * @returns
-     *  Ordered list of data-item GUIDs; empty array if none.
-     */
-    private projectDataItemRefs(prop: unknown): string[] {
-        if (!(prop instanceof ListProperty)) {
-            return [];
-        }
-        const refs: string[] = [];
-        for (const [, entry] of prop.value) {
-            const val = entry.toJson();
-            if (typeof val === "string") {
-                refs.push(val);
-            }
-        }
-        return refs;
     }
 
     /**

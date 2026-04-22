@@ -2,7 +2,7 @@
  * @file DataItemLookup.spec.ts
  *
  * Unit tests for the DataItemLookup helper module.
- * Covers dataItemsForParent, readDataItemRefs, readDataItems,
+ * Covers dataItemsForParent, readFlowRefs, readDataItems,
  * and narrowClassification.
  *
  * Schema and addDataItem helper are inlined here to avoid importing from
@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
     dataItemsForParent,
-    readDataItemRefs,
+    readFlowRefs,
     readDataItems,
     narrowClassification
 } from "./DataItemLookup";
@@ -65,10 +65,15 @@ const minimalTemplates: DiagramObjectTemplate[] = [
         name: "data_flow",
         type: DiagramObjectType.Line,
         handle_template: "generic_handle",
-        latch_template: { source: "generic_latch", target: "generic_latch" },
+        latch_template: { node1: "generic_latch", node2: "generic_latch" },
         properties: {
             name: { type: PropertyType.String, is_representative: true },
-            data_item_refs: {
+            node1_src_data_item_refs: {
+                type: PropertyType.List,
+                form: { type: PropertyType.String },
+                default: []
+            },
+            node2_src_data_item_refs: {
                 type: PropertyType.List,
                 form: { type: PropertyType.String },
                 default: []
@@ -194,29 +199,31 @@ describe("dataItemsForParent", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: readDataItemRefs
+// Tests: readFlowRefs (bidirectional per-direction arrays)
 // ---------------------------------------------------------------------------
 
-describe("readDataItemRefs", () => {
+describe("readFlowRefs", () => {
 
     beforeEach(() => {
         factory = new DiagramObjectFactory(dfdSchema);
         canvas = new DiagramModelFile(factory).canvas;
     });
 
-    it("returns empty array when object has no data_item_refs property", () => {
-        // A block template has no data_item_refs, so the helper should return [].
+    it("returns both arrays empty when object has no ref properties", () => {
+        // A block template has no ref properties, so the helper should return { node1ToNode2: [], node2ToNode1: [] }.
         const block = factory.createNewDiagramObject("process", Block);
         canvas.addObject(block);
-        expect(readDataItemRefs(block.properties)).toHaveLength(0);
+        const result = readFlowRefs(block.properties);
+        expect(result.node1ToNode2).toEqual([]);
+        expect(result.node2ToNode1).toEqual([]);
     });
 
-    it("returns all non-empty guid strings from data_item_refs", () => {
+    it("returns node1ToNode2 refs when only node1_src_data_item_refs is populated", () => {
         const flow = factory.createNewDiagramObject("data_flow", Line);
         canvas.addObject(flow);
-        const refsProp = flow.properties.value.get("data_item_refs");
+        const refsProp = flow.properties.value.get("node1_src_data_item_refs");
         if (!(refsProp instanceof ListProperty)) {
-            throw new Error("data_item_refs not a ListProperty");
+            throw new Error("node1_src_data_item_refs not a ListProperty");
         }
         // Add two entries
         const e1 = refsProp.createListItem() as StringProperty;
@@ -226,32 +233,72 @@ describe("readDataItemRefs", () => {
         e2.setValue("guid-2");
         refsProp.addProperty(e2);
 
-        const guids = readDataItemRefs(flow.properties);
-        expect(guids).toEqual(["guid-1", "guid-2"]);
+        const result = readFlowRefs(flow.properties);
+        expect(result.node1ToNode2).toEqual(["guid-1", "guid-2"]);
+        expect(result.node2ToNode1).toEqual([]);
     });
 
-    it("filters out empty-string entries", () => {
+    it("returns node2ToNode1 refs when only node2_src_data_item_refs is populated", () => {
         const flow = factory.createNewDiagramObject("data_flow", Line);
         canvas.addObject(flow);
-        const refsProp = flow.properties.value.get("data_item_refs");
+        const refsProp = flow.properties.value.get("node2_src_data_item_refs");
         if (!(refsProp instanceof ListProperty)) {
-            throw new Error("data_item_refs not a ListProperty");
+            throw new Error("node2_src_data_item_refs not a ListProperty");
         }
-        const e1 = refsProp.createListItem() as StringProperty;
-        e1.setValue("");
-        refsProp.addProperty(e1);
-        const e2 = refsProp.createListItem() as StringProperty;
-        e2.setValue("guid-real");
-        refsProp.addProperty(e2);
+        const e = refsProp.createListItem() as StringProperty;
+        e.setValue("guid-b");
+        refsProp.addProperty(e);
 
-        const guids = readDataItemRefs(flow.properties);
-        expect(guids).toEqual(["guid-real"]);
+        const result = readFlowRefs(flow.properties);
+        expect(result.node1ToNode2).toEqual([]);
+        expect(result.node2ToNode1).toEqual(["guid-b"]);
     });
 
-    it("returns empty array when data_item_refs list is empty", () => {
+    it("returns both arrays populated when both ref properties have entries", () => {
         const flow = factory.createNewDiagramObject("data_flow", Line);
         canvas.addObject(flow);
-        expect(readDataItemRefs(flow.properties)).toHaveLength(0);
+
+        // Populate node1 direction
+        const node1Prop = flow.properties.value.get("node1_src_data_item_refs") as ListProperty;
+        const e1 = node1Prop.createListItem() as StringProperty;
+        e1.setValue("guid-a");
+        node1Prop.addProperty(e1);
+
+        // Populate node2 direction
+        const node2Prop = flow.properties.value.get("node2_src_data_item_refs") as ListProperty;
+        const e2 = node2Prop.createListItem() as StringProperty;
+        e2.setValue("guid-b");
+        node2Prop.addProperty(e2);
+
+        const result = readFlowRefs(flow.properties);
+        expect(result.node1ToNode2).toEqual(["guid-a"]);
+        expect(result.node2ToNode1).toEqual(["guid-b"]);
+    });
+
+    it("filters out empty-string entries from both directions", () => {
+        const flow = factory.createNewDiagramObject("data_flow", Line);
+        canvas.addObject(flow);
+
+        // Add empty and real entries to node1
+        const node1Prop = flow.properties.value.get("node1_src_data_item_refs") as ListProperty;
+        const e1 = node1Prop.createListItem() as StringProperty;
+        e1.setValue("");
+        node1Prop.addProperty(e1);
+        const e2 = node1Prop.createListItem() as StringProperty;
+        e2.setValue("guid-real");
+        node1Prop.addProperty(e2);
+
+        const result = readFlowRefs(flow.properties);
+        expect(result.node1ToNode2).toEqual(["guid-real"]);
+        expect(result.node2ToNode1).toEqual([]);
+    });
+
+    it("returns empty arrays when both ref lists are empty", () => {
+        const flow = factory.createNewDiagramObject("data_flow", Line);
+        canvas.addObject(flow);
+        const result = readFlowRefs(flow.properties);
+        expect(result.node1ToNode2).toEqual([]);
+        expect(result.node2ToNode1).toEqual([]);
     });
 
 });

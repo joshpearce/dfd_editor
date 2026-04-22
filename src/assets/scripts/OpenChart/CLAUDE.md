@@ -28,8 +28,9 @@ abandoned; treat this directory as first-party code.
   `"tala"`); `DiagramLayoutEngine` (sync interface) and
   `AsyncDiagramLayoutEngine` (async interface); `computeFitCamera`
   (viewport-fit helper used by `MoveCameraToObjects`); `DataItemLookup`
-  helpers (`readDataItems`, `dataItemsForParent`, `readDataItemRefs`,
-  `hashDataItems`, `narrowClassification`, `DataItem` /
+  helpers (`readDataItems`, `dataItemsForParent`, `readFlowRefs` (returns
+  `{ node1ToNode2, node2ToNode1 }` per-direction ref arrays for a
+  bidirectional Flow), `hashDataItems`, `narrowClassification`, `DataItem` /
   `PillClassificationKey` types, plus `CHIP_PAD_X_OF_HEIGHT` /
   `CHIP_BASELINE_OF_HEIGHT` shared chip-geometry constants) from
   `DiagramModel/DataItemLookup.ts` — pure model helpers, no DOM/View
@@ -75,7 +76,8 @@ abandoned; treat this directory as first-party code.
 - `DiagramModel/` — model classes (Canvas, Block, Line, Group, Anchor,
   Latch, Handle), factory, serializer, schema config, semantic analysis;
   `DataItemLookup.ts` — pure helpers for reading canvas `data_items` and
-  resolving `data_item_refs` (no DOM/View imports).
+  resolving a Flow's `node1_src_data_item_refs` / `node2_src_data_item_refs`
+  via `readFlowRefs` (no DOM/View imports).
 - `DiagramView/` — Face system, renderers, view factory,
   `DiagramLayoutEngine/` (incl. `GroupBoundsEngine` and
   `NewAutoLayoutEngine/` — the async TALA/D2 engine), style-aware

@@ -2,15 +2,16 @@
  * @file DfdFilePreprocessor.spec.ts
  *
  * Verifies that DfdFilePreprocessor correctly passes through native dfd_v1
- * files.  Since the backend now emits `data_item_refs` in the correct
- * ListProperty<StringProperty> wire shape ([[key, guid], ...]), the
- * preprocessor is pass-through and needs no normalization logic.
+ * files.  Since the backend now emits `node1_src_data_item_refs` and
+ * `node2_src_data_item_refs` in the correct ListProperty<StringProperty> wire
+ * shape ([[key, guid], ...]), the preprocessor is pass-through and needs no
+ * normalization logic.
  *
  * Coverage:
- *   - Legacy files (no data_items / no data_item_refs) pass through without error.
+ *   - Legacy files (no data_items / no ref arrays) pass through without error.
  *   - Canvas data_items in [[guid, [[k,v],...]],...] format pass through and load.
- *   - Flow data_item_refs in [[key, guid],...] format (backend shape) load correctly.
- *   - Empty data_item_refs resolves to a well-formed empty ListProperty.
+ *   - Flow ref arrays in [[key, guid],...] format (backend shape) load correctly.
+ *   - Empty ref arrays resolve to well-formed empty ListProperty instances.
  *   - Non-flow objects (process, etc.) pass through unchanged.
  *   - Round-trip: minimal-format input → preprocessor + factory → publisher
  *     re-emits the same minimal shape (identity).
@@ -71,7 +72,8 @@ function makeNativeFile(overrides: {
         ["encrypted_in_transit", "false"]
     ];
     if (overrides.flowDataItemRefsValue !== undefined) {
-        flowProps.push(["data_item_refs", overrides.flowDataItemRefsValue]);
+        flowProps.push(["node1_src_data_item_refs", overrides.flowDataItemRefsValue]);
+        flowProps.push(["node2_src_data_item_refs", []]);
     }
 
     // Anchors belong to blocks (via `anchors` map) and are NOT listed in the
@@ -111,8 +113,8 @@ function makeNativeFile(overrides: {
             {
                 id: "data_flow",
                 instance: "flow-1",
-                source: "latch-src",
-                target: "latch-tgt",
+                node1: "latch-src",
+                node2: "latch-tgt",
                 handles: [],
                 properties: flowProps as [string, unknown][]
             },
@@ -152,8 +154,8 @@ describe("DfdFilePreprocessor", () => {
     // Legacy / no data_items / no refs
     // -----------------------------------------------------------------------
 
-    describe("legacy files — no data_items / no data_item_refs", () => {
-        it("passes through a file with no data_items or data_item_refs without error", () => {
+    describe("legacy files — no data_items / no ref arrays", () => {
+        it("passes through a file with no data_items or ref arrays without error", () => {
             const native = makeNativeFile({});
             const processed = preprocessor.process(native);
             // Should produce a loadable file.
@@ -169,7 +171,7 @@ describe("DfdFilePreprocessor", () => {
             expect((dataProp as ListProperty).value.size).toBe(0);
         });
 
-        it("flow data_item_refs ListProperty is empty after loading a legacy file", () => {
+        it("flow ref arrays are empty ListProperty instances after loading a legacy file", () => {
             const native = makeNativeFile({});
             const processed = preprocessor.process(native);
             const file = new DiagramModelFile(factory, processed);
@@ -178,10 +180,13 @@ describe("DfdFilePreprocessor", () => {
             const flowObj = [...traverse(file.canvas)]
                 .find(o => o.id === "data_flow");
             expect(flowObj).toBeDefined();
-            const refsProp = flowObj!.properties.value.get("data_item_refs");
-            expect(refsProp).toBeInstanceOf(ListProperty);
-            // Empty refs — resolves to well-formed empty ListProperty.
-            expect((refsProp as ListProperty).value.size).toBe(0);
+            const node1Refs = flowObj!.properties.value.get("node1_src_data_item_refs");
+            const node2Refs = flowObj!.properties.value.get("node2_src_data_item_refs");
+            expect(node1Refs).toBeInstanceOf(ListProperty);
+            expect(node2Refs).toBeInstanceOf(ListProperty);
+            // Empty refs — resolve to well-formed empty ListProperty instances.
+            expect((node1Refs as ListProperty).value.size).toBe(0);
+            expect((node2Refs as ListProperty).value.size).toBe(0);
         });
     });
 
@@ -202,10 +207,10 @@ describe("DfdFilePreprocessor", () => {
     });
 
     // -----------------------------------------------------------------------
-    // Flow data_item_refs — backend [[key, guid], ...] format
+    // Flow ref arrays — backend [[key, guid], ...] format
     // -----------------------------------------------------------------------
 
-    describe("flow data_item_refs — backend [[key, guid], ...] format", () => {
+    describe("flow ref arrays — backend [[key, guid], ...] format", () => {
         it("loads backend-shape [[key, guid], ...] refs into a ListProperty<StringProperty>", () => {
             const guid1 = "aaaa-0001";
             const guid2 = "aaaa-0002";
@@ -217,15 +222,15 @@ describe("DfdFilePreprocessor", () => {
 
             const flowObj = [...traverse(file.canvas)]
                 .find(o => o.id === "data_flow");
-            const refsProp = flowObj!.properties.value.get("data_item_refs") as ListProperty;
+            const refsProp = flowObj!.properties.value.get("node1_src_data_item_refs") as ListProperty;
             expect(refsProp).toBeInstanceOf(ListProperty);
 
             const vals = [...refsProp.value.values()].map(p => (p as StringProperty).toJson());
             expect(vals).toEqual([guid1, guid2]);
         });
 
-        it("loads empty data_item_refs into a well-formed empty ListProperty", () => {
-            // Empty array — must result in a valid empty ListProperty (not an error).
+        it("loads empty ref arrays into well-formed empty ListProperty instances", () => {
+            // Empty array — must result in valid empty ListProperty instances (not an error).
             const native = makeNativeFile({ flowDataItemRefsValue: [] });
             const processed = preprocessor.process(native);
             expect(() => new DiagramModelFile(factory, processed)).not.toThrow();
@@ -233,9 +238,12 @@ describe("DfdFilePreprocessor", () => {
             const file = new DiagramModelFile(factory, processed);
             const flowObj = [...traverse(file.canvas)]
                 .find(o => o.id === "data_flow");
-            const refsProp = flowObj!.properties.value.get("data_item_refs") as ListProperty;
-            expect(refsProp).toBeInstanceOf(ListProperty);
-            expect(refsProp.value.size).toBe(0);
+            const node1Refs = flowObj!.properties.value.get("node1_src_data_item_refs") as ListProperty;
+            const node2Refs = flowObj!.properties.value.get("node2_src_data_item_refs") as ListProperty;
+            expect(node1Refs).toBeInstanceOf(ListProperty);
+            expect(node2Refs).toBeInstanceOf(ListProperty);
+            expect(node1Refs.value.size).toBe(0);
+            expect(node2Refs.value.size).toBe(0);
         });
     });
 
@@ -305,7 +313,7 @@ describe("DfdFilePreprocessor", () => {
     // -----------------------------------------------------------------------
 
     describe("round-trip: load (preprocessor + factory) → publish", () => {
-        it("publisher re-emits data_items and data_item_refs identically", () => {
+        it("publisher re-emits data_items and both ref arrays identically", () => {
             const itemGuid = "item-guid-rt-1";
             const parentGuid = "proc-rt-1";
 
@@ -313,7 +321,7 @@ describe("DfdFilePreprocessor", () => {
                 [itemGuid, [["parent", parentGuid], ["identifier", "D1"], ["name", "Token"]]]
             ];
 
-            // Backend-shape: [[key, guid], ...] for data_item_refs.
+            // Backend-shape: [[key, guid], ...] for node1_src_data_item_refs.
             const refsValue = [["some-key", itemGuid]];
 
             const native = makeNativeFile({
@@ -335,9 +343,71 @@ describe("DfdFilePreprocessor", () => {
                 name: "Token"
             });
 
-            // data_item_refs on flow published
+            // both ref arrays on flow published (always present per AC2.4)
             const edge = output.edges.find((e: Record<string, unknown>) => e.id === "flow-1");
-            expect(edge?.data_item_refs).toEqual([itemGuid]);
+            expect(edge?.node1_src_data_item_refs).toEqual([itemGuid]);
+            expect(edge?.node2_src_data_item_refs).toEqual([]);
+        });
+
+        it("publisher re-emits a flow with both ref arrays populated", () => {
+            const item1Guid = "item-guid-1";
+            const item2Guid = "item-guid-2";
+            const item3Guid = "item-guid-3";
+            const parentGuid = "proc-pop-1";
+
+            const dataItemsValue = [
+                [item1Guid, [["parent", parentGuid], ["identifier", "D1"], ["name", "Token1"]]],
+                [item2Guid, [["parent", parentGuid], ["identifier", "D2"], ["name", "Token2"]]],
+                [item3Guid, [["parent", parentGuid], ["identifier", "D3"], ["name", "Token3"]]]
+            ];
+
+            // Both directions have refs; order matters for round-trip.
+            const refsValue = [["key0", item1Guid], ["key1", item2Guid]];
+
+            const native = makeNativeFile({
+                canvasDataItemsValue: dataItemsValue,
+                flowDataItemRefsValue: refsValue
+            });
+
+            const processed = preprocessor.process(native);
+            const file = new DiagramModelFile(factory, processed);
+
+            // Manually set node2 refs to test both directions.
+            const flowObj = [...traverse(file.canvas)]
+                .find(o => o.id === "data_flow");
+            const node2Refs = flowObj!.properties.value.get("node2_src_data_item_refs") as ListProperty;
+            const entry = node2Refs.createListItem() as StringProperty;
+            entry.setValue(item3Guid);
+            node2Refs.addProperty(entry);
+
+            const publisher = new DfdPublisher();
+            const output = JSON.parse(publisher.publish(file));
+
+            const edge = output.edges.find((e: Record<string, unknown>) => e.id === "flow-1");
+            expect(edge?.node1_src_data_item_refs).toEqual([item1Guid, item2Guid]);
+            expect(edge?.node2_src_data_item_refs).toEqual([item3Guid]);
+        });
+
+        it("publisher re-emits a flow with both ref arrays empty", () => {
+            const parentGuid = "proc-empty-1";
+            const dataItemsValue = [
+                ["item-guid-unused", [["parent", parentGuid], ["identifier", "D1"], ["name", "Unused"]]]
+            ];
+
+            const native = makeNativeFile({
+                canvasDataItemsValue: dataItemsValue,
+                flowDataItemRefsValue: []
+            });
+
+            const processed = preprocessor.process(native);
+            const file = new DiagramModelFile(factory, processed);
+            const publisher = new DfdPublisher();
+            const output = JSON.parse(publisher.publish(file));
+
+            // AC2.4 guard: both arrays are [] (not absent)
+            const edge = output.edges.find((e: Record<string, unknown>) => e.id === "flow-1");
+            expect(edge?.node1_src_data_item_refs).toEqual([]);
+            expect(edge?.node2_src_data_item_refs).toEqual([]);
         });
     });
 
