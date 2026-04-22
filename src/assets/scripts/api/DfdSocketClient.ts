@@ -238,11 +238,18 @@ export class DfdSocketClient {
             return;
         }
         for (const handler of handlers) {
-            const ret = handler(envelope.payload);
-            if (ret && typeof (ret as Promise<void>).catch === "function") {
-                (ret as Promise<void>).catch((err) =>
-                    console.error("DfdSocketClient: socket handler rejected:", err)
-                );
+            // Fan out without letting a single handler's throw/rejection break
+            // delivery to sibling handlers for the same envelope type. Sync
+            // throws and async rejections are treated symmetrically.
+            try {
+                const ret = handler(envelope.payload);
+                if (ret && typeof (ret as Promise<void>).catch === "function") {
+                    (ret as Promise<void>).catch((err) =>
+                        console.error("DfdSocketClient: socket handler rejected:", err)
+                    );
+                }
+            } catch (err) {
+                console.error("DfdSocketClient: socket handler threw:", err);
             }
         }
     }

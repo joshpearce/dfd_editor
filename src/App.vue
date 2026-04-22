@@ -207,16 +207,32 @@ export default defineComponent({
     // The connection is non-fatal: if Flask isn't running, the client will
     // retry in the background without blocking any app functionality.
     //
-    // Dev-only topology: the Flask server is hardcoded to port 5050 (see
-    // server/CLAUDE.md). The hostname is pulled from `window.location` so
-    // the URL is portable across localhost / 127.0.0.1 / a LAN hostname;
-    // the port and path are fixed because this is a local-dev companion,
-    // not a production deployment. When the app is eventually served from
-    // the same origin as the WS endpoint, replace with a `new URL()` that
-    // matches the current origin or introduce a VITE_WS_URL env var.
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = window.location.hostname || "localhost";
-    const wsUrl = `${wsProtocol}//${wsHost}:5050/ws`;
+    // Ordering: the socket is opened before settings are fetched below so the
+    // remote-control lifecycle envelope (agent-attached) can be received
+    // during app startup. Broadcasts that arrive before settings load are
+    // dispatched to handlers that read the Pinia store — the store is
+    // populated with defaults at its `defineStore` call (see
+    // src/stores/ApplicationStore.ts), so dispatch against partially-
+    // configured state is safe even if tight. Settings affect theme and
+    // display flags, not dispatch correctness.
+    //
+    // URL resolution order:
+    //   1. `VITE_WS_URL` (build-time override, e.g. for production / LAN dev)
+    //   2. derived from `window.location` + hardcoded `:5050/ws` (dev default)
+    //
+    // The derived default assumes Flask runs on port 5050 on the same host
+    // as the Vite dev server (see server/CLAUDE.md "Port 5050"). When the app
+    // is ever served from the same origin as the WS endpoint, set
+    // `VITE_WS_URL=ws://<host>/ws` so the port is dropped.
+    const envWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
+    let wsUrl: string;
+    if (envWsUrl) {
+      wsUrl = envWsUrl;
+    } else {
+      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsHost = window.location.hostname || "localhost";
+      wsUrl = `${wsProtocol}//${wsHost}:5050/ws`;
+    }
     this.disposeSocket = wireSocketClient(new DfdSocketClient(wsUrl), ctx);
 
     // Import settings

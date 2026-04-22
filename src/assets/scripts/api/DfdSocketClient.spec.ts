@@ -224,6 +224,24 @@ describe("DfdSocketClient.on", () => {
         );
         client.close();
     });
+
+    it("continues to fan out to sibling handlers when one handler throws synchronously", () => {
+        const client = new DfdSocketClient("ws://localhost:5050/ws");
+        const thrower = vi.fn(() => { throw new Error("sync-throw"); });
+        const survivor = vi.fn();
+        client.on("display", thrower);
+        client.on("display", survivor);
+
+        latestWs().simulateMessage(JSON.stringify({ type: "display", payload: { id: "x" } }));
+
+        expect(thrower).toHaveBeenCalledTimes(1);
+        expect(survivor).toHaveBeenCalledTimes(1);
+        expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining("handler threw"),
+            expect.any(Error)
+        );
+        client.close();
+    });
 });
 
 // ---------------------------------------------------------------------------

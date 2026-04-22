@@ -31,8 +31,22 @@ if _HERE not in sys.path:
 
 import httpx  # noqa: E402  (placed after sys.path shim so server/ imports resolve)
 from mcp.server.fastmcp import Context, FastMCP  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
 from schema import Diagram  # noqa: E402
+
+
+class DiagramSummary(BaseModel):
+    """Short summary returned by `list_diagrams`.
+
+    Mirrors the shape emitted by Flask's `GET /api/diagrams`.
+    Declared as a pydantic model so FastMCP advertises the schema to the
+    agent; a bare `list[dict]` return annotation would leave the agent with
+    an opaque structure.
+    """
+    id: str
+    name: str
+    modified: float
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +83,12 @@ _was_active = False  # last known state of _active_sessions being non-empty
 # entries vanish automatically when FastMCP drops its last reference to the
 # session, preventing stale UUIDs from building up. Falls back to an
 # ordinary dict keyed on ctx's own id() when the session is not weakly
-# referenceable (old SDK builds, test stubs).
+# referenceable (old SDK builds, test stubs); the fallback is size-capped
+# so a long-running process can't accumulate entries unbounded.
 _session_uuids: "weakref.WeakKeyDictionary[object, str]" = weakref.WeakKeyDictionary()
 _fallback_uuids: dict[int, str] = {}
 _session_uuid_lock = threading.Lock()
+_FALLBACK_UUIDS_MAX = 1024
 
 
 def _session_id(ctx: Context) -> str:
@@ -98,10 +114,18 @@ def _session_id(ctx: Context) -> str:
             return sid
         except TypeError:
             # Not weakly referenceable (e.g. some test stubs). Fall back to
-            # an id()-keyed dict; callers in tests clean up via reset_for_tests().
+            # an id()-keyed dict; the `_reset_mcp_state` autouse fixture in
+            # server/tests/test_mcp_tools.py clears this map between tests
+            # so the id()-based keys don't collide across runs.
             key = id(session_obj)
             sid = _fallback_uuids.get(key)
             if sid is None:
+                # Cap the fallback to prevent unbounded growth if a caller
+                # keeps producing fresh non-weakly-referenceable sessions.
+                # FIFO eviction is plenty — in practice this map should stay
+                # empty in production (ServerSession supports weakref).
+                if len(_fallback_uuids) >= _FALLBACK_UUIDS_MAX:
+                    _fallback_uuids.pop(next(iter(_fallback_uuids)))
                 sid = str(uuid.uuid4())
                 _fallback_uuids[key] = sid
             return sid
@@ -113,17 +137,37 @@ def _mark_active(sid: str) -> None:
     Computes the transition under the lock, releases it, then broadcasts
     outside the lock so the HTTP POST does not serialize all tool calls
     behind the broadcast RTT.
+
+    If the broadcast fails (Flask unreachable, 5xx, etc.), ``_was_active``
+    is rolled back under the lock so the next tool call retries the on
+    transition. Without this rollback a failed initial broadcast would
+    leave the server believing the browser is locked while the browser
+    never received the signal — the editor would stay interactive for the
+    entire agent session, defeating Step 4's read-only guarantee.
     """
     global _was_active
     with _last_seen_lock:
-        prev_has_sessions = bool(_last_seen)
         _last_seen[sid] = time.monotonic()
-        should_broadcast_on = not prev_has_sessions and not _was_active
+        # Broadcast is driven entirely by `_was_active`: if the server thinks
+        # the browser is NOT locked, this stamp transitions it to locked and
+        # fires the on-broadcast. `_was_active` is the single source of truth
+        # for "does the browser believe an agent is attached?"; `_last_seen`
+        # tracks session timeout independently. This decoupling matters for
+        # the rollback path — a failed on-broadcast clears `_was_active` but
+        # leaves the session in `_last_seen`, and the next stamp (even by the
+        # same session) must retry the on-broadcast.
+        should_broadcast_on = not _was_active
         if should_broadcast_on:
             _was_active = True
     if should_broadcast_on:
         logger.info("remote-control: on (session count 0 → >0)")
-        _broadcast({"type": "remote-control", "payload": {"state": "on"}})
+        delivered = _broadcast({"type": "remote-control", "payload": {"state": "on"}})
+        if not delivered:
+            # Roll back so the next _stamp retries the transition rather than
+            # sitting in a "server thinks on, browser thinks off" split state.
+            with _last_seen_lock:
+                _was_active = False
+            logger.warning("remote-control:on broadcast failed — will retry on next tool call")
 
 
 def _stamp(ctx: Context) -> None:
@@ -150,12 +194,17 @@ def _broadcast(envelope: dict) -> bool:
 
 
 def _sweep_once(now: float | None = None) -> bool:
-    """Run one sweep pass. Returns True if an 'off' transition was emitted.
+    """Run one sweep pass. Returns True if an 'off' transition was emitted
+    AND its broadcast reached Flask.
 
     Computes the transition under the lock, releases it, then broadcasts
     outside the lock so the HTTP POST does not serialize tool calls.
     Exposed with a return value so tests can assert on the transition
     without sleeping for the daemon's 5-second interval.
+
+    If the broadcast fails, ``_was_active`` is rolled back to True so the
+    next sweep tick retries. Without this the browser could be stranded
+    in read-only mode forever after a transient Flask outage.
     """
     global _was_active
     if now is None:
@@ -173,7 +222,14 @@ def _sweep_once(now: float | None = None) -> bool:
             broadcast_off = True
     if broadcast_off:
         logger.info("remote-control: off (session count >0 → 0)")
-        _broadcast({"type": "remote-control", "payload": {"state": "off"}})
+        delivered = _broadcast({"type": "remote-control", "payload": {"state": "off"}})
+        if not delivered:
+            # Retry on the next sweep tick rather than stranding the browser
+            # in read-only mode until a new session starts.
+            with _last_seen_lock:
+                _was_active = True
+            logger.warning("remote-control:off broadcast failed — will retry on next sweep")
+            return False
     return broadcast_off
 
 
@@ -211,7 +267,7 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def list_diagrams(ctx: Context) -> list[dict]:
+def list_diagrams(ctx: Context) -> list[DiagramSummary]:
     """List all diagrams stored on the server.
 
     Returns a list of summary objects, each with id, name, and modified
@@ -220,7 +276,7 @@ def list_diagrams(ctx: Context) -> list[dict]:
     _stamp(ctx)
     resp = _http.get("/api/diagrams")
     resp.raise_for_status()
-    return resp.json()
+    return [DiagramSummary.model_validate(row) for row in resp.json()]
 
 
 @mcp.tool()
@@ -309,8 +365,16 @@ def display_diagram(diagram_id: str, ctx: Context) -> dict:
     Returns ``{ok: true, broadcast_delivered: bool}`` — ``broadcast_delivered``
     is False when Flask's broadcast endpoint is unreachable, which means
     the browser will not be notified.
+
+    Raises an HTTP error if the diagram_id does not exist on the server —
+    this gives the agent a structured error instead of letting a
+    browser-side 404 fail silently over the WS channel.
     """
     _stamp(ctx)
+    # Pre-check existence so the agent gets a real error on unknown ids,
+    # instead of a broadcast the browser can't satisfy.
+    check = _http.get(f"/api/diagrams/{diagram_id}")
+    check.raise_for_status()
     broadcast_delivered = _broadcast({"type": "display", "payload": {"id": diagram_id}})
     return {"ok": True, "broadcast_delivered": broadcast_delivered}
 

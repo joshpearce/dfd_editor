@@ -78,6 +78,14 @@ async function handleDisplay(
 }
 
 /**
+ * Monotonic token bumped on each `diagram-updated` dispatch. If a newer
+ * update arrives while an older reload is mid-fetch, the older reload
+ * notices its token is stale and drops its result instead of racing to
+ * apply it on top of the newer state.
+ */
+let _diagramUpdatedToken = 0;
+
+/**
  * Handles a `diagram-updated` envelope by reloading the active diagram if its
  * id matches the currently-open server file.
  *
@@ -87,6 +95,10 @@ async function handleDisplay(
  * between the user making local edits and remote-control mode engaging — or
  * in any transient state where local undoDepth differs from the last server
  * save depth.
+ *
+ * When two `diagram-updated` broadcasts arrive within the
+ * `prepareEditorFromServerFile` fetch window, a monotonic token causes the
+ * older reload to discard its result rather than race the newer one.
  *
  * @param payload
  *  The raw envelope payload — expected to be `{ id: string }`.
@@ -106,6 +118,11 @@ async function handleDiagramUpdated(
         return; // not the active diagram — ignore
     }
     if (ctx.isDirtyVsServer) {
+        // TODO(future-dialog): this is synchronous blocking UI inside an
+        // event-handler promise chain. When the app grows a Pinia-driven
+        // dialog component (toast / modal), route this prompt through it
+        // so the pattern is consistent with the rest of the app and easier
+        // to reach from e2e tests. Tests stub window.confirm directly.
         const accept = window.confirm(
             "An agent has updated this diagram on the server, but you have "
             + "unsaved local changes.\n\n"
@@ -117,8 +134,15 @@ async function handleDiagramUpdated(
             return;
         }
     }
+    const token = ++_diagramUpdatedToken;
     try {
-        await ctx.execute(await prepareEditorFromServerFile(ctx, id));
+        const cmd = await prepareEditorFromServerFile(ctx, id);
+        if (token !== _diagramUpdatedToken) {
+            // A newer diagram-updated arrived while we were fetching — drop
+            // this stale reload so it doesn't apply on top of the newer one.
+            return;
+        }
+        await ctx.execute(cmd);
     } catch (err) {
         console.error("DfdSocketDispatcher: failed to reload updated diagram:", err);
     }

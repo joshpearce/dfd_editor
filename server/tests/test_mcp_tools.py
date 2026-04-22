@@ -92,16 +92,30 @@ _MINIMAL_DOC: dict[str, Any] = {
 }
 
 # ---------------------------------------------------------------------------
-# Minimal fake Context (tools only call _session_id(ctx) → id(ctx.session))
+# Minimal fake Context
 # ---------------------------------------------------------------------------
+#
+# _session_id(ctx) reads `ctx.session` and uses it as the key into a
+# WeakKeyDictionary. All we need from the stub is a regular Python object
+# that is weakly referenceable and hashable — a plain class instance
+# satisfies both. The real FastMCP Context.session is a ServerSession; our
+# stub exercises the same code path (attribute access + identity-keyed
+# lookup) without requiring an actual MCP handshake.
+#
+# The `_reset_mcp_state` autouse fixture clears both the WeakKey map and
+# the id()-keyed fallback between tests so stale ids can't collide.
 
 
 class _FakeSession:
+    """Stand-in for FastMCP's ServerSession — only needs to be hashable and
+    weakly referenceable."""
     def __init__(self) -> None:
-        pass  # _session_id uses id(ctx.session); no stored attribute needed
+        pass
 
 
 class _FakeContext:
+    """Stand-in for FastMCP's Context — only `.session` is accessed by the
+    module under test."""
     def __init__(self) -> None:
         self.session = _FakeSession()
 
@@ -300,36 +314,35 @@ class TestToolsEnumeration:
 
 
 class TestCreateDiagram:
-    def test_create_writes_file_and_does_not_broadcast(self, live_server):
-        tmp_path, port = live_server
+    def test_create_writes_file_and_does_not_broadcast(self, live_server, monkeypatch):
+        tmp_path, _port = live_server
 
-        # Pre-warm session state so the on-transition fires before we open WS.
-        # This ensures the WS listener only sees diagram-operation broadcasts,
-        # not the lifecycle remote-control:on event from _stamp's 0→1 detection.
+        # Pre-warm session state so the 0→1 lifecycle transition doesn't fire
+        # during the test and mask the create-specific assertion.
         mcp_server._was_active = True
 
-        ws, messages, reader_errors = _open_ws_and_drain(port)
+        # M14: spy on _broadcast to turn "prove a negative" into a deterministic
+        # assertion — no sleeps, no WS plumbing required.
+        calls: list[dict] = []
+        real_broadcast = mcp_server._broadcast
+
+        def spy_broadcast(envelope: dict) -> bool:
+            calls.append(envelope)
+            return real_broadcast(envelope)
+
+        monkeypatch.setattr(mcp_server, "_broadcast", spy_broadcast)
 
         diagram = Diagram.model_validate(_MINIMAL_DOC)
         result = create_diagram(diagram=diagram, ctx=_ctx())
 
         assert "id" in result
         diagram_id = result["id"]
-
-        # File must exist under DATA_DIR
         assert (tmp_path / f"{diagram_id}.json").exists(), (
             f"Expected file {diagram_id}.json in {tmp_path}"
         )
-
-        # M7: No broadcast of any kind should have been emitted by create_diagram.
-        # Wait a brief moment to give any spurious broadcast time to arrive.
-        # Use 0.25s (was 0.15s) for CI-machine tolerance — drain the cache line.
-        time.sleep(0.25)
-        assert messages == [], (
-            f"create_diagram must not emit any broadcast; got: {messages}"
+        assert calls == [], (
+            f"create_diagram must not invoke _broadcast; got: {calls}"
         )
-
-        ws.close()
 
     def test_real_fastmcp_dispatch_pydantic_coercion(self, live_server):
         """I2: Exercise FastMCP's real arg-validation/coercion path with a raw dict.
@@ -537,14 +550,16 @@ class TestListDiagrams:
         result = list_diagrams(ctx=_ctx())
 
         assert isinstance(result, list)
-        ids = {item["id"] for item in result}
+        # Result rows are now DiagramSummary pydantic models (M13).
+        ids = {item.id for item in result}
         assert r1["id"] in ids, f"id {r1['id']} missing from list_diagrams result"
         assert r2["id"] in ids, f"id {r2['id']} missing from list_diagrams result"
 
         # Each summary object must carry id, name, and modified
         for item in result:
-            for field in ("id", "name", "modified"):
-                assert field in item, f"summary missing field {field!r}: {item}"
+            assert item.id
+            assert item.name
+            assert isinstance(item.modified, float)
 
     def test_list_empty_when_no_diagrams(self, live_server):
         _tmp_path, _port = live_server
@@ -627,30 +642,101 @@ class TestRemoteControlLifecycle:
         assert len(sid) == 36, f"Expected UUID-length session id, got {sid!r}"
         assert "-" in sid, f"Expected UUID-formatted session id, got {sid!r}"
 
-    def test_no_duplicate_on_if_already_active(self, live_server):
-        """_stamp must not re-emit 'on' if _was_active is already True."""
-        _tmp_path, port = live_server
+    def test_no_duplicate_on_if_already_active(self, live_server, monkeypatch):
+        """_stamp must not re-emit 'on' if _was_active is already True.
 
-        # Drive to active via first stamp (reuse the same ctx so id() is stable)
+        M14: uses a _broadcast spy instead of WS wait — deterministic, no sleep.
+        """
+        _tmp_path, _port = live_server
+
         ctx_dedup = _ctx()
         mcp_server._stamp(ctx_dedup)
         assert mcp_server._was_active is True
 
-        ws, messages, reader_errors = _open_ws_and_drain(port)
+        # After the first stamp, patch _broadcast so subsequent calls get
+        # captured. The first on-broadcast already fired through the real
+        # _broadcast above.
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            mcp_server,
+            "_broadcast",
+            lambda envelope: (calls.append(envelope), True)[1],
+        )
 
-        # Stamp again (same ctx object / same session identity) — should not emit another 'on'.
-        # Use a grace period to allow any spurious broadcast to arrive before asserting.
+        # Stamp again with the same session — must NOT call _broadcast again.
         mcp_server._stamp(ctx_dedup)
-        time.sleep(0.25)  # generous wait — any duplicate must have arrived by now
+        assert calls == [], (
+            f"Second stamp on same session must not re-broadcast; got: {calls}"
+        )
 
-        on_msgs = [
-            m for m in messages
-            if m.get("type") == "remote-control" and m.get("payload", {}).get("state") == "on"
-        ]
-        assert on_msgs == [], f"Should not re-emit on when already active; got: {on_msgs}"
-        assert reader_errors == [], f"WS reader saw errors: {reader_errors}"
+    def test_on_broadcast_failure_is_rolled_back(self, live_server, monkeypatch):
+        """Broadcast failure on the 0→1 transition must roll _was_active back
+        so the next tool call retries — otherwise the browser stays interactive
+        while the MCP server thinks it's locked.
+        """
+        _tmp_path, _port = live_server
 
-        ws.close()
+        # Make _broadcast fail exactly once, succeed on the retry.
+        call_count = {"n": 0}
+        real_broadcast = mcp_server._broadcast
+
+        def flaky_broadcast(envelope):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return False  # simulate Flask unreachable
+            return real_broadcast(envelope)
+
+        monkeypatch.setattr(mcp_server, "_broadcast", flaky_broadcast)
+
+        ctx = _ctx()
+        mcp_server._stamp(ctx)
+        # First attempt failed → state must have rolled back
+        assert mcp_server._was_active is False, (
+            "Expected _was_active to roll back after failed broadcast"
+        )
+
+        # Second stamp succeeds → state flips to True
+        mcp_server._stamp(ctx)
+        assert mcp_server._was_active is True
+        assert call_count["n"] == 2, "Expected two broadcast attempts"
+
+    def test_off_broadcast_failure_is_rolled_back(self, live_server, monkeypatch):
+        """Broadcast failure on the 1→0 transition must restore _was_active
+        so the next sweep retries — otherwise the browser stays in read-only
+        forever after a transient Flask outage.
+        """
+        _tmp_path, _port = live_server
+
+        # Pre-stamp a session so we're in the active state.
+        ctx = _ctx()
+        mcp_server._stamp(ctx)
+        assert mcp_server._was_active is True
+
+        # Make _broadcast fail once (this is the off-transition), succeed on retry.
+        call_count = {"n": 0}
+        real_broadcast = mcp_server._broadcast
+
+        def flaky_broadcast(envelope):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return False
+            return real_broadcast(envelope)
+
+        monkeypatch.setattr(mcp_server, "_broadcast", flaky_broadcast)
+
+        # First sweep expires the session, broadcast fails, state rolls back.
+        far_future = time.monotonic() + mcp_server.SESSION_EXPIRY_SECONDS + 1
+        result = _sweep_once(now=far_future)
+        assert result is False, "Expected rollback to report False"
+        assert mcp_server._was_active is True, (
+            "Expected _was_active to roll back on failed off-broadcast"
+        )
+        # _last_seen was already cleared during the sweep — re-stamp wouldn't
+        # be a 1→0, so we simulate another sweep tick: the next sweep retries.
+        result2 = _sweep_once(now=far_future + 1)
+        assert result2 is True, "Expected successful retry on next sweep"
+        assert mcp_server._was_active is False
+        assert call_count["n"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -659,75 +745,74 @@ class TestRemoteControlLifecycle:
 
 
 class TestSadPaths:
-    """I5: Tools must raise on nonexistent ids and must not emit spurious broadcasts."""
+    """I5 / M14: Tools must raise on nonexistent ids and must not call _broadcast.
 
-    def _operation_broadcasts(self, messages: list[dict]) -> list[dict]:
-        """Return only diagram-operation broadcasts, excluding lifecycle events.
+    Uses a _broadcast spy (monkeypatch) instead of WS message-wait timeouts —
+    deterministic, no sleep-based "prove a negative" flakiness.
+    """
 
-        The remote-control:on lifecycle broadcast from _stamp's 0→1 detection
-        is correct behavior and is not an "operation" broadcast.  Sad-path
-        tests assert that no operation-specific broadcasts are emitted on error.
-        """
-        operation_types = {"diagram-updated", "diagram-deleted", "display"}
-        return [m for m in messages if m.get("type") in operation_types]
+    def _spy(self, monkeypatch):
+        """Install a _broadcast spy that records invocations and returns success."""
+        calls: list[dict] = []
 
-    def test_get_diagram_nonexistent_raises(self, live_server):
-        """get_diagram on a missing id raises an HTTP error; no operation broadcast emitted."""
-        _tmp_path, port = live_server
-        # Pre-warm so on-transition doesn't fire mid-test
+        def spy_broadcast(envelope: dict) -> bool:
+            calls.append(envelope)
+            return True
+
+        monkeypatch.setattr(mcp_server, "_broadcast", spy_broadcast)
+        return calls
+
+    def _operation_types(self, calls: list[dict]) -> list[str]:
+        op = {"diagram-updated", "diagram-deleted", "display"}
+        return [c["type"] for c in calls if c.get("type") in op]
+
+    def test_get_diagram_nonexistent_raises(self, live_server, monkeypatch):
+        _tmp_path, _port = live_server
         mcp_server._was_active = True
-        ws, messages, reader_errors = _open_ws_and_drain(port)
+        calls = self._spy(monkeypatch)
 
         with pytest.raises(httpx.HTTPStatusError):
             get_diagram(diagram_id="does-not-exist", ctx=_ctx())
 
-        # M7: 0.25s grace (was 0.1s) for CI-machine tolerance when proving a negative.
-        time.sleep(0.25)
-        op_msgs = self._operation_broadcasts(messages)
-        assert op_msgs == [], (
-            f"get_diagram on missing id must not emit any operation broadcast; got: {op_msgs}"
+        assert self._operation_types(calls) == [], (
+            f"get_diagram on missing id must not call _broadcast; got: {calls}"
         )
-        assert reader_errors == [], f"WS reader saw errors: {reader_errors}"
 
-        ws.close()
-
-    def test_update_diagram_nonexistent_raises_and_does_not_broadcast(self, live_server):
-        """update_diagram on a missing id raises; no diagram-updated emitted."""
-        _tmp_path, port = live_server
-        # Pre-warm so on-transition doesn't fire mid-test
+    def test_update_diagram_nonexistent_raises_and_does_not_broadcast(self, live_server, monkeypatch):
+        _tmp_path, _port = live_server
         mcp_server._was_active = True
-        ws, messages, reader_errors = _open_ws_and_drain(port)
+        calls = self._spy(monkeypatch)
 
         diagram = Diagram.model_validate(_MINIMAL_DOC)
         with pytest.raises(httpx.HTTPStatusError):
             update_diagram(diagram_id="does-not-exist", diagram=diagram, ctx=_ctx())
 
-        # M7: 0.25s grace (was 0.1s) for CI-machine tolerance when proving a negative.
-        time.sleep(0.25)
-        updated_msgs = [m for m in messages if m.get("type") == "diagram-updated"]
-        assert updated_msgs == [], (
-            f"update_diagram on missing id must not emit diagram-updated; got: {updated_msgs}"
+        assert [c["type"] for c in calls if c.get("type") == "diagram-updated"] == [], (
+            f"update_diagram on missing id must not broadcast; got: {calls}"
         )
-        assert reader_errors == [], f"WS reader saw errors: {reader_errors}"
 
-        ws.close()
-
-    def test_delete_diagram_nonexistent_raises_and_does_not_broadcast(self, live_server):
-        """delete_diagram on a missing id raises; no diagram-deleted emitted."""
-        _tmp_path, port = live_server
-        # Pre-warm so on-transition doesn't fire mid-test
+    def test_delete_diagram_nonexistent_raises_and_does_not_broadcast(self, live_server, monkeypatch):
+        _tmp_path, _port = live_server
         mcp_server._was_active = True
-        ws, messages, reader_errors = _open_ws_and_drain(port)
+        calls = self._spy(monkeypatch)
 
         with pytest.raises(httpx.HTTPStatusError):
             delete_diagram(diagram_id="does-not-exist", ctx=_ctx())
 
-        # M7: 0.25s grace (was 0.1s) for CI-machine tolerance when proving a negative.
-        time.sleep(0.25)
-        deleted_msgs = [m for m in messages if m.get("type") == "diagram-deleted"]
-        assert deleted_msgs == [], (
-            f"delete_diagram on missing id must not emit diagram-deleted; got: {deleted_msgs}"
+        assert [c["type"] for c in calls if c.get("type") == "diagram-deleted"] == [], (
+            f"delete_diagram on missing id must not broadcast; got: {calls}"
         )
-        assert reader_errors == [], f"WS reader saw errors: {reader_errors}"
 
-        ws.close()
+    def test_display_diagram_nonexistent_raises_and_does_not_broadcast(self, live_server, monkeypatch):
+        """display_diagram pre-checks the id and raises on missing, so the
+        browser is never told to load something that can't exist."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        calls = self._spy(monkeypatch)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            display_diagram(diagram_id="does-not-exist", ctx=_ctx())
+
+        assert [c["type"] for c in calls if c.get("type") == "display"] == [], (
+            f"display_diagram on missing id must not broadcast; got: {calls}"
+        )

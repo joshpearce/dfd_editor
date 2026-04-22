@@ -195,3 +195,18 @@ so object-address reuse after GC cannot collide with a live session.
 - No auth, no rate limiting, no concurrency control. Last write wins.
 - Diagram JSON is gitignored via root `.gitignore` (`server/data/`); no
   per-directory ignore file here.
+- **Broadcast delivery is best-effort.** The browser has no reconciliation
+  path for broadcasts it missed during a WebSocket outage. If
+  `diagram-updated` / `diagram-deleted` / `display` envelopes are dropped
+  (Flask restart, /api/internal/broadcast unreachable, browser WS briefly
+  disconnected), the browser's view can drift from `server/data/`. The MCP
+  tool return shape surfaces `broadcast_delivered: bool` so the agent can
+  at least know the notify step failed; the *lifecycle* `remote-control`
+  broadcasts retry automatically (see `_mark_active` / `_sweep_once`
+  rollback behavior). A full on-reconnect refresh protocol is out of scope
+  for v1.
+- **Flask is threaded=True dev-only.** Each connected browser holds a
+  Werkzeug worker thread in the `/ws` receive loop (`flask-sock`
+  `while True: ws.receive()`). Fine for single-user localhost; never front
+  this with a reverse proxy that rewrites `REMOTE_ADDR` — the broadcast
+  endpoint trusts `request.remote_addr == "127.0.0.1"` for access control.
