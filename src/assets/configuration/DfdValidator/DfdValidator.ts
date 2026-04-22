@@ -3,7 +3,6 @@ import { DiagramModelFile, SemanticAnalyzer } from "@OpenChart/DiagramModel";
 import { readDataItems, readFlowRefs } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Canvas, SemanticGraphEdge, SemanticGraphNode } from "@OpenChart/DiagramModel";
 
-
 class DfdValidator extends FileValidator {
 
     protected validate(file: DiagramModelFile): void {

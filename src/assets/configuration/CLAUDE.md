@@ -35,7 +35,6 @@ This directory is what turns the upstream attack-flow builder scaffold into a DF
 - Exactly one property per template carries `is_representative: true` (the label-producing field).
 - Every `name` appearing in `DfdObjects` / `BaseTemplates` / `DfdCanvas` must have a matching entry in each theme's `designs` map.
 - `data_flow.handle_template` and `latch_template` names must resolve to entries in `BaseTemplates`.
-- `DfdValidator.PRIVILEGE_RANK` keys must stay in sync with the `trust_boundary.privilege_level` enum options.
 - For dangling-ref detection: any ref GUID in either `node1_src_data_item_refs` or `node2_src_data_item_refs` must resolve to an entry in the canvas `data_items` list; dangling refs produce per-direction validator warnings. `DfdValidator.validateDataItemRefs` uses `DataItemLookup.readFlowRefs` and emits separate warnings per direction.
 
 ## Key Files
@@ -48,7 +47,7 @@ This directory is what turns the upstream attack-flow builder scaffold into a DF
 - `DfdThemes/LightTheme.ts`, `DfdThemes/DarkTheme.ts` — `FaceType` + style per template name.
 - `DfdPublisher/DfdPublisher.ts` — exports graph as `{ nodes, edges }` JSON (extension `json`).
 - `DfdFilePreprocessor/DfdFilePreprocessor.ts` — pass-through hook for incoming `DiagramViewExport` (the place to add API/`?src=` mapping if the on-disk shape diverges).
-- `DfdValidator/DfdValidator.ts` — required-field check plus trust-boundary / crossing rules (C4, C5, auth/encryption, classification vs. privilege rank).
+- `DfdValidator/DfdValidator.ts` — required-field check plus trust-boundary / crossing rules (C4, C5, auth/encryption).
 - `DfdCommandProcessor/DfdCommandProcessor.ts` — pass-through command hook.
 
 ## Gotchas
