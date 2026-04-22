@@ -5,7 +5,10 @@
       v-for="[key, value] in fields"
       :key="key"
     >
-      <p class="field-name">
+      <p
+        v-if="!hasOwnHeader(value)"
+        class="field-name"
+      >
         {{ value.name }}
       </p>
       <component
@@ -119,6 +122,14 @@ export default defineComponent({
         return (this.context[key] as Record<string, unknown>) || undefined;
       }
       return undefined;
+    },
+
+    /**
+     * Returns true if the property's field component renders its own
+     * header/label, so the generic field-name above it should be omitted.
+     */
+    hasOwnHeader(subprop: Property): boolean {
+      return subprop instanceof DataItemRefListProperty;
     }
 
   },
