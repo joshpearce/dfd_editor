@@ -20,6 +20,7 @@ import threading
 import time
 import uuid
 import weakref
+from typing import Annotated
 
 # Allow `python -m server.mcp_server` (from repo root) as well as
 # `python -m mcp_server` (from server/ cwd). `from schema import Diagram`
@@ -31,7 +32,7 @@ if _HERE not in sys.path:
 
 import httpx  # noqa: E402  (placed after sys.path shim so server/ imports resolve)
 from mcp.server.fastmcp import Context, FastMCP  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
 from schema import Diagram  # noqa: E402
 
@@ -252,6 +253,34 @@ def start_daemon() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Diagram fetch / save helpers (used by granular element tools)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_minimal(diagram_id: str) -> dict:
+    """Fetch a diagram in minimal export format. No validation — just fetch."""
+    resp = _http.get(f"/api/diagrams/{diagram_id}/export")
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _save_minimal(diagram_id: str, diagram_dict: dict) -> bool:
+    """Validate diagram_dict and PUT it back as the stored minimal doc.
+
+    Validates with ``Diagram.model_validate`` — raises on invalid input.
+    PUTs the validated doc to the import endpoint and broadcasts
+    ``diagram-updated``. Returns the ``broadcast_delivered`` bool.
+    """
+    validated = Diagram.model_validate(diagram_dict)
+    resp = _http.put(
+        f"/api/diagrams/{diagram_id}/import",
+        json=validated.model_dump(mode="json"),
+    )
+    resp.raise_for_status()
+    return _broadcast({"type": "diagram-updated", "payload": {"id": diagram_id}})
+
+
+# ---------------------------------------------------------------------------
 # FastMCP server
 # ---------------------------------------------------------------------------
 
@@ -431,6 +460,49 @@ def display_diagram(diagram_id: str, ctx: Context) -> dict:
     check.raise_for_status()
     broadcast_delivered = _broadcast({"type": "display", "payload": {"id": diagram_id}})
     return {"ok": True, "broadcast_delivered": broadcast_delivered}
+
+
+_VALID_COLLECTIONS = {"nodes", "containers", "data_flows", "data_items"}
+
+
+@mcp.tool()
+def add_element(
+    diagram_id: str,
+    collection: Annotated[
+        str,
+        Field(json_schema_extra={"enum": ["nodes", "containers", "data_flows", "data_items"]}),
+    ],
+    element: dict,
+    ctx: Context,
+) -> dict:
+    """Append a single element to one of a diagram's collections.
+
+    Fetches the current diagram, appends ``element`` to ``collection``, then
+    validates and persists the result. Broadcasts ``diagram-updated`` on
+    success and returns ``{guid, broadcast_delivered}``.
+
+    Valid collection values: ``nodes``, ``containers``, ``data_flows``,
+    ``data_items``.
+
+    ``element`` must contain a ``guid`` field and must conform to the schema
+    for its collection type (e.g. a node element must have ``type`` and
+    ``properties``; a data flow must have ``node1``, ``node2``, and
+    ``properties``). Call ``get_diagram_schema`` for the full contract.
+    """
+    _stamp(ctx)
+    if collection not in _VALID_COLLECTIONS:
+        raise ValueError(
+            f"invalid collection {collection!r}; must be one of: "
+            + ", ".join(sorted(_VALID_COLLECTIONS))
+        )
+    diagram = _fetch_minimal(diagram_id)
+    if collection not in diagram:
+        diagram[collection] = []
+    if "guid" not in element:
+        raise ValueError("element must contain a 'guid' field")
+    diagram[collection].append(element)
+    broadcast_delivered = _save_minimal(diagram_id, diagram)
+    return {"guid": str(element["guid"]), "broadcast_delivered": broadcast_delivered}
 
 
 # ---------------------------------------------------------------------------

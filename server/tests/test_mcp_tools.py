@@ -54,6 +54,7 @@ from mcp_server import (
     _mark_active,
     _sweep_once,
     _stamp,
+    add_element,
     create_diagram,
     delete_diagram,
     display_diagram,
@@ -288,9 +289,9 @@ def _wait_for_broadcast(
 
 
 class TestToolsEnumeration:
-    """AC#1: mcp._tool_manager.list_tools() enumerates all six tools."""
+    """AC#1: mcp._tool_manager.list_tools() enumerates all registered tools."""
 
-    def test_all_six_tools_registered(self):
+    def test_all_tools_registered(self):
         # list_tools() is synchronous; _tools is a dict keyed by tool name.
         # We use list_tools() (the public API) rather than accessing _tools
         # directly to stay one level of abstraction above internals.
@@ -304,6 +305,7 @@ class TestToolsEnumeration:
             "update_diagram",
             "delete_diagram",
             "display_diagram",
+            "add_element",
         }
 
 
@@ -826,3 +828,184 @@ class TestSadPaths:
         assert [c["type"] for c in calls if c.get("type") == "display"] == [], (
             f"display_diagram on missing id must not broadcast; got: {calls}"
         )
+
+
+# ---------------------------------------------------------------------------
+# add_element — granular element CRUD: append to a diagram collection
+# ---------------------------------------------------------------------------
+
+_NEW_NODE_GUID = "aaaaaaaa-0000-0000-0000-000000000001"
+_NEW_CONTAINER_GUID = "bbbbbbbb-0000-0000-0000-000000000001"
+_NEW_DATA_ITEM_GUID = "cccccccc-0000-0000-0000-000000000001"
+
+
+class TestAddElement:
+    def test_add_node_appends_and_broadcasts(self, live_server):
+        tmp_path, port = live_server
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        ws, messages, reader_errors = _open_ws_and_drain(port)
+
+        new_node = {
+            "type": "external_entity",
+            "guid": _NEW_NODE_GUID,
+            "properties": {"name": "New EE"},
+        }
+        result = add_element(
+            diagram_id=diagram_id,
+            collection="nodes",
+            element=new_node,
+            ctx=_ctx(),
+        )
+
+        assert result["guid"] == _NEW_NODE_GUID
+        assert result["broadcast_delivered"] is True
+
+        # Verify node is present in the stored diagram
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        guids = {n["guid"] for n in fetched["nodes"]}
+        assert _NEW_NODE_GUID in guids
+
+        matching = _wait_for_broadcast(messages, "diagram-updated", reader_errors=reader_errors)
+        assert len(matching) == 1
+        assert matching[0]["payload"]["id"] == diagram_id
+
+        ws.close()
+
+    def test_add_container_appends(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        new_container = {
+            "type": "trust_boundary",
+            "guid": _NEW_CONTAINER_GUID,
+            "properties": {"name": "VPC"},
+            "children": [],
+        }
+        result = add_element(
+            diagram_id=diagram_id,
+            collection="containers",
+            element=new_container,
+            ctx=_ctx(),
+        )
+
+        assert result["guid"] == _NEW_CONTAINER_GUID
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        container_guids = {c["guid"] for c in fetched["containers"]}
+        assert _NEW_CONTAINER_GUID in container_guids
+
+    def test_add_data_item_appends(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        new_item = {
+            "guid": _NEW_DATA_ITEM_GUID,
+            "identifier": "D1",
+            "name": "Customer PII",
+            "classification": "pii",
+        }
+        result = add_element(
+            diagram_id=diagram_id,
+            collection="data_items",
+            element=new_item,
+            ctx=_ctx(),
+        )
+
+        assert result["guid"] == _NEW_DATA_ITEM_GUID
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        item_guids = {di["guid"] for di in fetched.get("data_items", [])}
+        assert _NEW_DATA_ITEM_GUID in item_guids
+
+    def test_invalid_collection_raises_value_error(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        with pytest.raises(ValueError, match="invalid collection"):
+            add_element(
+                diagram_id=diagram_id,
+                collection="edges",
+                element={"guid": "00000000-0000-0000-0000-000000000099"},
+                ctx=_ctx(),
+            )
+
+    def test_missing_guid_raises_value_error(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        with pytest.raises(ValueError, match="guid"):
+            add_element(
+                diagram_id=diagram_id,
+                collection="nodes",
+                element={"type": "process", "properties": {"name": "No GUID"}},
+                ctx=_ctx(),
+            )
+
+    def test_nonexistent_diagram_raises(self, live_server, monkeypatch):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            mcp_server,
+            "_broadcast",
+            lambda envelope: (calls.append(envelope), True)[1],
+        )
+
+        with pytest.raises(Exception):
+            add_element(
+                diagram_id="does-not-exist",
+                collection="nodes",
+                element={"guid": _NEW_NODE_GUID, "type": "process", "properties": {"name": "X"}},
+                ctx=_ctx(),
+            )
+
+        assert [c["type"] for c in calls if c.get("type") == "diagram-updated"] == [], (
+            f"add_element on missing diagram must not broadcast; got: {calls}"
+        )
+
+    def test_schema_invalid_element_raises_validation_error(self, live_server):
+        """_save_minimal runs Diagram.model_validate — invalid element fails."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        # A node with an unknown type should fail Diagram validation.
+        bad_node = {
+            "type": "not_a_real_type",
+            "guid": _NEW_NODE_GUID,
+            "properties": {"name": "Bad"},
+        }
+        with pytest.raises(Exception):
+            add_element(
+                diagram_id=diagram_id,
+                collection="nodes",
+                element=bad_node,
+                ctx=_ctx(),
+            )
+
+        # Original diagram must be unchanged (no partial write)
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        guids = {n["guid"] for n in fetched["nodes"]}
+        assert _NEW_NODE_GUID not in guids
+
+    def test_add_element_schema_has_collection_enum(self):
+        """FastMCP must advertise the collection parameter as an enum."""
+        tools = {t.name: t for t in mcp._tool_manager.list_tools()}
+        add_tool = tools["add_element"]
+        schema = add_tool.parameters
+        collection_schema = schema.get("properties", {}).get("collection", {})
+        assert "enum" in collection_schema, (
+            f"collection parameter schema missing 'enum'; got: {collection_schema}"
+        )
+        assert set(collection_schema["enum"]) == {
+            "nodes", "containers", "data_flows", "data_items"
+        }
