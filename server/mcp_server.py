@@ -1,5 +1,5 @@
-"""MCP server for dfd_editor — exposes six diagram-management tools via FastMCP
-streamable-HTTP transport bound to 127.0.0.1:5051.
+"""MCP server for dfd_editor — exposes seven diagram-management tools via
+FastMCP streamable-HTTP transport bound to 127.0.0.1:5051.
 
 Session lifecycle is tracked via a last-seen heartbeat: each tool call stamps
 _last_seen[session_id]. A daemon thread sweeps stale sessions every 2 s and
@@ -267,6 +267,18 @@ mcp = FastMCP(
 
 
 @mcp.tool()
+def get_diagram_schema() -> dict:
+    """Return the full JSON Schema for the diagram format.
+
+    Use this when `create_diagram`'s docstring example isn't enough and you
+    need the formal contract (all enums, required fields, validators, etc.).
+    The schema describes the `diagram` parameter accepted by `create_diagram`
+    and `update_diagram`, and the document returned by `get_diagram`.
+    """
+    return Diagram.model_json_schema()
+
+
+@mcp.tool()
 def list_diagrams(ctx: Context) -> list[DiagramSummary]:
     """List all diagrams stored on the server.
 
@@ -294,16 +306,53 @@ def get_diagram(diagram_id: str, ctx: Context) -> dict:
 
 
 @mcp.tool()
-def create_diagram(diagram: Diagram, ctx: Context) -> dict:
+def create_diagram(diagram: dict, ctx: Context) -> dict:
     """Create a new diagram from a minimal-format document.
 
-    Accepts a full diagram object (nodes, containers, data_flows, data_items,
-    meta) and persists it on the server under a freshly minted UUID.  Returns
-    the assigned id and the stored diagram echoed back in minimal format.
-    No broadcast is emitted — call display_diagram to make the browser show it.
+    `diagram` accepts the same JSON shape that `get_diagram` returns —
+    round-trip an existing diagram for the canonical example. Call
+    `get_diagram_schema` for the full JSON Schema.
+
+    Minimal shape:
+
+        {
+          "meta": {"name": "My DFD"},
+          "nodes": [
+            {"type": "process", "guid": "<uuid>",
+             "properties": {"name": "API", "assumptions": []}},
+            {"type": "data_store", "guid": "<uuid>",
+             "properties": {"name": "DB", "contains_pii": false,
+                            "encryption_at_rest": true}}
+          ],
+          "containers": [
+            {"type": "trust_boundary", "guid": "<uuid>",
+             "properties": {"name": "VPC"},
+             "children": ["<node_guid>", ...]}
+          ],
+          "data_flows": [
+            {"guid": "<uuid>", "node1": "<guid>", "node2": "<guid>",
+             "properties": {"name": "Write", "authenticated": true,
+                            "encrypted": true,
+                            "node1_src_data_item_refs": ["<data_item_guid>"],
+                            "node2_src_data_item_refs": []}}
+          ],
+          "data_items": [
+            {"guid": "<uuid>", "parent": "<node_guid>",
+             "identifier": "D1", "name": "Customer PII",
+             "classification": "pii"}
+          ]
+        }
+
+    Enums: node type ∈ {process, external_entity, data_store};
+    container type ∈ {trust_boundary, container};
+    classification ∈ {unclassified, internal, pii, secret}.
+
+    Persists under a freshly minted UUID. Returns {id, diagram}.
+    No broadcast is emitted — call `display_diagram` to show it in the browser.
     """
     _stamp(ctx)
-    resp = _http.post("/api/diagrams/import", json=diagram.model_dump(mode="json"))
+    validated = Diagram.model_validate(diagram)
+    resp = _http.post("/api/diagrams/import", json=validated.model_dump(mode="json"))
     resp.raise_for_status()
     diagram_id = resp.json()["id"]
     echo = _http.get(f"/api/diagrams/{diagram_id}/export")
@@ -312,20 +361,25 @@ def create_diagram(diagram: Diagram, ctx: Context) -> dict:
 
 
 @mcp.tool()
-def update_diagram(diagram_id: str, diagram: Diagram, ctx: Context) -> dict:
+def update_diagram(diagram_id: str, diagram: dict, ctx: Context) -> dict:
     """Replace an existing diagram with a new minimal-format document.
+
+    `diagram` accepts the same JSON shape as `create_diagram` — see that
+    tool's docstring for the minimal example, or call `get_diagram_schema`
+    for the full schema.
 
     Overwrites the stored diagram for diagram_id with the provided document.
     The stored layout is dropped so the browser will re-run TALA on the
-    next open.  Returns the diagram_id, the stored diagram echoed back, and
-    a ``broadcast_delivered`` flag indicating whether the diagram-updated
-    notification reached Flask successfully.  A write succeeds even if the
+    next open. Returns {id, diagram, broadcast_delivered}; the
+    ``broadcast_delivered`` flag indicates whether the diagram-updated
+    notification reached Flask successfully. A write succeeds even if the
     broadcast fails — the persisted file is already correct; the browser
     will simply not know to reload until the user refreshes or the next
     successful broadcast reaches it.
     """
     _stamp(ctx)
-    resp = _http.put(f"/api/diagrams/{diagram_id}/import", json=diagram.model_dump(mode="json"))
+    validated = Diagram.model_validate(diagram)
+    resp = _http.put(f"/api/diagrams/{diagram_id}/import", json=validated.model_dump(mode="json"))
     resp.raise_for_status()
     # Broadcast fires on successful write; surface delivery status in the tool
     # return so the agent doesn't mistake "persisted but not notified" for

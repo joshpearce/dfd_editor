@@ -143,7 +143,7 @@ only; Flask's broadcast endpoint rejects non-loopback callers with 403.
 
 ### MCP tools (Step 2)
 
-Six tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP transport
+Seven tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP transport
 bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
 
 | Tool | Flask call | Emits |
@@ -151,9 +151,18 @@ bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
 | `list_diagrams` | `GET /api/diagrams` | — |
 | `create_diagram` | `POST /api/diagrams/import` | — |
 | `get_diagram` | `GET /api/diagrams/<id>/export` | — |
+| `get_diagram_schema` | — (returns `Diagram.model_json_schema()`) | — |
 | `update_diagram` | `PUT /api/diagrams/<id>/import` | `diagram-updated` |
 | `delete_diagram` | `DELETE /api/diagrams/<id>` | `diagram-deleted` |
 | `display_diagram` | `POST /api/internal/broadcast` with `type: "display"` | `display` |
+
+`create_diagram` and `update_diagram` take `diagram: dict` (not
+`diagram: Diagram`) — validation happens inside the tool body via
+`Diagram.model_validate(diagram)`. This keeps the advertised `inputSchema`
+compact (no inlined pydantic `$defs`), which matters for MCP clients that
+choke on large schemas. Agents that want the formal contract call
+`get_diagram_schema`; agents that just need a working example round-trip the
+output of `get_diagram` or follow the docstring example.
 
 Tools that emit broadcasts (`update_diagram`, `delete_diagram`,
 `display_diagram`) return a ``broadcast_delivered: bool`` flag so the agent

@@ -19,14 +19,13 @@ Tool enumeration:
   mcp._tool_manager._tools is a dict[str, Tool]; Tool.fn is the raw callable.
   mcp._tool_manager.list_tools() is a synchronous method returning list[Tool].
 
-FastMCP dispatch test (I5):
-  To exercise the pydantic coercion path that FastMCP uses when a tool is
-  called through the actual dispatcher, we locate the create_diagram Tool via
-  mcp._tool_manager.list_tools(), extract Tool.fn, and call it directly with a
-  Diagram.model_validate(dict) argument.  This validates the pydantic
-  coercion round-trip that the @mcp.tool() decorator relies on without
-  requiring a full async HTTP MCP handshake.  If the SDK later exposes a
-  synchronous call_tool() helper, this test can be upgraded.
+FastMCP dispatch test:
+  `create_diagram` and `update_diagram` accept `diagram: dict` and call
+  `Diagram.model_validate(diagram)` inside the tool body. To exercise the
+  full FastMCP dispatch path (arg routing + tool invocation), we locate the
+  tool via mcp._tool_manager.list_tools() and call
+  tool.fn_metadata.call_fn_with_arg_validation() with a raw dict — the same
+  shape an agent would send over the wire.
 
 Daemon thread guard (M3+M4):
   mcp_server.start_daemon() is now only called from __main__, so importing the
@@ -63,7 +62,6 @@ from mcp_server import (
     mcp,
     update_diagram,
 )
-from schema import Diagram
 
 # ---------------------------------------------------------------------------
 # Minimal valid document reused across tests
@@ -301,6 +299,7 @@ class TestToolsEnumeration:
         assert names == {
             "list_diagrams",
             "get_diagram",
+            "get_diagram_schema",
             "create_diagram",
             "update_diagram",
             "delete_diagram",
@@ -332,8 +331,7 @@ class TestCreateDiagram:
 
         monkeypatch.setattr(mcp_server, "_broadcast", spy_broadcast)
 
-        diagram = Diagram.model_validate(_MINIMAL_DOC)
-        result = create_diagram(diagram=diagram, ctx=_ctx())
+        result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
 
         assert "id" in result
         diagram_id = result["id"]
@@ -344,14 +342,13 @@ class TestCreateDiagram:
             f"create_diagram must not invoke _broadcast; got: {calls}"
         )
 
-    def test_real_fastmcp_dispatch_pydantic_coercion(self, live_server):
-        """I2: Exercise FastMCP's real arg-validation/coercion path with a raw dict.
+    def test_real_fastmcp_dispatch_with_raw_dict(self, live_server):
+        """Exercise FastMCP's real arg-validation + tool-invocation path with a raw dict.
 
-        Strategy (option a): locate the create_diagram Tool via list_tools(),
-        then call tool.fn_metadata.call_fn_with_arg_validation() passing a raw
-        dict for 'diagram'.  This exercises the actual pydantic coercion that
-        FastMCP performs before invoking the tool function — a pre-validated
-        Diagram instance would bypass it entirely.
+        `create_diagram` now accepts `diagram: dict` so the tool body is the
+        validation point (`Diagram.model_validate(diagram)` runs inside the
+        tool). This test drives the full FastMCP dispatch path to prove the
+        end-to-end handshake works with an agent-shaped argument payload.
 
         SDK attributes used: Tool.fn_metadata (FuncMetadata),
         FuncMetadata.call_fn_with_arg_validation (async).
@@ -393,8 +390,7 @@ class TestUpdateDiagram:
         tmp_path, port = live_server
 
         # Seed a diagram first via create_diagram
-        diagram = Diagram.model_validate(_MINIMAL_DOC)
-        create_result = create_diagram(diagram=diagram, ctx=_ctx())
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
         ws, messages, reader_errors = _open_ws_and_drain(port)
@@ -404,7 +400,7 @@ class TestUpdateDiagram:
         updated_doc["meta"] = {"name": "Updated Name"}
         update_result = update_diagram(
             diagram_id=diagram_id,
-            diagram=Diagram.model_validate(updated_doc),
+            diagram=updated_doc,
             ctx=_ctx(),
         )
 
@@ -432,8 +428,7 @@ class TestDeleteDiagram:
         tmp_path, port = live_server
 
         # Seed via create_diagram
-        diagram = Diagram.model_validate(_MINIMAL_DOC)
-        create_result = create_diagram(diagram=diagram, ctx=_ctx())
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
         assert (tmp_path / f"{diagram_id}.json").exists()
 
@@ -468,8 +463,7 @@ class TestDisplayDiagram:
         tmp_path, port = live_server
 
         # Seed a diagram
-        diagram = Diagram.model_validate(_MINIMAL_DOC)
-        create_result = create_diagram(diagram=diagram, ctx=_ctx())
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
         files_before = set(tmp_path.iterdir())
@@ -506,8 +500,7 @@ class TestGetDiagram:
         tmp_path, port = live_server
 
         # Create via import endpoint to ensure a well-formed native file exists
-        diagram = Diagram.model_validate(_MINIMAL_DOC)
-        create_result = create_diagram(diagram=diagram, ctx=_ctx())
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
         result = get_diagram(diagram_id=diagram_id, ctx=_ctx())
@@ -539,13 +532,11 @@ class TestListDiagrams:
         tmp_path, port = live_server
 
         # Create two diagrams
-        d1 = Diagram.model_validate(_MINIMAL_DOC)
         d2_doc = copy.deepcopy(_MINIMAL_DOC)
         d2_doc["meta"] = {"name": "Second diagram"}
-        d2 = Diagram.model_validate(d2_doc)
 
-        r1 = create_diagram(diagram=d1, ctx=_ctx())
-        r2 = create_diagram(diagram=d2, ctx=_ctx())
+        r1 = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        r2 = create_diagram(diagram=d2_doc, ctx=_ctx())
 
         result = list_diagrams(ctx=_ctx())
 
@@ -565,6 +556,26 @@ class TestListDiagrams:
         _tmp_path, _port = live_server
         result = list_diagrams(ctx=_ctx())
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_diagram_schema — returns the pydantic JSON schema for agents that want
+# the formal contract beyond the create_diagram docstring example.
+# ---------------------------------------------------------------------------
+
+
+class TestGetDiagramSchema:
+    def test_returns_diagram_json_schema(self):
+        from mcp_server import get_diagram_schema
+
+        schema = get_diagram_schema()
+
+        assert isinstance(schema, dict)
+        assert schema.get("title") == "Diagram"
+        # Required top-level fields of the minimal document format.
+        properties = schema.get("properties", {})
+        for key in ("meta", "nodes", "containers", "data_flows", "data_items"):
+            assert key in properties, f"schema missing top-level property: {key}"
 
 
 # ---------------------------------------------------------------------------
@@ -783,9 +794,8 @@ class TestSadPaths:
         mcp_server._was_active = True
         calls = self._spy(monkeypatch)
 
-        diagram = Diagram.model_validate(_MINIMAL_DOC)
         with pytest.raises(httpx.HTTPStatusError):
-            update_diagram(diagram_id="does-not-exist", diagram=diagram, ctx=_ctx())
+            update_diagram(diagram_id="does-not-exist", diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
 
         assert [c["type"] for c in calls if c.get("type") == "diagram-updated"] == [], (
             f"update_diagram on missing id must not broadcast; got: {calls}"
