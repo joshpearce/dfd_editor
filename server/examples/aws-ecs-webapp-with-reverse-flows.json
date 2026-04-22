@@ -1,0 +1,718 @@
+{
+    "meta": {
+        "name": "AWS ECS Web App (with data items + reverse flows)",
+        "description": "Typical AWS deployment of a web application on ECS Fargate, with CloudFront edge caching, an ALB, four containerized services, and managed data/auth tiers. Annotated with data items for each forward flow AND a matching reverse (response) flow for every request/response pair so the editor can render bidirectional pairs.",
+        "author": "dfd-editor sample",
+        "created": "2026-04-21T12:00:00+00:00"
+    },
+    "nodes": [
+        {
+            "type": "external_entity",
+            "guid": "40000000-0000-0000-0000-000000000001",
+            "properties": {
+                "name": "End User",
+                "description": "Customer accessing the web app from a browser.",
+                "entity_type": "user",
+                "out_of_scope": false
+            }
+        },
+        {
+            "type": "external_entity",
+            "guid": "40000000-0000-0000-0000-000000000002",
+            "properties": {
+                "name": "Stripe",
+                "description": "Third-party payment processor.",
+                "entity_type": "service",
+                "out_of_scope": true
+            }
+        },
+        {
+            "type": "external_entity",
+            "guid": "40000000-0000-0000-0000-000000000003",
+            "properties": {
+                "name": "Amazon Cognito",
+                "description": "Managed identity provider for user pools and federated sign-in.",
+                "entity_type": "service",
+                "out_of_scope": false
+            }
+        },
+        {
+            "type": "external_entity",
+            "guid": "40000000-0000-0000-0000-000000000004",
+            "properties": {
+                "name": "Amazon SES",
+                "description": "Transactional email sender for receipts and account notifications.",
+                "entity_type": "service",
+                "out_of_scope": false
+            }
+        },
+        {
+            "type": "process",
+            "guid": "30000000-0000-0000-0000-000000000001",
+            "properties": {
+                "name": "CloudFront CDN",
+                "description": "Edge cache and TLS termination for static assets and API routes.",
+                "trust_level": "system"
+            }
+        },
+        {
+            "type": "process",
+            "guid": "30000000-0000-0000-0000-000000000002",
+            "properties": {
+                "name": "Application Load Balancer",
+                "description": "Public-facing ALB routing to ECS services by host/path rules.",
+                "trust_level": "system"
+            }
+        },
+        {
+            "type": "process",
+            "guid": "30000000-0000-0000-0000-000000000003",
+            "properties": {
+                "name": "Web Frontend",
+                "description": "ECS Fargate service serving the Vue SPA and proxying auth/API calls.",
+                "trust_level": "authenticated",
+                "assumptions": [
+                    "TLS terminates at ALB; internal hop is plaintext HTTP inside the VPC.",
+                    "Session cookies are HttpOnly, Secure, SameSite=Lax."
+                ]
+            }
+        },
+        {
+            "type": "process",
+            "guid": "30000000-0000-0000-0000-000000000004",
+            "properties": {
+                "name": "REST API",
+                "description": "ECS Fargate service exposing the application's CRUD and business-logic endpoints.",
+                "trust_level": "authenticated",
+                "assumptions": [
+                    "Every inbound request carries a JWT minted by the Auth Service.",
+                    "Outbound calls to AWS services use the task IAM role, not static keys."
+                ]
+            }
+        },
+        {
+            "type": "process",
+            "guid": "30000000-0000-0000-0000-000000000005",
+            "properties": {
+                "name": "Auth Service",
+                "description": "ECS Fargate service fronting Cognito; issues short-lived JWTs and manages password flows.",
+                "trust_level": "admin"
+            }
+        },
+        {
+            "type": "process",
+            "guid": "30000000-0000-0000-0000-000000000006",
+            "properties": {
+                "name": "Background Worker",
+                "description": "ECS Fargate service polling SQS for async jobs (email, billing reconciliation).",
+                "trust_level": "authenticated"
+            }
+        },
+        {
+            "type": "data_store",
+            "guid": "50000000-0000-0000-0000-000000000001",
+            "properties": {
+                "name": "ElastiCache Redis",
+                "description": "Session cache and rate-limit counters. Volatile; no long-lived PII.",
+                "storage_type": "cache",
+                "contains_pii": false,
+                "encryption_at_rest": true
+            }
+        },
+        {
+            "type": "data_store",
+            "guid": "50000000-0000-0000-0000-000000000002",
+            "properties": {
+                "name": "RDS PostgreSQL",
+                "description": "Primary relational store: accounts, orders, audit trail.",
+                "storage_type": "database",
+                "contains_pii": true,
+                "encryption_at_rest": true
+            }
+        },
+        {
+            "type": "data_store",
+            "guid": "50000000-0000-0000-0000-000000000003",
+            "properties": {
+                "name": "S3 User Uploads",
+                "description": "Customer-supplied files (profile photos, attachments). Versioned, KMS-encrypted.",
+                "storage_type": "bucket",
+                "contains_pii": true,
+                "encryption_at_rest": true
+            }
+        },
+        {
+            "type": "data_store",
+            "guid": "50000000-0000-0000-0000-000000000004",
+            "properties": {
+                "name": "SQS Job Queue",
+                "description": "Durable queue for async work handed off by the REST API.",
+                "storage_type": "queue",
+                "contains_pii": false,
+                "encryption_at_rest": true
+            }
+        }
+    ],
+    "containers": [
+        {
+            "type": "trust_boundary",
+            "guid": "10000000-0000-0000-0000-000000000001",
+            "properties": {
+                "name": "Internet",
+                "description": "Untrusted network reachable by any client.",
+                "privilege_level": "internet"
+            },
+            "children": [
+                "40000000-0000-0000-0000-000000000001",
+                "40000000-0000-0000-0000-000000000002"
+            ]
+        },
+        {
+            "type": "trust_boundary",
+            "guid": "10000000-0000-0000-0000-000000000002",
+            "properties": {
+                "name": "AWS Public Subnet",
+                "description": "DMZ edge of the VPC; terminates TLS and fronts internal services.",
+                "privilege_level": "dmz"
+            },
+            "children": [
+                "30000000-0000-0000-0000-000000000001",
+                "30000000-0000-0000-0000-000000000002"
+            ]
+        },
+        {
+            "type": "trust_boundary",
+            "guid": "10000000-0000-0000-0000-000000000003",
+            "properties": {
+                "name": "AWS Private Subnet",
+                "description": "Application tier: ECS cluster and in-VPC cache.",
+                "privilege_level": "corporate"
+            },
+            "children": [
+                "20000000-0000-0000-0000-000000000001",
+                "50000000-0000-0000-0000-000000000001"
+            ]
+        },
+        {
+            "type": "trust_boundary",
+            "guid": "10000000-0000-0000-0000-000000000004",
+            "properties": {
+                "name": "AWS Data Tier",
+                "description": "Durable storage. Network-restricted from the public subnet.",
+                "privilege_level": "restricted"
+            },
+            "children": [
+                "50000000-0000-0000-0000-000000000002",
+                "50000000-0000-0000-0000-000000000003"
+            ]
+        },
+        {
+            "type": "trust_boundary",
+            "guid": "10000000-0000-0000-0000-000000000005",
+            "properties": {
+                "name": "AWS Managed Services",
+                "description": "Regional AWS services reached over HTTPS with IAM auth.",
+                "privilege_level": "corporate"
+            },
+            "children": [
+                "40000000-0000-0000-0000-000000000003",
+                "40000000-0000-0000-0000-000000000004",
+                "50000000-0000-0000-0000-000000000004"
+            ]
+        },
+        {
+            "type": "container",
+            "guid": "20000000-0000-0000-0000-000000000001",
+            "properties": {
+                "name": "ECS Cluster",
+                "description": "Fargate cluster running the four application services."
+            },
+            "children": [
+                "30000000-0000-0000-0000-000000000003",
+                "30000000-0000-0000-0000-000000000004",
+                "30000000-0000-0000-0000-000000000005",
+                "30000000-0000-0000-0000-000000000006"
+            ]
+        }
+    ],
+    "data_flows": [
+        {
+            "guid": "60000000-0000-0000-0000-000000000001",
+            "node1": "40000000-0000-0000-0000-000000000001",
+            "node2": "30000000-0000-0000-0000-000000000001",
+            "properties": {
+                "authenticated": false,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000015",
+                    "70000000-0000-0000-0000-000000000016",
+                    "70000000-0000-0000-0000-000000000005",
+                    "70000000-0000-0000-0000-00000000000c"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000015",
+                    "70000000-0000-0000-0000-00000000001a",
+                    "70000000-0000-0000-0000-000000000017",
+                    "70000000-0000-0000-0000-000000000005"
+                ],
+                "name": "Browser request",
+                "protocol": "HTTPS/443"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-000000000002",
+            "node1": "30000000-0000-0000-0000-000000000001",
+            "node2": "30000000-0000-0000-0000-000000000002",
+            "properties": {
+                "authenticated": false,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000016",
+                    "70000000-0000-0000-0000-000000000005"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000017",
+                    "70000000-0000-0000-0000-00000000001a"
+                ],
+                "name": "CDN origin fetch",
+                "protocol": "HTTPS/443"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-000000000003",
+            "node1": "30000000-0000-0000-0000-000000000002",
+            "node2": "30000000-0000-0000-0000-000000000003",
+            "properties": {
+                "authenticated": false,
+                "encrypted": false,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000016",
+                    "70000000-0000-0000-0000-000000000005"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000017",
+                    "70000000-0000-0000-0000-00000000001a",
+                    "70000000-0000-0000-0000-000000000005"
+                ],
+                "name": "ALB \u2192 Web routing",
+                "protocol": "HTTP/80"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-000000000004",
+            "node1": "30000000-0000-0000-0000-000000000003",
+            "node2": "30000000-0000-0000-0000-000000000004",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000003",
+                    "70000000-0000-0000-0000-000000000016"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000017"
+                ],
+                "name": "API call (JWT-bearing)",
+                "protocol": "gRPC/mTLS"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-000000000005",
+            "node1": "30000000-0000-0000-0000-000000000003",
+            "node2": "30000000-0000-0000-0000-000000000005",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000001",
+                    "70000000-0000-0000-0000-000000000003",
+                    "70000000-0000-0000-0000-000000000004"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000003",
+                    "70000000-0000-0000-0000-000000000004"
+                ],
+                "name": "Sign-in / token refresh",
+                "protocol": "HTTPS/443"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-000000000006",
+            "node1": "30000000-0000-0000-0000-000000000005",
+            "node2": "40000000-0000-0000-0000-000000000003",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000001",
+                    "70000000-0000-0000-0000-000000000006"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000006"
+                ],
+                "name": "Cognito AdminInitiateAuth",
+                "protocol": "HTTPS/443"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-000000000007",
+            "node1": "30000000-0000-0000-0000-000000000005",
+            "node2": "50000000-0000-0000-0000-000000000002",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000007",
+                    "70000000-0000-0000-0000-000000000002"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000007",
+                    "70000000-0000-0000-0000-000000000002"
+                ],
+                "name": "User record lookup",
+                "protocol": "PostgreSQL/5432 (TLS)"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-000000000008",
+            "node1": "30000000-0000-0000-0000-000000000004",
+            "node2": "50000000-0000-0000-0000-000000000002",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-00000000000a",
+                    "70000000-0000-0000-0000-000000000007",
+                    "70000000-0000-0000-0000-000000000009",
+                    "70000000-0000-0000-0000-00000000000b"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-00000000000a",
+                    "70000000-0000-0000-0000-000000000007",
+                    "70000000-0000-0000-0000-000000000009",
+                    "70000000-0000-0000-0000-00000000000b"
+                ],
+                "name": "Application query",
+                "protocol": "PostgreSQL/5432 (TLS)"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-000000000009",
+            "node1": "30000000-0000-0000-0000-000000000004",
+            "node2": "50000000-0000-0000-0000-000000000001",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000012",
+                    "70000000-0000-0000-0000-000000000011"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000012",
+                    "70000000-0000-0000-0000-000000000011"
+                ],
+                "name": "Session / rate-limit cache",
+                "protocol": "Redis/6379 (TLS)"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-00000000000a",
+            "node1": "30000000-0000-0000-0000-000000000004",
+            "node2": "50000000-0000-0000-0000-000000000003",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-00000000000f",
+                    "70000000-0000-0000-0000-000000000010"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-00000000000f",
+                    "70000000-0000-0000-0000-000000000010"
+                ],
+                "name": "Upload read/write",
+                "protocol": "HTTPS/443 (S3 SigV4)"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-00000000000b",
+            "node1": "30000000-0000-0000-0000-000000000004",
+            "node2": "50000000-0000-0000-0000-000000000004",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000013"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000018"
+                ],
+                "name": "Enqueue async job",
+                "protocol": "HTTPS/443 (SQS SendMessage)"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-00000000000c",
+            "node1": "30000000-0000-0000-0000-000000000004",
+            "node2": "40000000-0000-0000-0000-000000000002",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-00000000000d",
+                    "70000000-0000-0000-0000-00000000000e"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-00000000000e"
+                ],
+                "name": "Charge payment",
+                "protocol": "HTTPS/443"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-00000000000d",
+            "node1": "30000000-0000-0000-0000-000000000006",
+            "node2": "50000000-0000-0000-0000-000000000004",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000013"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000013"
+                ],
+                "name": "Poll job queue",
+                "protocol": "HTTPS/443 (SQS ReceiveMessage)"
+            }
+        },
+        {
+            "guid": "60000000-0000-0000-0000-00000000000e",
+            "node1": "30000000-0000-0000-0000-000000000006",
+            "node2": "40000000-0000-0000-0000-000000000004",
+            "properties": {
+                "authenticated": true,
+                "encrypted": true,
+                "node1_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000014",
+                    "70000000-0000-0000-0000-000000000008"
+                ],
+                "node2_src_data_item_refs": [
+                    "70000000-0000-0000-0000-000000000019"
+                ],
+                "name": "Send transactional email",
+                "protocol": "HTTPS/443 (SES SendEmail)"
+            }
+        }
+    ],
+    "data_items": [
+        {
+            "guid": "70000000-0000-0000-0000-000000000001",
+            "parent": "40000000-0000-0000-0000-000000000001",
+            "identifier": "D1",
+            "name": "User Credentials",
+            "description": "Username and plaintext password supplied during sign-in.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000002",
+            "parent": "50000000-0000-0000-0000-000000000002",
+            "identifier": "D2",
+            "name": "Password Hash",
+            "description": "bcrypt hash of the user's password stored in the accounts table.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000003",
+            "parent": "30000000-0000-0000-0000-000000000005",
+            "identifier": "D3",
+            "name": "Session JWT",
+            "description": "Short-lived access token minted by the Auth Service; carried on every API call.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000004",
+            "parent": "30000000-0000-0000-0000-000000000005",
+            "identifier": "D4",
+            "name": "Refresh Token",
+            "description": "Long-lived refresh token used to mint new access JWTs without re-auth.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000005",
+            "parent": "30000000-0000-0000-0000-000000000003",
+            "identifier": "D5",
+            "name": "Session Cookie",
+            "description": "HttpOnly, Secure, SameSite=Lax cookie correlating browser to server session.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000006",
+            "parent": "40000000-0000-0000-0000-000000000003",
+            "identifier": "D6",
+            "name": "Cognito ID Token",
+            "description": "OIDC ID token returned by Cognito after successful auth challenge.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000007",
+            "parent": "50000000-0000-0000-0000-000000000002",
+            "identifier": "D7",
+            "name": "User Profile Record",
+            "description": "Account row: user_id, display_name, email, created_at, preferences.",
+            "classification": "pii"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000008",
+            "parent": "50000000-0000-0000-0000-000000000002",
+            "identifier": "D8",
+            "name": "Customer Email Address",
+            "description": "RFC 5322 email address used for login and transactional mail.",
+            "classification": "pii"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000009",
+            "parent": "50000000-0000-0000-0000-000000000002",
+            "identifier": "D9",
+            "name": "Shipping Address",
+            "description": "Street address, city, postal code attached to an order.",
+            "classification": "pii"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-00000000000a",
+            "parent": "50000000-0000-0000-0000-000000000002",
+            "identifier": "D10",
+            "name": "Order Record",
+            "description": "Order id, line items, quantities, total amount, status.",
+            "classification": "internal"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-00000000000b",
+            "parent": "50000000-0000-0000-0000-000000000002",
+            "identifier": "D11",
+            "name": "Audit Log Entry",
+            "description": "Append-only record: timestamp, actor, action, resource, result.",
+            "classification": "internal"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-00000000000c",
+            "parent": "40000000-0000-0000-0000-000000000001",
+            "identifier": "D12",
+            "name": "Credit Card PAN",
+            "description": "Raw primary account number entered at checkout (tokenized client-side before upstream calls).",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-00000000000d",
+            "parent": "40000000-0000-0000-0000-000000000002",
+            "identifier": "D13",
+            "name": "Stripe Payment Token",
+            "description": "Opaque tokenized card reference issued by Stripe; replaces the PAN on our side.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-00000000000e",
+            "parent": "40000000-0000-0000-0000-000000000002",
+            "identifier": "D14",
+            "name": "Stripe Charge Receipt",
+            "description": "Charge id, last4, amount, status returned by Stripe after capture.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-00000000000f",
+            "parent": "50000000-0000-0000-0000-000000000003",
+            "identifier": "D15",
+            "name": "Profile Photo",
+            "description": "User-uploaded avatar image stored in the user-uploads bucket.",
+            "classification": "pii"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000010",
+            "parent": "50000000-0000-0000-0000-000000000003",
+            "identifier": "D16",
+            "name": "File Attachment",
+            "description": "Customer-supplied document attached to an order or support ticket.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000011",
+            "parent": "50000000-0000-0000-0000-000000000001",
+            "identifier": "D17",
+            "name": "Rate Limit Counter",
+            "description": "Per-IP, per-route request counter with a short TTL.",
+            "classification": "internal"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000012",
+            "parent": "50000000-0000-0000-0000-000000000001",
+            "identifier": "D18",
+            "name": "Cached Session State",
+            "description": "Serialized session blob (user_id, roles, csrf token) keyed by session id.",
+            "classification": "secret"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000013",
+            "parent": "50000000-0000-0000-0000-000000000004",
+            "identifier": "D19",
+            "name": "Async Job Message",
+            "description": "SQS message body: job type, payload, correlation id, enqueue timestamp.",
+            "classification": "internal"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000014",
+            "parent": "30000000-0000-0000-0000-000000000006",
+            "identifier": "D20",
+            "name": "Transactional Email",
+            "description": "Rendered receipt or account-notification email ready for SES.",
+            "classification": "pii"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000015",
+            "parent": "30000000-0000-0000-0000-000000000001",
+            "identifier": "D21",
+            "name": "Static Web Asset",
+            "description": "SPA bundle, CSS, images served from the CDN edge cache.",
+            "classification": "public"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000016",
+            "parent": "30000000-0000-0000-0000-000000000004",
+            "identifier": "D22",
+            "name": "API Request Payload",
+            "description": "JSON request body for CRUD and business-logic endpoints.",
+            "classification": "internal"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000017",
+            "parent": "30000000-0000-0000-0000-000000000004",
+            "identifier": "D23",
+            "name": "API Response Payload",
+            "description": "JSON response body returned by the REST API to upstream callers.",
+            "classification": "internal"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000018",
+            "parent": "50000000-0000-0000-0000-000000000004",
+            "identifier": "D24",
+            "name": "SQS Send Receipt",
+            "description": "MessageId / sequence-number ack returned by SQS after a successful SendMessage.",
+            "classification": "internal"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-000000000019",
+            "parent": "40000000-0000-0000-0000-000000000004",
+            "identifier": "D25",
+            "name": "SES Send Receipt",
+            "description": "MessageId acknowledgement returned by SES after a successful SendEmail.",
+            "classification": "internal"
+        },
+        {
+            "guid": "70000000-0000-0000-0000-00000000001a",
+            "parent": "30000000-0000-0000-0000-000000000001",
+            "identifier": "D26",
+            "name": "Rendered HTML Page",
+            "description": "Server-side rendered HTML delivered as the initial document response.",
+            "classification": "public"
+        }
+    ]
+}
