@@ -244,15 +244,14 @@ export type DictionaryBlockStyle = {
 
     /**
      * Per-classification fill and text colours for data pills.
-     * Keys correspond to the `classification` field on a DataItem, plus
-     * `"default"` which is used when classification is null or unknown.
+     * Keys correspond to the `classification` field on a DataItem; unknown or
+     * absent values narrow to `"unclassified"` via {@link narrowClassification}.
      *
-     * Step 4/5 note: the face builder must narrow the free-form
-     * `classification: string | undefined` to the known key union before
-     * indexing here — introduce the narrowing helper at the face-builder
-     * call site, with fallback to `"default"` for unknown/missing values.
+     * The face builder must narrow the `classification: string | undefined`
+     * to the known key union before indexing here — use
+     * {@link narrowClassification} at the face-builder call site.
      */
-    dataPill: Record<"pii" | "secret" | "public" | "internal" | "default", {
+    dataPill: Record<"pii" | "secret" | "public" | "internal" | "unclassified", {
 
         /**
          * The pill's background fill colour.

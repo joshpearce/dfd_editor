@@ -8,7 +8,7 @@ Covers:
   - Only node1_src populated
   - Only node2_src populated
   - Both populated (possibly with the same item in both directions)
-- Arbitrary classification strings (free-form) survive round-trip unchanged.
+- classification is a closed enum; unknown values are rejected with HTTP 400.
 - extra="forbid" rejects unknown keys on DataItem.
 - Missing required fields on DataItem return 400.
 - Ordering within each ref array is preserved (AC2.2).
@@ -372,22 +372,22 @@ class TestDataItemsRoundTrip:
 
 
 # ---------------------------------------------------------------------------
-# Test 7: Free-form classifications preserved
+# Test 7: Classification enum — valid values round-trip; invalid rejected
 # ---------------------------------------------------------------------------
 
 
-class TestArbitraryClassification:
-    """Arbitrary classification strings (not enum-restricted) survive round-trip."""
+class TestClassificationEnum:
+    """classification is a closed enum; valid values round-trip; invalid values are rejected."""
 
-    def test_free_form_classification_preserved(self, client):
-        """Custom classification string survives round-trip unchanged."""
+    def test_valid_classification_round_trips(self, client):
+        """A known classification value survives import → export unchanged."""
         data_items = [
             {
                 "guid": _DATA_ITEM_1_GUID,
                 "parent": _PROCESS_GUID,
                 "identifier": "D1",
-                "name": "Custom Item",
-                "classification": "custom_classification",
+                "name": "Secret Item",
+                "classification": "secret",
             },
         ]
         payload = _base_payload(
@@ -400,29 +400,21 @@ class TestArbitraryClassification:
 
         exported = _export(client, diagram_id)
         items = {item["guid"]: item for item in exported["data_items"]}
-        assert items[_DATA_ITEM_1_GUID]["classification"] == "custom_classification"
+        assert items[_DATA_ITEM_1_GUID]["classification"] == "secret"
 
-    def test_multiple_custom_classifications(self, client):
-        """Multiple items with different custom classifications survive."""
+    def test_absent_classification_defaults_to_unclassified(self, client):
+        """An item with no classification field defaults to 'unclassified' on export."""
         data_items = [
             {
                 "guid": _DATA_ITEM_1_GUID,
                 "parent": _PROCESS_GUID,
                 "identifier": "D1",
-                "name": "Item One",
-                "classification": "confidential",
-            },
-            {
-                "guid": _DATA_ITEM_2_GUID,
-                "parent": _DATA_STORE_GUID,
-                "identifier": "D2",
-                "name": "Item Two",
-                "classification": "top_secret_red",
+                "name": "No Class Item",
             },
         ]
         payload = _base_payload(
             node1_refs=[_DATA_ITEM_1_GUID],
-            node2_refs=[_DATA_ITEM_2_GUID],
+            node2_refs=[],
             data_items=data_items,
         )
         diagram_id, resp = _import(client, payload)
@@ -430,8 +422,61 @@ class TestArbitraryClassification:
 
         exported = _export(client, diagram_id)
         items = {item["guid"]: item for item in exported["data_items"]}
-        assert items[_DATA_ITEM_1_GUID]["classification"] == "confidential"
-        assert items[_DATA_ITEM_2_GUID]["classification"] == "top_secret_red"
+        assert items[_DATA_ITEM_1_GUID]["classification"] == "unclassified"
+
+    def test_invalid_classification_rejected_with_400(self, client):
+        """An import with a classification outside the enum is rejected with HTTP 400."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Bad Class Item",
+                "classification": "top-secret",
+            },
+        ]
+        payload = _base_payload(data_items=data_items)
+        _id, resp = _import(client, payload)
+        assert resp.status_code == 400
+
+    def test_all_five_enum_values_accepted(self, client):
+        """All five classification enum values are accepted and round-trip."""
+        data_items = [
+            {
+                "guid": _DATA_ITEM_1_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D1",
+                "name": "Unclassified",
+                "classification": "unclassified",
+            },
+            {
+                "guid": _DATA_ITEM_2_GUID,
+                "parent": _DATA_STORE_GUID,
+                "identifier": "D2",
+                "name": "PII",
+                "classification": "pii",
+            },
+            {
+                "guid": _DATA_ITEM_3_GUID,
+                "parent": _PROCESS_GUID,
+                "identifier": "D3",
+                "name": "Secret",
+                "classification": "secret",
+            },
+        ]
+        payload = _base_payload(
+            node1_refs=[_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
+            node2_refs=[_DATA_ITEM_3_GUID],
+            data_items=data_items,
+        )
+        diagram_id, resp = _import(client, payload)
+        assert resp.status_code == 201
+
+        exported = _export(client, diagram_id)
+        items = {item["guid"]: item for item in exported["data_items"]}
+        assert items[_DATA_ITEM_1_GUID]["classification"] == "unclassified"
+        assert items[_DATA_ITEM_2_GUID]["classification"] == "pii"
+        assert items[_DATA_ITEM_3_GUID]["classification"] == "secret"
 
 
 # ---------------------------------------------------------------------------
@@ -681,16 +726,16 @@ class TestDataItemsCanvasShape:
         assert item1["classification"] == "secret"
         assert "guid" not in item1
 
-        # Item 2: required fields only
+        # Item 2: no explicit classification — defaults to "unclassified"
         item2 = items_by_guid[_DATA_ITEM_2_GUID]
         assert item2["parent"] == _DATA_STORE_GUID
         assert item2["identifier"] == "D2"
         assert item2["name"] == "Minimal Item"
         assert "description" not in item2
-        assert "classification" not in item2
+        assert item2["classification"] == "unclassified"
 
     def test_to_native_field_emission_order(self):
-        """Sub-pairs are emitted in declaration order: parent, identifier, name, [description], [classification]."""
+        """Sub-pairs are emitted in declaration order: parent, identifier, name, [description], classification."""
         data_items = [
             {
                 "guid": _DATA_ITEM_1_GUID,
@@ -747,7 +792,7 @@ class TestDataItemsCanvasShape:
         assert item2["identifier"] == "D2"
         assert item2["name"] == "Minimal Item"
         assert "description" not in item2
-        assert "classification" not in item2
+        assert item2["classification"] == "unclassified"
 
     def test_malformed_data_items_not_list_raises(self):
         """A data_items value that is not a list raises InvalidNativeError."""

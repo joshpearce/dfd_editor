@@ -269,7 +269,7 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
             const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
             expect(pillChips[0].fill).toBe(config.data_pill.pii.fill);
             expect(pillChips[1].fill).toBe(config.data_pill.secret.fill);
-            expect(pillChips[2].fill).toBe(config.data_pill.default.fill);
+            expect(pillChips[2].fill).toBe(config.data_pill.unclassified.fill);
         });
 
         it("renders bare identifiers as chip text (owner view)", () => {
@@ -388,12 +388,12 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
     });
 
     // -----------------------------------------------------------------------
-    // 4. Unknown classification falls back to "default"
+    // 4. Unknown classification falls back to "unclassified"
     // -----------------------------------------------------------------------
 
     describe("classification fallback", () => {
 
-        it("unknown classification string ('confidential') resolves to default fill", () => {
+        it("unknown classification string ('confidential') resolves to unclassified fill", () => {
             const blockInstance = "proc-fallback";
             const config = DarkStyle.DictionaryBlock();
             const canvas = makeCanvasWithItems([
@@ -404,11 +404,11 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
 
             const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
             expect(pillChips).toHaveLength(1);
-            expect(pillChips[0].fill).toBe(config.data_pill.default.fill);
-            expect(pillChips[0].textColor).toBe(config.data_pill.default.text);
+            expect(pillChips[0].fill).toBe(config.data_pill.unclassified.fill);
+            expect(pillChips[0].textColor).toBe(config.data_pill.unclassified.text);
         });
 
-        it("null classification resolves to default fill", () => {
+        it("null classification resolves to unclassified fill", () => {
             const blockInstance = "proc-null-class";
             const config = DarkStyle.DictionaryBlock();
             const canvas = makeCanvasWithItems([
@@ -419,7 +419,7 @@ describe("DictionaryBlock — pill row (Step 4)", () => {
 
             const { pillChips } = (block.face as DictionaryBlock).layoutDebug;
             expect(pillChips).toHaveLength(1);
-            expect(pillChips[0].fill).toBe(config.data_pill.default.fill);
+            expect(pillChips[0].fill).toBe(config.data_pill.unclassified.fill);
         });
 
     });

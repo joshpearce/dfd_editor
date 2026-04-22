@@ -345,13 +345,14 @@ describe("readDataItems — partial items are surfaced", () => {
 
 describe("narrowClassification", () => {
 
-    it("returns 'pii' for 'pii'",         () => expect(narrowClassification("pii")).toBe("pii"));
-    it("returns 'secret' for 'secret'",   () => expect(narrowClassification("secret")).toBe("secret"));
-    it("returns 'public' for 'public'",   () => expect(narrowClassification("public")).toBe("public"));
-    it("returns 'internal' for 'internal'", () => expect(narrowClassification("internal")).toBe("internal"));
-    it("returns 'default' for unknown",   () => expect(narrowClassification("top-secret")).toBe("default"));
-    it("returns 'default' for null",      () => expect(narrowClassification(null)).toBe("default"));
-    it("returns 'default' for undefined", () => expect(narrowClassification(undefined)).toBe("default"));
-    it("returns 'default' for empty string", () => expect(narrowClassification("")).toBe("default"));
+    it("returns 'pii' for 'pii'",                   () => expect(narrowClassification("pii")).toBe("pii"));
+    it("returns 'secret' for 'secret'",             () => expect(narrowClassification("secret")).toBe("secret"));
+    it("returns 'public' for 'public'",             () => expect(narrowClassification("public")).toBe("public"));
+    it("returns 'internal' for 'internal'",         () => expect(narrowClassification("internal")).toBe("internal"));
+    it("returns 'unclassified' for 'unclassified'", () => expect(narrowClassification("unclassified")).toBe("unclassified"));
+    it("returns 'unclassified' for unknown",      () => expect(narrowClassification("top-secret")).toBe("unclassified"));
+    it("returns 'unclassified' for null",         () => expect(narrowClassification(null)).toBe("unclassified"));
+    it("returns 'unclassified' for undefined",    () => expect(narrowClassification(undefined)).toBe("unclassified"));
+    it("returns 'unclassified' for empty string", () => expect(narrowClassification("")).toBe("unclassified"));
 
 });

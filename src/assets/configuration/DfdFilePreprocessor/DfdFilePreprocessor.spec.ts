@@ -274,10 +274,10 @@ describe("DfdFilePreprocessor", () => {
             expect(e1.value.get("identifier")?.toJson()).toBe("D1");
             expect(e1.value.get("classification")?.toJson()).toBe("secret");
 
-            // Check item 2 fields (no classification).
+            // Check item 2 fields (no explicit classification — defaults to "unclassified").
             const e2 = dataProp.value.get(itemGuid2) as import("@OpenChart/DiagramModel").DictionaryProperty;
             expect(e2.value.get("identifier")?.toJson()).toBe("D2");
-            expect(e2.value.get("classification")?.toJson()).toBeNull();
+            expect(e2.value.get("classification")?.toJson()).toBe("unclassified");
         });
 
         it("absent description sub-key in a data item round-trips to the same minimal shape  [M5]", () => {
@@ -297,11 +297,11 @@ describe("DfdFilePreprocessor", () => {
             const publisher = new DfdPublisher();
             const output = JSON.parse(publisher.publish(file));
 
-            // Round-trip: description should remain absent from the published output.
+            // Round-trip: description absent stays absent; classification defaults to "unclassified".
             expect(output.data_items).toHaveLength(1);
             const item = output.data_items[0];
             expect(item.description).toBeUndefined();
-            expect(item.classification).toBeUndefined();
+            expect(item.classification).toBe("unclassified");
             expect(item.identifier).toBe("D1");
             expect(item.name).toBe("NoDesc");
         });

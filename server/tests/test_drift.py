@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from schema import (
     ContainerType,
     DataFlowProps,
+    DataItemClassification,
     EntityType,
     NodeType,
     PrivilegeLevel,
@@ -32,6 +33,7 @@ from schema import (
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _TS_FILE = _REPO_ROOT / "src" / "assets" / "configuration" / "DfdTemplates" / "DfdObjects.ts"
+_TS_CANVAS_FILE = _REPO_ROOT / "src" / "assets" / "configuration" / "DfdTemplates" / "DfdCanvas.ts"
 
 
 # ---------------------------------------------------------------------------
@@ -231,8 +233,19 @@ def ts_text() -> str:
 
 
 @pytest.fixture(scope="module")
+def ts_canvas_text() -> str:
+    assert _TS_CANVAS_FILE.exists(), f"TS canvas file not found: {_TS_CANVAS_FILE}"
+    return _TS_CANVAS_FILE.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
 def ts_enums(ts_text: str) -> dict[str, set[str]]:
     return _parse_ts(ts_text)
+
+
+@pytest.fixture(scope="module")
+def ts_canvas_enums(ts_canvas_text: str) -> dict[str, set[str]]:
+    return _parse_ts(ts_canvas_text)
 
 
 @pytest.fixture(scope="module")
@@ -323,6 +336,14 @@ def test_data_flow_props_parity(ts_data_flow_props: set[str]) -> None:
     # apply the known adapter so the parity check compares apples-to-apples.
     expected = (expected - {"encrypted"}) | {"encrypted_in_transit"}
     _assert_parity_sets(ts_data_flow_props, expected, "data_flow template properties")
+
+
+def test_data_item_classification_parity(ts_canvas_enums: dict[str, set[str]]) -> None:
+    """Assert that DataItemClassification enum matches the classification options in DfdCanvas.ts."""
+    assert "classification" in ts_canvas_enums, "classification enum not found in DfdCanvas.ts"
+    _assert_parity(
+        DataItemClassification, ts_canvas_enums["classification"], "DataItemClassification / classification"
+    )
 
 
 # ---------------------------------------------------------------------------

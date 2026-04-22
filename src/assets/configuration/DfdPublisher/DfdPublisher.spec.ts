@@ -93,15 +93,14 @@ describe("DfdPublisher", () => {
             });
 
             const item2 = output.data_items.find((i: Record<string, unknown>) => i.guid === item2Guid);
-            expect(item2).toEqual({
+            expect(item2).toMatchObject({
                 guid: item2Guid,
                 parent: parentGuid,
                 identifier: "D2",
                 name: "User Email"
             });
-            // Optional fields absent — not emitted.
+            // description is absent when not set
             expect(item2.description).toBeUndefined();
-            expect(item2.classification).toBeUndefined();
         });
 
         it("emits nothing when canvas has no data items", () => {

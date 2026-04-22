@@ -54,9 +54,9 @@ export type DataItem = {
 
 /**
  * The set of known pill-classification keys.  Any value outside this set
- * falls back to `"default"` via {@link narrowClassification}.
+ * falls back to `"unclassified"` via {@link narrowClassification}.
  */
-export type PillClassificationKey = "pii" | "secret" | "public" | "internal" | "default";
+export type PillClassificationKey = "pii" | "secret" | "public" | "internal" | "unclassified";
 
 // ---------------------------------------------------------------------------
 // Shared classification helpers
@@ -65,7 +65,7 @@ export type PillClassificationKey = "pii" | "secret" | "public" | "internal" | "
 /**
  * Narrows an arbitrary `classification` string to the known
  * {@link PillClassificationKey} union.  Values not in the known set fall back
- * to `"default"`.
+ * to `"unclassified"`.
  *
  * Used by both DictionaryBlock and LabeledDynamicLine so the narrowing logic
  * is not duplicated between the two faces.
@@ -79,11 +79,12 @@ export function narrowClassification(classification: string | null | undefined):
         classification === "pii" ||
         classification === "secret" ||
         classification === "public" ||
-        classification === "internal"
+        classification === "internal" ||
+        classification === "unclassified"
     ) {
         return classification;
     }
-    return "default";
+    return "unclassified";
 }
 
 // ---------------------------------------------------------------------------

@@ -230,6 +230,7 @@ class TestRoundTrip:
                     "parent": _PROCESS_GUID,
                     "identifier": "item1",
                     "name": "Item 1",
+                    "classification": "unclassified",
                 }
             ],
         }
@@ -265,6 +266,7 @@ class TestRoundTrip:
                     "parent": _EXTERNAL_GUID,
                     "identifier": "item2",
                     "name": "Item 2",
+                    "classification": "unclassified",
                 }
             ],
         }
@@ -300,12 +302,14 @@ class TestRoundTrip:
                     "parent": _PROCESS_GUID,
                     "identifier": "item1",
                     "name": "Item 1",
+                    "classification": "unclassified",
                 },
                 {
                     "guid": _DATA_ITEM_2_GUID,
                     "parent": _EXTERNAL_GUID,
                     "identifier": "item2",
                     "name": "Item 2",
+                    "classification": "unclassified",
                 },
             ],
         }

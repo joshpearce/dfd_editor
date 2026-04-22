@@ -704,12 +704,9 @@ def _data_item_to_pairs(item: DataItem) -> list[list]:
     matches the DataItem model declaration order: parent, identifier, name,
     description, classification.
 
-    Optional fields (description, classification) are omitted when None rather
-    than emitted as [key, None]. This matches _props_to_dict(drop_nulls=True)
-    semantics on the import side, so the round-trip is symmetric. OpenChart's
-    DictionaryProperty.toOrderedJson() would emit null for absent optional
-    string fields, but our import path drops null entries anyway — so omitting
-    is both cleaner and round-trip-safe.
+    `description` is optional and omitted when None. `classification` is always
+    emitted unconditionally (it has a default value of `unclassified` and is
+    no longer optional).
 
     The preprocessor (DfdFilePreprocessor) is currently pass-through; it does not
     need to normalise absent sub-keys because OpenChart's DictionaryProperty loader
@@ -722,8 +719,7 @@ def _data_item_to_pairs(item: DataItem) -> list[list]:
     ]
     if item.description is not None:
         pairs.append(["description", item.description])
-    if item.classification is not None:
-        pairs.append(["classification", item.classification])
+    pairs.append(["classification", str(item.classification)])
     return pairs
 
 

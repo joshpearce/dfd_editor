@@ -50,7 +50,19 @@ export const DfdCanvas: CanvasTemplate = {
                         type: PropertyType.String
                     },
                     classification: {
-                        type: PropertyType.String
+                        type: PropertyType.Enum,
+                        options: {
+                            type: PropertyType.List,
+                            form: { type: PropertyType.String },
+                            default: [
+                                ["unclassified", "Unclassified"],
+                                ["pii",          "PII"],
+                                ["secret",       "Secret"],
+                                ["public",       "Public"],
+                                ["internal",     "Internal"]
+                            ]
+                        },
+                        default: "unclassified"
                     }
                 }
             }
