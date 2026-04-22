@@ -66,7 +66,6 @@ function makeNativeFile(overrides: {
 
     const flowProps: [string, unknown][] = [
         ["name", "F1"],
-        ["data_classification", null],
         ["protocol", null],
         ["authenticated", "false"],
         ["encrypted_in_transit", "false"]

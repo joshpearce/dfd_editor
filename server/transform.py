@@ -55,7 +55,6 @@ _CONTAINER_PROP_ORDER: dict[str, tuple[str, ...]] = {
 # Ordered property keys for data flows.
 _FLOW_PROP_ORDER: tuple[str, ...] = (
     "name",
-    "data_classification",
     "protocol",
     "authenticated",
     "encrypted_in_transit",
@@ -612,10 +611,6 @@ def _emit_data_flow(obj: dict, latch_to_block: dict[str, str]) -> dict:
     name = raw_props.get("name")
     if name is not None:
         flow_props["name"] = name
-
-    data_class = raw_props.get("data_classification")
-    if data_class is not None:
-        flow_props["data_classification"] = data_class
 
     protocol = raw_props.get("protocol")
     if protocol is not None:

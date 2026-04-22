@@ -93,7 +93,6 @@ def test_to_minimal_synthetic_fixture():
                 "instance": flow_guid,
                 "properties": [
                     ["name", "My Flow"],
-                    ["data_classification", "confidential"],
                     ["protocol", "gRPC"],
                     ["authenticated", "true"],
                     ["encrypted_in_transit", "true"],
@@ -266,7 +265,6 @@ def _native_with_orphan_latch() -> dict:
                 "instance": flow_guid,
                 "properties": [
                     ["name", None],
-                    ["data_classification", None],
                     ["protocol", None],
                     ["authenticated", "false"],
                     ["encrypted_in_transit", "false"],

@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from schema import (
     ContainerType,
-    DataClassification,
     DataFlowProps,
     EntityType,
     NodeType,
@@ -298,17 +297,6 @@ def test_privilege_level_parity(ts_enums: dict[str, set[str]]) -> None:
     assert "privilege_level" in ts_enums, "privilege_level enum not found in DfdObjects.ts"
     _assert_parity(
         PrivilegeLevel, ts_enums["privilege_level"], "PrivilegeLevel / privilege_level"
-    )
-
-
-def test_data_classification_parity(ts_enums: dict[str, set[str]]) -> None:
-    assert "data_classification" in ts_enums, (
-        "data_classification enum not found in DfdObjects.ts"
-    )
-    _assert_parity(
-        DataClassification,
-        ts_enums["data_classification"],
-        "DataClassification / data_classification",
     )
 
 

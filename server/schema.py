@@ -60,13 +60,6 @@ class PrivilegeLevel(StrEnum):
     restricted = "restricted"
 
 
-class DataClassification(StrEnum):
-    public = "public"
-    internal = "internal"
-    confidential = "confidential"
-    secret = "secret"
-
-
 # ---------------------------------------------------------------------------
 # Node property models
 # ---------------------------------------------------------------------------
@@ -170,7 +163,6 @@ Container = Annotated[
 
 class DataFlowProps(_Base):
     name: str | None = None
-    data_classification: DataClassification | None = None
     protocol: str | None = None
     authenticated: StrictBool = False
     encrypted: StrictBool = False

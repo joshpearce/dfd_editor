@@ -110,18 +110,6 @@ const testSchema: DiagramSchemaConfiguration = {
                         ]
                     },
                     default: "false"
-                },
-                data_classification: {
-                    type: PropertyType.Enum,
-                    options: {
-                        type: PropertyType.List,
-                        form: { type: PropertyType.String },
-                        default: [
-                            ["public", "Public"],
-                            ["confidential", "Confidential"],
-                            ["secret", "Secret"]
-                        ]
-                    }
                 }
             }
         },

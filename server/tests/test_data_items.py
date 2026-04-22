@@ -176,7 +176,6 @@ class TestRoundTripNode1SrcOnly:
             "protocol": "HTTP",
             "authenticated": True,
             "encrypted": True,  # Only True is emitted in minimal format (False is default)
-            "data_classification": "public",
         })
 
         diagram_id, resp = _import(client, payload)
@@ -191,7 +190,6 @@ class TestRoundTripNode1SrcOnly:
         assert props["protocol"] == "HTTP"
         assert props["authenticated"] is True
         assert props["encrypted"] is True
-        assert props["data_classification"] == "public"
 
 
 # ---------------------------------------------------------------------------

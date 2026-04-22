@@ -166,19 +166,6 @@ export const DfdObjects: DiagramObjectTemplate[] = [
                     }
                 }
             },
-            data_classification: {
-                type: PropertyType.Enum,
-                options: {
-                    type: PropertyType.List,
-                    form: { type: PropertyType.String },
-                    default: [
-                        ["public", "Public"],
-                        ["internal", "Internal"],
-                        ["confidential", "Confidential"],
-                        ["secret", "Secret"]
-                    ]
-                }
-            },
             protocol: {
                 type: PropertyType.String
             },

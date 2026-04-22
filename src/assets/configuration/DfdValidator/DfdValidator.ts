@@ -3,19 +3,6 @@ import { DiagramModelFile, SemanticAnalyzer } from "@OpenChart/DiagramModel";
 import { readDataItems, readFlowRefs } from "@OpenChart/DiagramModel/DataItemLookup";
 import type { Canvas, SemanticGraphEdge, SemanticGraphNode } from "@OpenChart/DiagramModel";
 
-const PRIVILEGE_RANK: Record<string, number> = {
-    internet: 0,
-    dmz: 1,
-    corporate: 2,
-    restricted: 3
-};
-
-function privilegeRankOf(node: SemanticGraphNode): number {
-    const ancestors = node.trustBoundaryAncestors;
-    if (ancestors.length === 0) { return -1; }
-    const level = ancestors[0].props.value.get("privilege_level")?.toJson();
-    return (typeof level === "string" ? PRIVILEGE_RANK[level] : undefined) ?? -1;
-}
 
 class DfdValidator extends FileValidator {
 
@@ -159,15 +146,6 @@ class DfdValidator extends FileValidator {
             if (edge.props.value.get("encrypted_in_transit")?.toJson() === "false") {
                 this.addWarning(id,
                     "Data flow crosses a trust boundary but is not encrypted in transit.");
-            }
-            const classification = edge.props.value.get("data_classification")?.toJson();
-            if (classification === "secret" || classification === "confidential") {
-                const node1Rank = privilegeRankOf(edge.node1!);
-                const node2Rank = privilegeRankOf(edge.node2!);
-                if (node1Rank > node2Rank) {
-                    this.addWarning(id,
-                        "High-classification data flow exits into a less-privileged trust zone.");
-                }
             }
         }
     }

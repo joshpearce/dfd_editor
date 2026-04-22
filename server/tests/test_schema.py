@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from schema import (
     Diagram,
-    DataClassification,
     DataFlow,
     DataFlowProps,
     ExternalEntityNode,
@@ -61,7 +60,6 @@ def _make_minimal_diagram() -> dict:
                 "guid": flow_guid,
                 "properties": {
                     "name": "Login request",
-                    "data_classification": "confidential",
                     "authenticated": True,
                     "encrypted": True,
                 },

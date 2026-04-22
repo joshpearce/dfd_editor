@@ -97,7 +97,6 @@ _MINIMAL_DOC: dict = {
             "node2": _DATA_STORE_GUID,
             "properties": {
                 "name": "Write Flow",
-                "data_classification": "confidential",
                 "protocol": "gRPC",
                 "authenticated": True,
                 "encrypted": True,
@@ -315,7 +314,7 @@ class TestRoundTrip:
         assert _canonicalize(back) == _canonicalize(doc)
 
     def test_round_trip_shared_property_preservation(self):
-        """Shared flow properties (name, data_classification, protocol, authenticated, encrypted) survive round-trip."""
+        """Shared flow properties (name, protocol, authenticated, encrypted) survive round-trip."""
         doc = {
             "nodes": [
                 {"type": "process", "guid": _PROCESS_GUID, "properties": {"name": "P1", "assumptions": []}},
@@ -329,7 +328,6 @@ class TestRoundTrip:
                     "node2": _EXTERNAL_GUID,
                     "properties": {
                         "name": "My Flow",
-                        "data_classification": "confidential",
                         "protocol": "gRPC",
                         "authenticated": True,
                         "encrypted": True,
@@ -343,7 +341,6 @@ class TestRoundTrip:
         back = to_minimal(native)
         result_flow = back["data_flows"][0]
         assert result_flow["properties"]["name"] == "My Flow"
-        assert result_flow["properties"]["data_classification"] == "confidential"
         assert result_flow["properties"]["protocol"] == "gRPC"
         assert result_flow["properties"]["authenticated"] is True
         assert result_flow["properties"]["encrypted"] is True
@@ -685,7 +682,6 @@ class TestNativeShape:
         keys = [p[0] for p in flow_obj["properties"]]
         expected = [
             "name",
-            "data_classification",
             "protocol",
             "authenticated",
             "encrypted_in_transit",
