@@ -171,6 +171,11 @@ def _reset_mcp_state():
     with mcp_server._last_seen_lock:
         mcp_server._last_seen.clear()
     mcp_server._was_active = False
+    # Clear per-session UUID tables so object-address reuse across tests
+    # can't produce stale-UUID collisions.
+    with mcp_server._session_uuid_lock:
+        mcp_server._session_uuids.clear()
+        mcp_server._fallback_uuids.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +323,8 @@ class TestCreateDiagram:
 
         # M7: No broadcast of any kind should have been emitted by create_diagram.
         # Wait a brief moment to give any spurious broadcast time to arrive.
-        time.sleep(0.15)
+        # Use 0.25s (was 0.15s) for CI-machine tolerance — drain the cache line.
+        time.sleep(0.25)
         assert messages == [], (
             f"create_diagram must not emit any broadcast; got: {messages}"
         )
@@ -383,11 +389,16 @@ class TestUpdateDiagram:
         # Now update it
         updated_doc = copy.deepcopy(_MINIMAL_DOC)
         updated_doc["meta"] = {"name": "Updated Name"}
-        update_diagram(
+        update_result = update_diagram(
             diagram_id=diagram_id,
             diagram=Diagram.model_validate(updated_doc),
             ctx=_ctx(),
         )
+
+        # M2/M3: update tool now reports broadcast delivery status alongside id+diagram.
+        assert update_result["broadcast_delivered"] is True
+        assert update_result["id"] == diagram_id
+        assert "diagram" in update_result
 
         matching = _wait_for_broadcast(messages, "diagram-updated", reader_errors=reader_errors)
         assert len(matching) == 1, (
@@ -416,7 +427,8 @@ class TestDeleteDiagram:
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
         result = delete_diagram(diagram_id=diagram_id, ctx=_ctx())
-        assert result == {"ok": True}
+        # M2/M3: delete tool now reports broadcast delivery status.
+        assert result == {"ok": True, "broadcast_delivered": True}
 
         # File must be gone
         assert not (tmp_path / f"{diagram_id}.json").exists(), (
@@ -452,7 +464,8 @@ class TestDisplayDiagram:
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
         result = display_diagram(diagram_id=diagram_id, ctx=_ctx())
-        assert result == {"ok": True}
+        # M2/M3: display tool now reports broadcast delivery status.
+        assert result == {"ok": True, "broadcast_delivered": True}
 
         # Exactly one display broadcast with correct id
         matching = _wait_for_broadcast(messages, "display", reader_errors=reader_errors)
@@ -599,6 +612,21 @@ class TestRemoteControlLifecycle:
 
         ws.close()
 
+    def test_session_id_is_stable_uuid_per_session(self, live_server):
+        """I2: _session_id returns a stable UUID per ctx.session (not id()-based)."""
+        _tmp_path, _port = live_server
+        ctx_a = _ctx()
+        ctx_b = _ctx()
+
+        # Same ctx → same id across calls (UUID cached in WeakKeyDictionary)
+        assert mcp_server._session_id(ctx_a) == mcp_server._session_id(ctx_a)
+        # Distinct sessions → distinct ids
+        assert mcp_server._session_id(ctx_a) != mcp_server._session_id(ctx_b)
+        # Must be a UUID, not an int-string (address-reuse hardening)
+        sid = mcp_server._session_id(ctx_a)
+        assert len(sid) == 36, f"Expected UUID-length session id, got {sid!r}"
+        assert "-" in sid, f"Expected UUID-formatted session id, got {sid!r}"
+
     def test_no_duplicate_on_if_already_active(self, live_server):
         """_stamp must not re-emit 'on' if _was_active is already True."""
         _tmp_path, port = live_server
@@ -613,7 +641,7 @@ class TestRemoteControlLifecycle:
         # Stamp again (same ctx object / same session identity) — should not emit another 'on'.
         # Use a grace period to allow any spurious broadcast to arrive before asserting.
         mcp_server._stamp(ctx_dedup)
-        time.sleep(0.1)  # generous wait — any duplicate must have arrived by now
+        time.sleep(0.25)  # generous wait — any duplicate must have arrived by now
 
         on_msgs = [
             m for m in messages
@@ -653,7 +681,8 @@ class TestSadPaths:
         with pytest.raises(httpx.HTTPStatusError):
             get_diagram(diagram_id="does-not-exist", ctx=_ctx())
 
-        time.sleep(0.1)
+        # M7: 0.25s grace (was 0.1s) for CI-machine tolerance when proving a negative.
+        time.sleep(0.25)
         op_msgs = self._operation_broadcasts(messages)
         assert op_msgs == [], (
             f"get_diagram on missing id must not emit any operation broadcast; got: {op_msgs}"
@@ -673,7 +702,8 @@ class TestSadPaths:
         with pytest.raises(httpx.HTTPStatusError):
             update_diagram(diagram_id="does-not-exist", diagram=diagram, ctx=_ctx())
 
-        time.sleep(0.1)
+        # M7: 0.25s grace (was 0.1s) for CI-machine tolerance when proving a negative.
+        time.sleep(0.25)
         updated_msgs = [m for m in messages if m.get("type") == "diagram-updated"]
         assert updated_msgs == [], (
             f"update_diagram on missing id must not emit diagram-updated; got: {updated_msgs}"
@@ -692,7 +722,8 @@ class TestSadPaths:
         with pytest.raises(httpx.HTTPStatusError):
             delete_diagram(diagram_id="does-not-exist", ctx=_ctx())
 
-        time.sleep(0.1)
+        # M7: 0.25s grace (was 0.1s) for CI-machine tolerance when proving a negative.
+        time.sleep(0.25)
         deleted_msgs = [m for m in messages if m.get("type") == "diagram-deleted"]
         assert deleted_msgs == [], (
             f"delete_diagram on missing id must not emit diagram-deleted; got: {deleted_msgs}"

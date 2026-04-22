@@ -167,4 +167,44 @@ describe("DiagramInterface.uninstallPlugin", () => {
         expect(getActivePlugin(iface)).toBe(pluginA);
     });
 
+    it("invokes dispose() on removed plugins", () => {
+        const iface = makeInterface();
+        const pluginA = new StubPluginA();
+        const disposeSpy = vi.spyOn(pluginA, "dispose");
+        iface.installPlugin(pluginA);
+
+        iface.uninstallPlugin(StubPluginA);
+
+        expect(disposeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not invoke dispose when the constructor was never installed", () => {
+        const iface = makeInterface();
+        const pluginA = new StubPluginA();
+        const disposeSpy = vi.spyOn(pluginA, "dispose");
+        iface.installPlugin(pluginA);
+
+        iface.uninstallPlugin(StubPluginB);
+
+        expect(disposeSpy).not.toHaveBeenCalled();
+    });
+
+    it("continues uninstalling remaining plugins after one plugin's dispose throws", () => {
+        const iface = makeInterface();
+        const pluginA = new StubPluginA();
+        const pluginB = new StubPluginB();
+        vi.spyOn(pluginA, "dispose").mockImplementation(() => {
+            throw new Error("boom");
+        });
+        const disposeBSpy = vi.spyOn(pluginB, "dispose");
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => { return; });
+        iface.installPlugin(pluginA, pluginB);
+
+        expect(() => iface.uninstallPlugin(StubPluginA, StubPluginB)).not.toThrow();
+        expect(disposeBSpy).toHaveBeenCalledTimes(1);
+        expect(getPluginMap(iface).size).toBe(0);
+        expect(errorSpy).toHaveBeenCalled();
+        errorSpy.mockRestore();
+    });
+
 });

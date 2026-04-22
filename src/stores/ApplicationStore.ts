@@ -255,6 +255,18 @@ export const useApplicationStore = defineStore("applicationStore", {
         },
 
         /**
+         * Resets the active editor back to the no-op {@link PhantomEditor}.
+         *
+         * Used when the underlying file is no longer addressable (e.g. the
+         * server diagram was deleted from under us by an agent) — leaves the
+         * app in a clean "no file loaded" state so subsequent commands that
+         * read `activeEditor` are not operating on an orphan.
+         */
+        resetActiveEditor() {
+            this.activeEditor = PhantomEditor;
+        },
+
+        /**
          * Signals that the next single-object selection should focus its
          * representative property field. Bumps a counter so consecutive
          * spawns each fire even when the value would otherwise be unchanged.

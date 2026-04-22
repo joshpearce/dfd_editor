@@ -2,20 +2,37 @@
 streamable-HTTP transport bound to 127.0.0.1:5051.
 
 Session lifecycle is tracked via a last-seen heartbeat: each tool call stamps
-_last_seen[session_id]. A daemon thread sweeps stale sessions every 5 s and
+_last_seen[session_id]. A daemon thread sweeps stale sessions every 2 s and
 emits remote-control on/off transitions to Flask's /api/internal/broadcast
 when the active-session count crosses zero.
+
+Session identity is a UUID keyed on the ServerSession object via a
+WeakKeyDictionary — this avoids the id()-address-reuse hazard if FastMCP
+ever recycles session memory (a stale _last_seen key would otherwise shadow
+a fresh session at the same address).
 """
 
 import atexit
 import logging
+import os
+import sys
 import threading
 import time
+import uuid
+import weakref
 
-import httpx
-from mcp.server.fastmcp import Context, FastMCP
+# Allow `python -m server.mcp_server` (from repo root) as well as
+# `python -m mcp_server` (from server/ cwd). `from schema import Diagram`
+# below is a bare import that resolves against sys.path — when launched
+# from the repo root, ensure `server/` is on the path so it still resolves.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 
-from schema import Diagram
+import httpx  # noqa: E402  (placed after sys.path shim so server/ imports resolve)
+from mcp.server.fastmcp import Context, FastMCP  # noqa: E402
+
+from schema import Diagram  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +43,12 @@ logger = logging.getLogger(__name__)
 FLASK_URL = "http://127.0.0.1:5050"
 MCP_HOST = "127.0.0.1"
 MCP_PORT = 5051
-SESSION_EXPIRY_SECONDS = 30  # heartbeat fallback only
+# Heartbeat fallback only. Kept short so a cleanly-disconnecting agent
+# releases the browser's remote-control lock within ~a couple of seconds
+# rather than forcing the user to wait out the timeout.  Worst-case lock
+# duration is SESSION_EXPIRY_SECONDS + SWEEP_INTERVAL_SECONDS.
+SESSION_EXPIRY_SECONDS = 8
+SWEEP_INTERVAL_SECONDS = 2
 
 # ---------------------------------------------------------------------------
 # HTTP client (shared, sync) — shared across REST + broadcast calls to localhost Flask.
@@ -43,17 +65,46 @@ _last_seen: dict[str, float] = {}
 _last_seen_lock = threading.Lock()
 _was_active = False  # last known state of _active_sessions being non-empty
 
+# Maps ServerSession objects to stable UUID strings. WeakKeyDictionary so
+# entries vanish automatically when FastMCP drops its last reference to the
+# session, preventing stale UUIDs from building up. Falls back to an
+# ordinary dict keyed on ctx's own id() when the session is not weakly
+# referenceable (old SDK builds, test stubs).
+_session_uuids: "weakref.WeakKeyDictionary[object, str]" = weakref.WeakKeyDictionary()
+_fallback_uuids: dict[int, str] = {}
+_session_uuid_lock = threading.Lock()
+
 
 def _session_id(ctx: Context) -> str:
     """Identify the MCP session for lifecycle tracking.
 
-    FastMCP creates one ServerSession per client connection, so object
-    identity uniquely tags the session for the connection's lifetime.
+    Returns a UUID that is stable for the lifetime of the ServerSession
+    attached to ``ctx``. Uses a WeakKeyDictionary so the UUID is released
+    when FastMCP drops the session — this avoids the address-reuse hazard
+    of ``id(ctx.session)`` (garbage collection could otherwise recycle the
+    memory address and mask a real 0→1 transition).
     """
+    session_obj: object
     try:
-        return str(id(ctx.session))
+        session_obj = ctx.session
     except Exception:
-        return str(id(ctx))
+        session_obj = ctx
+    with _session_uuid_lock:
+        try:
+            sid = _session_uuids.get(session_obj)
+            if sid is None:
+                sid = str(uuid.uuid4())
+                _session_uuids[session_obj] = sid
+            return sid
+        except TypeError:
+            # Not weakly referenceable (e.g. some test stubs). Fall back to
+            # an id()-keyed dict; callers in tests clean up via reset_for_tests().
+            key = id(session_obj)
+            sid = _fallback_uuids.get(key)
+            if sid is None:
+                sid = str(uuid.uuid4())
+                _fallback_uuids[key] = sid
+            return sid
 
 
 def _mark_active(sid: str) -> None:
@@ -81,13 +132,21 @@ def _stamp(ctx: Context) -> None:
     _mark_active(sid)
 
 
-def _broadcast(envelope: dict) -> None:
-    """POST an envelope to Flask's loopback-only broadcast endpoint."""
+def _broadcast(envelope: dict) -> bool:
+    """POST an envelope to Flask's loopback-only broadcast endpoint.
+
+    Returns True if Flask accepted the broadcast, False on any exception
+    (connection refused, 5xx, etc.). Callers that care about end-to-end
+    delivery should surface this in their tool return payload so the agent
+    doesn't treat a write-without-notify as a success.
+    """
     try:
         resp = _http.post("/api/internal/broadcast", json=envelope)
         resp.raise_for_status()
+        return True
     except Exception:
         logger.exception("failed to post broadcast envelope: %s", envelope)
+        return False
 
 
 def _sweep_once(now: float | None = None) -> bool:
@@ -119,9 +178,9 @@ def _sweep_once(now: float | None = None) -> bool:
 
 
 def _sweep() -> None:
-    """Daemon thread: calls _sweep_once every 5 seconds."""
+    """Daemon thread: calls _sweep_once every SWEEP_INTERVAL_SECONDS."""
     while True:
-        time.sleep(5)
+        time.sleep(SWEEP_INTERVAL_SECONDS)
         _sweep_once()
 
 
@@ -202,32 +261,43 @@ def update_diagram(diagram_id: str, diagram: Diagram, ctx: Context) -> dict:
 
     Overwrites the stored diagram for diagram_id with the provided document.
     The stored layout is dropped so the browser will re-run TALA on the
-    next open.  Returns the diagram_id and the stored diagram echoed back.
-    Emits a diagram-updated broadcast so any connected browser reloads.
+    next open.  Returns the diagram_id, the stored diagram echoed back, and
+    a ``broadcast_delivered`` flag indicating whether the diagram-updated
+    notification reached Flask successfully.  A write succeeds even if the
+    broadcast fails — the persisted file is already correct; the browser
+    will simply not know to reload until the user refreshes or the next
+    successful broadcast reaches it.
     """
     _stamp(ctx)
     resp = _http.put(f"/api/diagrams/{diagram_id}/import", json=diagram.model_dump(mode="json"))
     resp.raise_for_status()
+    # Broadcast fires on successful write; surface delivery status in the tool
+    # return so the agent doesn't mistake "persisted but not notified" for
+    # full end-to-end success.
+    broadcast_delivered = _broadcast({"type": "diagram-updated", "payload": {"id": diagram_id}})
     echo = _http.get(f"/api/diagrams/{diagram_id}/export")
     echo.raise_for_status()
-    _broadcast({"type": "diagram-updated", "payload": {"id": diagram_id}})
-    return {"id": diagram_id, "diagram": echo.json()}
+    return {
+        "id": diagram_id,
+        "diagram": echo.json(),
+        "broadcast_delivered": broadcast_delivered,
+    }
 
 
 @mcp.tool()
 def delete_diagram(diagram_id: str, ctx: Context) -> dict:
     """Delete a diagram permanently.
 
-    Removes the stored file for the given diagram_id.  Returns {ok: true} on
-    success.  Emits a diagram-deleted broadcast so any connected browser
-    can react (e.g. return to the splash screen if the deleted diagram
-    was open).
+    Removes the stored file for the given diagram_id.  Returns
+    ``{ok: true, broadcast_delivered: bool}`` on success.  Emits a
+    diagram-deleted broadcast so any connected browser can react (e.g.
+    return to the splash screen if the deleted diagram was open).
     """
     _stamp(ctx)
     resp = _http.delete(f"/api/diagrams/{diagram_id}")
     resp.raise_for_status()
-    _broadcast({"type": "diagram-deleted", "payload": {"id": diagram_id}})
-    return {"ok": True}
+    broadcast_delivered = _broadcast({"type": "diagram-deleted", "payload": {"id": diagram_id}})
+    return {"ok": True, "broadcast_delivered": broadcast_delivered}
 
 
 @mcp.tool()
@@ -236,11 +306,13 @@ def display_diagram(diagram_id: str, ctx: Context) -> dict:
 
     Broadcasts a display event containing the diagram_id.  The browser's
     WebSocket client will react by loading and rendering the diagram.
-    Returns {ok: true} once the broadcast has been delivered to Flask.
+    Returns ``{ok: true, broadcast_delivered: bool}`` — ``broadcast_delivered``
+    is False when Flask's broadcast endpoint is unreachable, which means
+    the browser will not be notified.
     """
     _stamp(ctx)
-    _broadcast({"type": "display", "payload": {"id": diagram_id}})
-    return {"ok": True}
+    broadcast_delivered = _broadcast({"type": "display", "payload": {"id": diagram_id}})
+    return {"ok": True, "broadcast_delivered": broadcast_delivered}
 
 
 # ---------------------------------------------------------------------------

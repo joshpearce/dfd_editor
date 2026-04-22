@@ -149,4 +149,26 @@ export abstract class DiagramInterfacePlugin {
      */
     protected abstract handleSelectEnd(event: MouseEvent): void;
 
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  3. Lifecycle  /////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+
+    /**
+     * Called when the plugin is uninstalled from the interface. Subclasses
+     * that hold external resources (timers, DOM overlays, editor event
+     * subscriptions, mid-drag state) should override to release them.
+     *
+     * The default implementation is a no-op — plugins with no external
+     * resources need not override.
+     *
+     * Note: uninstall may happen mid-drag (e.g. when remote-control mode
+     * engages while the user has a pointer captured). Implementations should
+     * tolerate being torn down at any point in the selection lifecycle.
+     */
+    public dispose(): void {
+        // Default: no external resources to release.
+    }
+
 }

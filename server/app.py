@@ -32,6 +32,11 @@ def _safe_ctx(ctx: dict) -> dict:
     Pydantic ValidationError.ctx can contain non-JSON-serializable objects
     (e.g. type objects). This helper keeps the serializable entries and
     converts the rest to strings so error responses can be JSON-encoded.
+
+    Note: this is the shared "clean a pydantic ValidationError for JSON
+    output" helper for this module. Route handlers that build 400 responses
+    from a pydantic v2 ValidationError should funnel through
+    ``_to_native_or_error`` (below) rather than duplicating the pattern.
     """
     result = {}
     for k, v in ctx.items():

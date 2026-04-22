@@ -439,12 +439,29 @@ export class DiagramInterface extends EventEmitter<DiagramInterfaceEvents> {
      *  Accepts plugin constructors (classes) rather than instances — the
      *  caller identifies plugins by class, matching the key used by
      *  {@link installPlugin} (`plugin.constructor.name`).
+     *
+     *  Each removed plugin's {@link DiagramInterfacePlugin.dispose} hook is
+     *  invoked so subclasses can release timers, DOM overlays, or editor
+     *  event subscriptions before their entry in the Map is dropped. A
+     *  disposer that throws is logged and swallowed — a single bad plugin
+     *  must not strand the rest of the uninstall pass.
      * @param plugins
      *  The plugin constructors to remove.
      */
     public uninstallPlugin(...plugins: Array<new (...args: never[]) => DiagramInterfacePlugin>): void {
         for (const pluginCtor of plugins) {
-            this.plugins.delete(pluginCtor.name);
+            const existing = this.plugins.get(pluginCtor.name);
+            if (existing) {
+                try {
+                    existing.dispose();
+                } catch (err) {
+                    console.error(
+                        `DiagramInterface.uninstallPlugin: '${pluginCtor.name}'.dispose() threw —`,
+                        err
+                    );
+                }
+                this.plugins.delete(pluginCtor.name);
+            }
             if (this.activePlugin?.constructor.name === pluginCtor.name) {
                 this.activePlugin = null;
             }

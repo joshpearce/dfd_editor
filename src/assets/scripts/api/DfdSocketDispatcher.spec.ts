@@ -56,17 +56,20 @@ function makeStubClient(): { client: DfdSocketClient, handlers: HandlerMap, clos
  * Creates a minimal stub ApplicationStore cast to the full store type.
  * Only the subset of properties used by the dispatcher is implemented.
  */
-function makeStubCtx(serverFileId: string | null = null) {
+function makeStubCtx(serverFileId: string | null = null, isDirtyVsServer = false) {
     const executed: unknown[] = [];
     const stub = {
         serverFileId,
+        isDirtyVsServer,
         executedCommands: executed,
         setServerFileId: vi.fn((id: string | null) => { stub.serverFileId = id; }),
+        resetActiveEditor: vi.fn(),
         execute: vi.fn((cmd: unknown) => { executed.push(cmd); return Promise.resolve(); })
     };
     return stub as unknown as ApplicationStore & {
         executedCommands: unknown[];
         setServerFileId: ReturnType<typeof vi.fn>;
+        resetActiveEditor: ReturnType<typeof vi.fn>;
         execute: ReturnType<typeof vi.fn>;
     };
 }
@@ -174,6 +177,46 @@ describe("diagram-updated handler", () => {
 
         expect(ctx.execute).not.toHaveBeenCalled();
     });
+
+    it("prompts the user and skips reload when local edits are unsaved and user declines", async () => {
+        const dirtyCtx = makeStubCtx("active-id", true);
+        const { client, handlers } = makeStubClient();
+        wireSocketClient(client, dirtyCtx);
+        // jsdom's window.confirm is absent by default — install a stub.
+        const confirmStub = vi.fn(() => false);
+        window.confirm = confirmStub;
+
+        await handlers.get("diagram-updated")!({ id: "active-id" });
+
+        expect(confirmStub).toHaveBeenCalledTimes(1);
+        expect(dirtyCtx.execute).not.toHaveBeenCalled();
+    });
+
+    it("prompts the user and reloads when local edits are unsaved and user accepts", async () => {
+        const dirtyCtx = makeStubCtx("active-id", true);
+        const { client, handlers } = makeStubClient();
+        wireSocketClient(client, dirtyCtx);
+        const confirmStub = vi.fn(() => true);
+        window.confirm = confirmStub;
+
+        await handlers.get("diagram-updated")!({ id: "active-id" });
+
+        expect(confirmStub).toHaveBeenCalledTimes(1);
+        expect(AppCommand.prepareEditorFromServerFile).toHaveBeenCalledWith(dirtyCtx, "active-id");
+        expect(dirtyCtx.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not prompt when editor is clean", async () => {
+        const { client, handlers } = makeStubClient();
+        wireSocketClient(client, ctx); // ctx.isDirtyVsServer === false
+        const confirmStub = vi.fn(() => true);
+        window.confirm = confirmStub;
+
+        await handlers.get("diagram-updated")!({ id: "active-id" });
+
+        expect(confirmStub).not.toHaveBeenCalled();
+        expect(ctx.execute).toHaveBeenCalledTimes(1);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -181,13 +224,14 @@ describe("diagram-updated handler", () => {
 // ---------------------------------------------------------------------------
 
 describe("diagram-deleted handler", () => {
-    it("clears serverFileId and shows splash when id matches", async () => {
+    it("clears serverFileId, resets active editor, and shows splash when id matches", async () => {
         const { client, handlers } = makeStubClient();
         wireSocketClient(client, ctx);
 
         await handlers.get("diagram-deleted")!({ id: "active-id" });
 
         expect(ctx.setServerFileId).toHaveBeenCalledWith(null);
+        expect(ctx.resetActiveEditor).toHaveBeenCalledTimes(1);
         expect(AppCommand.showSplashMenu).toHaveBeenCalledWith(ctx);
         expect(ctx.execute).toHaveBeenCalledTimes(1);
     });

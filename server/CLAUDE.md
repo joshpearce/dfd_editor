@@ -77,10 +77,12 @@ surface.)
   API from arbitrary origins.
 - Port 5050 lives in the npm script, not in code, so `flask run` without the
   wrapper would bind to the wrong port — always use `npm run dev:flask`.
-- `dev:mcp` is invoked as `cd server && .venv/bin/python -m mcp_server` (not
-  `python -m server.mcp_server` from the repo root). The `cd server` is
-  necessary because `mcp_server.py` does `from schema import Diagram` — Python
-  resolves bare `schema` against the cwd, so the cwd must be `server/`.
+- `dev:mcp` is invoked as `cd server && .venv/bin/python -m mcp_server`. The
+  module also carries a `sys.path` shim that inserts `server/` onto the path
+  at import time, so `python -m server.mcp_server` from the repo root also
+  works; the `cd server` in the npm script is purely for historical consistency
+  with `dev:flask`. If you add another bare-name import from `server/` to
+  `mcp_server.py`, the shim covers it.
 
 ## Invariants
 - Each diagram file = exactly one JSON document at `server/data/<uuid>.json`.
@@ -147,11 +149,41 @@ bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
 | Tool | Flask call | Emits |
 |---|---|---|
 | `list_diagrams` | `GET /api/diagrams` | — |
-| `create_diagram` | `POST /api/diagrams` | — |
-| `get_diagram` | `GET /api/diagrams/<id>` | — |
+| `create_diagram` | `POST /api/diagrams/import` | — |
+| `get_diagram` | `GET /api/diagrams/<id>/export` | — |
 | `update_diagram` | `PUT /api/diagrams/<id>/import` | `diagram-updated` |
 | `delete_diagram` | `DELETE /api/diagrams/<id>` | `diagram-deleted` |
 | `display_diagram` | `POST /api/internal/broadcast` with `type: "display"` | `display` |
+
+Tools that emit broadcasts (`update_diagram`, `delete_diagram`,
+`display_diagram`) return a ``broadcast_delivered: bool`` flag so the agent
+can distinguish "persisted but the browser wasn't notified" from "full
+end-to-end success". A write succeeds even if the broadcast fails; the file
+on disk is correct and the next successful broadcast will bring the browser
+in sync.
+
+### Remote-control lifecycle
+
+The remote-control on/off broadcast is separate from the per-operation
+broadcasts above. It is driven by a module-level last-seen heartbeat:
+
+- Every tool call stamps the session's last-seen time (`_stamp` → `_mark_active`).
+- A daemon thread sweeps every `SWEEP_INTERVAL_SECONDS` (2 s) and evicts
+  sessions whose last-seen is older than `SESSION_EXPIRY_SECONDS` (8 s).
+- The very first stamp in a 0→≥1-session transition emits
+  `{type: "remote-control", payload: {state: "on"}}` before the tool runs.
+  So `create_diagram` (or any tool) can be the first thing that locks the
+  browser, as a side effect of the lifecycle — this is intentional. The
+  per-operation "silent" semantic on `create_diagram` (no `diagram-updated`
+  broadcast) is unchanged; only the remote-control lifecycle envelope
+  participates.
+- The last eviction in a ≥1→0 transition emits
+  `{state: "off"}` so the browser re-enables editing.
+
+Worst-case browser lock after a clean agent disconnect is
+`SESSION_EXPIRY_SECONDS + SWEEP_INTERVAL_SECONDS` (≈10 s). Session identity
+uses a UUID keyed on the `ServerSession` object via a `WeakKeyDictionary`,
+so object-address reuse after GC cannot collide with a live session.
 
 ## Gotchas
 - Not a production server. `flask --debug` is on by default via

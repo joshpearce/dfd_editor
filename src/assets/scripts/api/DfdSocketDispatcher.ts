@@ -80,6 +80,14 @@ async function handleDisplay(
 /**
  * Handles a `diagram-updated` envelope by reloading the active diagram if its
  * id matches the currently-open server file.
+ *
+ * If the active editor has unsaved changes relative to the server, the user is
+ * prompted before the agent-originated update is applied. This protects
+ * against silent data-loss in the edge case where an agent pushes an update
+ * between the user making local edits and remote-control mode engaging — or
+ * in any transient state where local undoDepth differs from the last server
+ * save depth.
+ *
  * @param payload
  *  The raw envelope payload — expected to be `{ id: string }`.
  * @param ctx
@@ -96,6 +104,18 @@ async function handleDiagramUpdated(
     }
     if (ctx.serverFileId !== id) {
         return; // not the active diagram — ignore
+    }
+    if (ctx.isDirtyVsServer) {
+        const accept = window.confirm(
+            "An agent has updated this diagram on the server, but you have "
+            + "unsaved local changes.\n\n"
+            + "OK = Discard your local changes and load the agent's update.\n"
+            + "Cancel = Keep your local changes and ignore the agent's update."
+        );
+        if (!accept) {
+            console.info("DfdSocketDispatcher: user declined agent update — keeping local edits.");
+            return;
+        }
     }
     try {
         await ctx.execute(await prepareEditorFromServerFile(ctx, id));
@@ -127,6 +147,9 @@ async function handleDiagramDeleted(
     try {
         // Clear the server binding first so saves don't target a deleted file.
         ctx.setServerFileId(null);
+        // Drop the orphan editor so commands that read ctx.activeEditor
+        // (validator, save, find) don't operate on a now-deleted file.
+        ctx.resetActiveEditor();
         await ctx.execute(showSplashMenu(ctx));
     } catch (err) {
         console.error("DfdSocketDispatcher: failed to show splash after diagram deleted:", err);

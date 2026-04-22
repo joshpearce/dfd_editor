@@ -206,7 +206,18 @@ export default defineComponent({
     // Connect to the Flask WebSocket endpoint and register broadcast handlers.
     // The connection is non-fatal: if Flask isn't running, the client will
     // retry in the background without blocking any app functionality.
-    this.disposeSocket = wireSocketClient(new DfdSocketClient("ws://localhost:5050/ws"), ctx);
+    //
+    // Dev-only topology: the Flask server is hardcoded to port 5050 (see
+    // server/CLAUDE.md). The hostname is pulled from `window.location` so
+    // the URL is portable across localhost / 127.0.0.1 / a LAN hostname;
+    // the port and path are fixed because this is a local-dev companion,
+    // not a production deployment. When the app is eventually served from
+    // the same origin as the WS endpoint, replace with a `new URL()` that
+    // matches the current origin or introduce a VITE_WS_URL env var.
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost = window.location.hostname || "localhost";
+    const wsUrl = `${wsProtocol}//${wsHost}:5050/ws`;
+    this.disposeSocket = wireSocketClient(new DfdSocketClient(wsUrl), ctx);
 
     // Import settings
     const os = Device.getOperatingSystemClass();
