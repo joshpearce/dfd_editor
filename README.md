@@ -1,6 +1,8 @@
-# attack_flow_builder
+# dfd_editor
 
-This template should help get you started developing with Vue 3 in Vite.
+Browser-based Data Flow Diagram editor. Vue 3 + Vite frontend, Flask backend
+for server-side file storage, and an MCP server so external AI agents can drive
+the editor.
 
 ## Recommended IDE Setup
 
@@ -20,10 +22,26 @@ See [Vite Configuration Reference](https://vite.dev/config/).
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+### Flask + MCP backend (first-time)
 
 ```sh
-npm run dev
+cd server
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+### Run all three processes for development
+
+```sh
+npm run dev:all   # Vite (5173) + Flask (5050) + MCP (5051)
+```
+
+Or start processes individually:
+
+```sh
+npm run dev        # Vite dev server only
+npm run dev:flask  # Flask backend only (port 5050)
+npm run dev:mcp    # MCP server only (port 5051)
 ```
 
 ### Type-Check, Compile and Minify for Production
