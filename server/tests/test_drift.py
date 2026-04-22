@@ -338,11 +338,30 @@ def test_data_flow_props_parity(ts_data_flow_props: set[str]) -> None:
     _assert_parity_sets(ts_data_flow_props, expected, "data_flow template properties")
 
 
-def test_data_item_classification_parity(ts_canvas_enums: dict[str, set[str]]) -> None:
-    """Assert that DataItemClassification enum matches the classification options in DfdCanvas.ts."""
+def test_data_item_classification_parity(ts_canvas_text: str, ts_canvas_enums: dict[str, set[str]]) -> None:
+    """Assert that DataItemClassification enum matches the classification options in DfdCanvas.ts.
+
+    Also verifies declaration order: the enum is user-facing (dropdown order), so Python and TS
+    must agree on which value comes first.
+    """
     assert "classification" in ts_canvas_enums, "classification enum not found in DfdCanvas.ts"
     _assert_parity(
         DataItemClassification, ts_canvas_enums["classification"], "DataItemClassification / classification"
+    )
+    # Order check: parse the ordered list of classification values from DfdCanvas.ts and assert
+    # it matches the declaration order of DataItemClassification members.
+    # Order matters because this enum drives the user-facing dropdown in the property editor.
+    tuple_value_pattern = re.compile(r'\[\s*"([^"]+)"\s*,\s*"[^"]*"\s*\]')
+    # Find the classification block in DfdCanvas.ts
+    classification_match = re.search(r'classification\s*:\s*\{', ts_canvas_text)
+    assert classification_match, "classification field not found in DfdCanvas.ts"
+    block = _extract_brace_block(ts_canvas_text, classification_match.end() - 1)
+    ts_ordered = tuple_value_pattern.findall(block)
+    py_ordered = list(DataItemClassification._value2member_map_.keys())
+    assert ts_ordered == py_ordered, (
+        f"DataItemClassification order mismatch:\n"
+        f"  TS order:     {ts_ordered}\n"
+        f"  Python order: {py_ordered}"
     )
 
 

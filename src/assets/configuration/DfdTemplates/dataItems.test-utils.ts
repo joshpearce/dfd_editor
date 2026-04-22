@@ -6,7 +6,7 @@
  * specs to avoid duplicating the same mutation logic in every test file.
  */
 
-import { ListProperty, DictionaryProperty, StringProperty } from "@OpenChart/DiagramModel";
+import { ListProperty, DictionaryProperty, EnumProperty, StringProperty } from "@OpenChart/DiagramModel";
 import type { Canvas } from "@OpenChart/DiagramModel";
 import type { Line } from "@OpenChart/DiagramModel";
 
@@ -43,7 +43,7 @@ export function addDataItem(
         (fields.get("description") as StringProperty).setValue(description);
     }
     if (classification !== undefined) {
-        (fields.get("classification") as StringProperty).setValue(classification);
+        (fields.get("classification") as EnumProperty).setValue(classification);
     }
     dataItemsProp.addProperty(entry, guid);
 }

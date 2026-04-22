@@ -415,7 +415,7 @@ export class DictionaryBlock extends BlockFace {
                     chipX = x;
                 }
 
-                // Resolve classification → dataPill key (narrow-or-default)
+                // Resolve classification → dataPill key (narrow-or-unclassified)
                 const pillKey = narrowClassification(item.classification);
                 const pill = this.style.dataPill[pillKey];
 

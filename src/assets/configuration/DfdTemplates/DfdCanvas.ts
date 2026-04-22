@@ -22,8 +22,9 @@ export const DfdCanvas: CanvasTemplate = {
         },
         // Canvas-level data items.  Each entry is keyed by the item's guid;
         // the DictionaryProperty sub-fields mirror the DataItem schema shape.
-        // description and classification are optional; the backend omits them
-        // entirely (not emitting null) and the engine tolerates absent sub-keys.
+        // Only description is optional; classification is always emitted by the
+        // backend (default "unclassified") and the engine tolerates absent
+        // sub-keys in legacy diagrams.
         // Round-trip behaviour is verified by
         // DfdFilePreprocessor.spec.ts: "absent description sub-key … round-trips".
         data_items: {

@@ -439,34 +439,27 @@ class TestClassificationEnum:
         _id, resp = _import(client, payload)
         assert resp.status_code == 400
 
-    def test_all_five_enum_values_accepted(self, client):
-        """All five classification enum values are accepted and round-trip."""
+    @pytest.mark.parametrize("classification", [
+        "unclassified",
+        "pii",
+        "secret",
+        "public",
+        "internal",
+    ])
+    def test_all_five_enum_values_accepted(self, client, classification):
+        """Each of the five classification enum values is accepted and round-trips."""
         data_items = [
             {
                 "guid": _DATA_ITEM_1_GUID,
                 "parent": _PROCESS_GUID,
                 "identifier": "D1",
-                "name": "Unclassified",
-                "classification": "unclassified",
-            },
-            {
-                "guid": _DATA_ITEM_2_GUID,
-                "parent": _DATA_STORE_GUID,
-                "identifier": "D2",
-                "name": "PII",
-                "classification": "pii",
-            },
-            {
-                "guid": _DATA_ITEM_3_GUID,
-                "parent": _PROCESS_GUID,
-                "identifier": "D3",
-                "name": "Secret",
-                "classification": "secret",
+                "name": "Item",
+                "classification": classification,
             },
         ]
         payload = _base_payload(
-            node1_refs=[_DATA_ITEM_1_GUID, _DATA_ITEM_2_GUID],
-            node2_refs=[_DATA_ITEM_3_GUID],
+            node1_refs=[_DATA_ITEM_1_GUID],
+            node2_refs=[],
             data_items=data_items,
         )
         diagram_id, resp = _import(client, payload)
@@ -474,9 +467,7 @@ class TestClassificationEnum:
 
         exported = _export(client, diagram_id)
         items = {item["guid"]: item for item in exported["data_items"]}
-        assert items[_DATA_ITEM_1_GUID]["classification"] == "unclassified"
-        assert items[_DATA_ITEM_2_GUID]["classification"] == "pii"
-        assert items[_DATA_ITEM_3_GUID]["classification"] == "secret"
+        assert items[_DATA_ITEM_1_GUID]["classification"] == classification
 
 
 # ---------------------------------------------------------------------------

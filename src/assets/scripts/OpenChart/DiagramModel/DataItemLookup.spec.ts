@@ -19,7 +19,7 @@ import {
 import type { DataItem } from "./DataItemLookup";
 import {
     DiagramObjectFactory, DiagramModelFile,
-    Block, Canvas, Line, ListProperty, StringProperty, DictionaryProperty,
+    Block, Canvas, Line, ListProperty, StringProperty, DictionaryProperty, EnumProperty,
     DiagramObjectType, PropertyType
 } from "./";
 import type { DiagramSchemaConfiguration, CanvasTemplate, DiagramObjectTemplate } from "./DiagramObjectFactory";
@@ -41,7 +41,21 @@ const minimalCanvas: CanvasTemplate = {
                     identifier:     { type: PropertyType.String, is_representative: true },
                     name:           { type: PropertyType.String },
                     description:    { type: PropertyType.String },
-                    classification: { type: PropertyType.String }
+                    classification: {
+                        type: PropertyType.Enum,
+                        options: {
+                            type: PropertyType.List,
+                            form: { type: PropertyType.String },
+                            default: [
+                                ["unclassified", "Unclassified"],
+                                ["pii",          "PII"],
+                                ["secret",       "Secret"],
+                                ["public",       "Public"],
+                                ["internal",     "Internal"]
+                            ]
+                        },
+                        default: "unclassified"
+                    }
                 }
             }
         }
@@ -115,7 +129,7 @@ function addDataItem(
         (fields.get("description") as StringProperty).setValue(description);
     }
     if (classification !== undefined) {
-        (fields.get("classification") as StringProperty).setValue(classification);
+        (fields.get("classification") as EnumProperty).setValue(classification);
     }
     dataItemsProp.addProperty(entry, guid);
 }
@@ -189,11 +203,13 @@ describe("dataItemsForParent", () => {
         });
     });
 
-    it("omits description and classification when they are null", () => {
+    it("omits description when not set; defaults classification to 'unclassified'", () => {
         addDataItem(canvas, ITEM_A1_GUID, NODE_A, "D1", "Token");
         const [item] = dataItemsForParent(canvas, NODE_A);
+        // description is optional and absent when not set
         expect(item.description).toBeUndefined();
-        expect(item.classification).toBeUndefined();
+        // classification defaults to "unclassified" (enum default) when not explicitly set
+        expect(item.classification).toBe("unclassified");
     });
 
 });

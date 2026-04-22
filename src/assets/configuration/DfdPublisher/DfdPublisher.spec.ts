@@ -93,11 +93,12 @@ describe("DfdPublisher", () => {
             });
 
             const item2 = output.data_items.find((i: Record<string, unknown>) => i.guid === item2Guid);
-            expect(item2).toMatchObject({
+            expect(item2).toEqual({
                 guid: item2Guid,
                 parent: parentGuid,
                 identifier: "D2",
-                name: "User Email"
+                name: "User Email",
+                classification: "unclassified"
             });
             // description is absent when not set
             expect(item2.description).toBeUndefined();

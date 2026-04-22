@@ -35,7 +35,11 @@ export const CHIP_BASELINE_OF_HEIGHT = 0.75;
 
 /**
  * A single data item, mirroring the schema.py DataItem model fields.
- * `description` and `classification` are optional.
+ * `description` is optional; `classification` is a closed enum (see
+ * {@link PillClassificationKey}) always present on canonical data.
+ * The TS-type optionality (`classification?: string`) is defensive tolerance
+ * for legacy or partially-migrated diagrams — the contract requires it to be
+ * present and within the enum.
  */
 export type DataItem = {
     /** Stable GUID for this item (the ListProperty entry key). */
@@ -48,7 +52,7 @@ export type DataItem = {
     name: string;
     /** Optional free-text description. */
     description?: string;
-    /** Optional classification label, e.g. "pii" | "secret" | "public". */
+    /** Classification label: one of "unclassified" | "pii" | "secret" | "public" | "internal". */
     classification?: string;
 };
 
