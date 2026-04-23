@@ -1,6 +1,6 @@
 import * as EditorCommands from "../../../Commands";
-import { PolyLineSpanView } from "@OpenChart/DiagramView";
 import { ObjectMover } from "./ObjectMover";
+import { PolyLineSpanView } from "@OpenChart/DiagramView";
 import type { SubjectTrack } from "@OpenChart/DiagramInterface";
 import type { PowerEditPlugin } from "../PowerEditPlugin";
 import type { CommandExecutor } from "../CommandExecutor";
@@ -16,9 +16,8 @@ import type { CommandExecutor } from "../CommandExecutor";
  * move freely on an H span would produce a diagonal corner and invert the
  * rendered curve.
  *
- * A single `moveObjectsBy` over `[handleA, handleB]` is emitted per drag
- * tick.  That keeps the entire drag as one undo step regardless of how many
- * ticks fire during the gesture.
+ * Each drag tick emits a single `moveObjectsBy` over `[handleA, handleB]`;
+ * the surrounding command stream collapses every tick into one undo step.
  */
 export class PolyLineSpanMover extends ObjectMover {
 
@@ -53,9 +52,9 @@ export class PolyLineSpanMover extends ObjectMover {
      * ordering requirement that `LatchMover` and `GenericMover` follow.
      */
     public captureSubject(): void {
-        // The span's parent is the LineView; walk from LineView's parent
-        // (the container — canvas or group) to pin any ancestor group bounds.
-        this.pinAncestorGroupBounds(this.span.parent.parent);
+        // LineView itself is never a GroupView — the helper skips it and walks
+        // upward from the line's container, matching LatchMover.
+        this.pinAncestorGroupBounds(this.span.parent);
     }
 
     /**
@@ -73,10 +72,11 @@ export class PolyLineSpanMover extends ObjectMover {
         } else {
             dy = 0;
         }
-        if (dx | dy) {
+        // Float-safe check: bitwise OR coerces to int32 and silently drops sub-pixel deltas.
+        if (dx !== 0 || dy !== 0) {
             this.execute(EditorCommands.moveObjectsBy([this.span.handleA, this.span.handleB], dx, dy));
+            track.applyDelta([dx, dy]);
         }
-        track.applyDelta([dx, dy]);
     }
 
     /**

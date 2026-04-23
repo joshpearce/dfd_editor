@@ -33,7 +33,7 @@ import {
 } from "../../../../DiagramView/DiagramObjectView/Faces/Lines/Lines.testing";
 
 // View types
-import { HandleView, LineView, PolyLine } from "@OpenChart/DiagramView";
+import { HandleView, LineView, PolyLine, PolyLineSpanView } from "@OpenChart/DiagramView";
 
 // The mover under test
 import { PolyLineSpanMover } from "./PolyLineSpanMover";
@@ -44,7 +44,6 @@ import { RestoreGroupBounds } from "../../../Commands/View/RestoreGroupBounds";
 
 // Internal-state lens (local — do not export)
 import type { GenericLineInternalState } from "../../../../DiagramView/DiagramObjectView/Faces/Lines/GenericLineInternalState";
-import { PolyLineSpanView } from "../../../../DiagramView/DiagramObjectView/Faces/Lines/PolyLineSpanView";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 import type { MoverBuilder } from "../PowerEditPlugin.testing";
 import type { TestablePowerEditPlugin } from "../PowerEditPlugin.testing";
