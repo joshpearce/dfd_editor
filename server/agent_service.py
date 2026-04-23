@@ -25,6 +25,10 @@ from schema import Diagram
 BroadcastFn = Callable[[dict], bool]
 
 
+class WrongCollectionError(ValueError):
+    """Raised when a guid resolves to a different collection than expected."""
+
+
 def _noop_broadcast(_envelope: dict) -> bool:
     """Sentinel used when the caller doesn't care about broadcast (e.g., create)."""
     return True
@@ -47,6 +51,41 @@ def get_diagram(diagram_id: str) -> dict:
 
 def get_schema() -> dict:
     return Diagram.model_json_schema()
+
+
+def list_summaries(
+    diagram_id: str,
+    collection: str,
+    field_map: dict[str, str],
+) -> list[dict]:
+    """Project each element of ``collection`` to a summary row.
+
+    ``field_map`` maps output-key → source-path. A source-path is either
+    a top-level key (``"guid"``, ``"type"``, ``"node1"``) or a
+    ``properties.<key>`` dotted ref. Data items are flat — use top-level
+    keys only.
+
+    Raises ``storage.DiagramNotFoundError`` if the id is unknown.
+    Raises ``core.InvalidCollectionError`` if ``collection`` is not valid.
+    """
+    if not storage.diagram_exists(diagram_id):
+        raise storage.DiagramNotFoundError(diagram_id)
+    if collection not in core.VALID_COLLECTIONS:
+        raise core.InvalidCollectionError(
+            f"unknown collection {collection!r}; valid: {sorted(core.VALID_COLLECTIONS)}"
+        )
+    diagram = storage.load_minimal(diagram_id)
+    rows = []
+    for elem in diagram.get(collection, []):
+        row: dict[str, Any] = {}
+        for out_key, src in field_map.items():
+            if src.startswith("properties."):
+                prop_key = src.removeprefix("properties.")
+                row[out_key] = elem.get("properties", {}).get(prop_key)
+            else:
+                row[out_key] = elem.get(src)
+        rows.append(row)
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -127,9 +166,25 @@ def update_element(
     guid: str,
     fields: dict,
     broadcast: BroadcastFn,
+    *,
+    expected_collection: str | None = None,
 ) -> dict:
-    """Sparse-merge ``fields`` into the element, validate, persist, broadcast."""
+    """Sparse-merge ``fields`` into the element, validate, persist, broadcast.
+
+    If ``expected_collection`` is given, raises ``WrongCollectionError`` when
+    the guid resolves to a different collection, and ``core.ElementNotFoundError``
+    when the guid is absent.
+    """
     diagram = storage.load_minimal(diagram_id)
+    if expected_collection is not None:
+        found = core.find_element(diagram, guid)
+        if found is None:
+            raise core.ElementNotFoundError(f"element {guid!r} not found in diagram")
+        _elem, actual_collection = found
+        if actual_collection != expected_collection:
+            raise WrongCollectionError(
+                f"element {guid!r} lives in {actual_collection!r}, not {expected_collection!r}"
+            )
     core.update_element(diagram, guid, fields)
     storage.save_minimal(diagram_id, diagram)
     delivered = broadcast({"type": "diagram-updated", "payload": {"id": diagram_id}})
@@ -140,9 +195,25 @@ def delete_element(
     diagram_id: str,
     guid: str,
     broadcast: BroadcastFn,
+    *,
+    expected_collection: str | None = None,
 ) -> dict:
-    """Delete the element with cascade rules, validate, persist, broadcast."""
+    """Delete the element with cascade rules, validate, persist, broadcast.
+
+    If ``expected_collection`` is given, raises ``WrongCollectionError`` when
+    the guid resolves to a different collection, and ``core.ElementNotFoundError``
+    when the guid is absent.
+    """
     diagram = storage.load_minimal(diagram_id)
+    if expected_collection is not None:
+        found = core.find_element(diagram, guid)
+        if found is None:
+            raise core.ElementNotFoundError(f"element {guid!r} not found in diagram")
+        _elem, actual_collection = found
+        if actual_collection != expected_collection:
+            raise WrongCollectionError(
+                f"element {guid!r} lives in {actual_collection!r}, not {expected_collection!r}"
+            )
     diagram, collection, cascade_removed = core.delete_element(diagram, guid)
     storage.save_minimal(diagram_id, diagram)
     delivered = broadcast({"type": "diagram-updated", "payload": {"id": diagram_id}})
