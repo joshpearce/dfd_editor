@@ -1,6 +1,6 @@
 # dfd_editor
 
-Last verified: 2026-04-21
+Last verified: 2026-04-23
 
 Browser-based Data Flow Diagram (DFD) editor. Scaffolded from MITRE's
 Apache-2.0 [attack-flow](https://github.com/center-for-threat-informed-defense/attack-flow)
@@ -66,11 +66,14 @@ the canvas to D2, POSTs to `/api/layout`, and re-parses the returned TALA SVG to
 place blocks/groups. `d2` with the TALA plugin must be on the server's `PATH`;
 without it, `/api/layout` returns 502 rather than failing at startup. Line
 endpoints are then rebound via an `AnchorStrategy` (default `"tala"`, which
-uses TALA's own edge endpoints + polyline bend to pick anchor faces and steer
-the handle; `"geometric"` and `"none"` also supported — see the engine source).
-After a `loadFileFromServer` call triggers auto-layout (i.e. the stored file
-had no `layout`), the result is PUT back to the server so subsequent opens
-skip TALA and reuse the stable positions.
+uses TALA's own edge endpoints to pick anchor faces and projects every
+significant interior polyline vertex onto its own handle; `"geometric"` and
+`"none"` also supported — see the engine source). Lines that end up with two or
+more handles are upgraded to the `PolyLine` face by `inferLineFaces`, which
+runs both after the engine and on import so multi-bend TALA routes survive
+save/reload. After a `loadFileFromServer` call triggers auto-layout (i.e. the
+stored file had no `layout`), the result is PUT back to the server so
+subsequent opens skip TALA and reuse the stable positions.
 
 ## Project Structure
 

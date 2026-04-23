@@ -1,6 +1,6 @@
 # OpenChart (Diagram Engine — Forked)
 
-Last verified: 2026-04-21
+Last verified: 2026-04-23
 
 ## Purpose
 
@@ -16,6 +16,7 @@ abandoned; treat this directory as first-party code.
 - **Exposes**: `DiagramObjectType` (7 core types — Canvas, Block, Line,
   Group, Anchor, Latch, Handle); `DiagramSchemaConfiguration`; the Face
   system (`DictionaryBlock`, `BranchBlock`, `TextBlock`, `DynamicLine`,
+  `PolyLine` (runtime-selected for multi-bend lines — see Gotchas),
   `DotGridCanvas`/`LineGridCanvas`, `GroupFace`,
   `AnchorPoint`/`LatchPoint`/`HandlePoint`); `DiagramEditor` commands +
   interface plugins; `AutomaticLayoutEngine` (sync); `NewAutoLayoutEngine`
@@ -121,19 +122,34 @@ abandoned; treat this directory as first-party code.
 - Default `AnchorStrategy` is `"tala"` as of `6734431` (reverting
   `de99bd9`'s brief experiment with `"geometric"`): TALA's SVG edge
   endpoints drive anchor selection via `pickNearestAnchor` (12 anchors
-  per block — 4 face midpoints + 8 quarters) and `pickPolylineElbow`
-  additionally steers the line's single handle onto TALA's bend point.
-  The `"tala"` path falls back to `"geometric"` per-line when edge data
-  is missing or the nearest TALA edge is more than one block
-  half-dimension away from either endpoint.
-- The TALA handle-steering pass sets `PositionSetByUser.True` on the
-  handle before calling `moveTo`; without it, the next
-  `DynamicLine.calculateLayout` tick would snap the handle back to the
-  source/target midpoint and discard TALA's elbow (see commit
-  `a410dc2`). The engine inlines the bitmask (`0b11000`) rather than
-  importing from `ViewAttributes.ts` to avoid dragging the
-  `@OpenChart/Utilities` barrel (and its canvas-dependent FontStore)
-  into the engine layer.
+  per block — 4 face midpoints + 8 quarters), and the polyline-handle
+  pass projects every significant interior vertex onto its own handle
+  via `significantInteriorVertices` + `ensureHandleCount`.  Lines that
+  end up with two or more handles are upgraded to `PolyLine` by the
+  post-engine `inferLineFaces` pass (see below).  The `"tala"` path
+  falls back to `"geometric"` per-line when edge data is missing or the
+  nearest TALA edge is more than one block half-dimension away from
+  either endpoint.
+- The TALA handle-steering pass sets `PositionSetByUser.True` on each
+  handle before writing positions, and writes via `handle.face.moveTo`
+  (not `handle.moveTo`).  The face-level path skips the
+  `LineView.handleUpdate` cascade — high-level `handle.moveTo` would
+  trigger `DynamicLine.calculateLayout` → `view.dropHandles(1)`
+  mid-loop and discard every cloned handle past index 0 before the
+  face swap can happen.  The engine inlines the
+  `PositionSetByUser.True` bitmask (`0b11000`) rather than importing
+  from `ViewAttributes.ts` to avoid dragging the `@OpenChart/Utilities`
+  barrel (and its canvas-dependent FontStore) into the engine layer.
+- Line face is **runtime-selected** by handle count, not declared in
+  the theme: `DiagramObjectViewFactory.inferLineFaces([roots])` walks
+  every `LineView` in the subtree and swaps to `PolyLine` when
+  `handles.length >= 2`, or back to `DynamicLine` otherwise.  Called
+  by `DiagramViewFile` constructor (after import, before the first
+  `calculateLayout`) and by `DiagramViewFile.runLayout` (after the
+  async layout engine returns) so saved files round-trip and TALA
+  routes survive auto-layout.  `restyleDiagramObject` is also
+  PolyLine-aware so theme switches don't silently downgrade
+  multi-handle lines.
 - `LineLayoutStrategies.ts` two-elbow layouts apply cap offsets toward
   the handle (via `axisCapTowards`), not toward the opposite endpoint.
   This matters when TALA rebinds both source and target anchors to the
