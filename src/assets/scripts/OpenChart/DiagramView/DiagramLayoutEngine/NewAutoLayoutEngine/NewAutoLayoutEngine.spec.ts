@@ -240,24 +240,34 @@ describe("NewAutoLayoutEngine", () => {
     }
 
     /**
-     * Minimal handle stub: a `moveTo` spy plus a writable `userSetPosition`
-     * so the rebind pass can mark the handle as intentionally placed after
-     * steering it to a TALA polyline bend.
+     * Minimal handle stub: a `moveTo` spy, a writable `userSetPosition` so
+     * the rebind pass can mark the handle as intentionally placed, and a
+     * `clone` factory so the engine can grow the handle list when TALA
+     * routes a multi-bend polyline.  Each clone is itself a fresh
+     * HandleStub with its own spies.
      */
     interface HandleStub {
         userSetPosition: number;
         moveTo: ReturnType<typeof vi.fn>;
+        clone: () => HandleStub;
     }
 
     function makeHandleStub(): HandleStub {
-        return { userSetPosition: 0, moveTo: vi.fn() };
+        const stub: HandleStub = {
+            userSetPosition: 0,
+            moveTo: vi.fn(),
+            clone: () => makeHandleStub()
+        };
+        return stub;
     }
 
     /**
      * Creates a line stub whose `node1` / `node2` getters throw when null —
      * mirroring `LineView`'s runtime semantics.  `handles` defaults to an
      * empty array so existing tests remain unchanged; pass one or more to
-     * exercise the tala-polyline-elbow waypoint pass.
+     * exercise the tala-polyline waypoint pass.  `addHandle` and
+     * `dropHandles` mutate the same array exposed via `handles`, so the
+     * engine reads its growth back through the same surface.
      */
     function makeLineStub(
         node1Latch: LatchStub | null,
@@ -266,6 +276,12 @@ describe("NewAutoLayoutEngine", () => {
     ) {
         return {
             handles,
+            addHandle(handle: HandleStub) {
+                handles.push(handle);
+            },
+            dropHandles(i: number) {
+                handles.splice(i);
+            },
             get node1() {
                 if (node1Latch === null) {
                     throw new Error("LineView: node1 latch is null");
@@ -1213,6 +1229,152 @@ describe("NewAutoLayoutEngine", () => {
             // (250, 200) is the vertex farthest from the straight line between
             // start (150, 100) and end (350, 100).
             expect(handle.moveTo).toHaveBeenCalledWith(250, 200);
+        });
+
+        it("tala: 4-point polyline with two significant bends grows the handle list to 2 and populates both", async () => {
+            // TALA returns a staircase: right off src, down, right, down, into tgt.
+            // Endpoints (150, 100) and (350, 300) are diagonal; the two interior
+            // bends at (250, 100) and (250, 300) are ~70.7 px off the straight
+            // chord — well above the 0.5 px collinear filter, so both should
+            // become handles.  The line starts with one reference handle, so
+            // the engine has to clone it once via addHandle.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 300, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D180)!);
+            const handle   = makeHandleStub();
+
+            const line   = makeLineStub(srcLatch, tgtLatch, [handle]);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75,  width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 275, width: 100, height: 50 }
+                ],
+                [{ d: "M 150 100 L 250 100 L 250 300 L 350 300" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            // Handle list grew from 1 → 2.
+            expect(line.handles.length).toBe(2);
+
+            // First handle (the original) routed to (250, 100).
+            expect(line.handles[0].moveTo).toHaveBeenCalledWith(250, 100);
+            // Second handle (cloned) routed to (250, 300).
+            expect(line.handles[1].moveTo).toHaveBeenCalledWith(250, 300);
+
+            // Both handles flagged user-set so the next DynamicLine layout
+            // tick (running before inferLineFaces swaps the face) doesn't
+            // discard their positions.
+            expect(line.handles[0].userSetPosition).not.toBe(0);
+            expect(line.handles[1].userSetPosition).not.toBe(0);
+        });
+
+        it("tala: 4-point polyline whose interior is collinear with endpoints leaves handles untouched", async () => {
+            // All interior vertices sit exactly on the straight line through
+            // the endpoints — TALA's "drew it as a straight" case with extra
+            // anchor-approach vertices.  Significant-vertex filter must drop
+            // them so a visually-straight edge stays a single-handle
+            // DynamicLine instead of being promoted to PolyLine.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D180)!);
+            const handle   = makeHandleStub();
+
+            const line   = makeLineStub(srcLatch, tgtLatch, [handle]);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                // All four points share y=100.  Both interior vertices are on
+                // the straight chord between (150,100) and (350,100).
+                [{ d: "M 150 100 L 200 100 L 300 100 L 350 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            expect(line.handles.length).toBe(1);
+            expect(handle.moveTo).not.toHaveBeenCalled();
+        });
+
+        it("tala: 5-point polyline with three bends grows the handle list to 3", async () => {
+            // Stretched W route: src→A→B→C→tgt with three significant bends.
+            // The line starts with one handle; the engine must clone twice
+            // and populate all three.  This is the canonical TALA staircase
+            // case the plan calls out.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 700, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D180)!);
+            const handle   = makeHandleStub();
+
+            const line   = makeLineStub(srcLatch, tgtLatch, [handle]);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 650, y: 75, width: 100, height: 50 }
+                ],
+                // Three bends all off the straight chord (y=100): (250,200),
+                // (400,300), (550,200) are 100, 200, 100 px below.  None
+                // sit on the endpoints' chord, so all three survive the
+                // collinear filter.
+                [{ d: "M 150 100 L 250 200 L 400 300 L 550 200 L 650 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            expect(line.handles.length).toBe(3);
+            expect(line.handles[0].moveTo).toHaveBeenCalledWith(250, 200);
+            expect(line.handles[1].moveTo).toHaveBeenCalledWith(400, 300);
+            expect(line.handles[2].moveTo).toHaveBeenCalledWith(550, 200);
+        });
+
+        it("tala: re-layout shrinks an over-populated handle list to match the new TALA route", async () => {
+            // A line that previously had three handles (cached from a
+            // multi-bend run) gets a new TALA route with only one
+            // significant interior bend — the engine should drop the extras
+            // so the handle count matches the new route.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D180)!);
+            const h0 = makeHandleStub();
+            const h1 = makeHandleStub();
+            const h2 = makeHandleStub();
+
+            const line   = makeLineStub(srcLatch, tgtLatch, [h0, h1, h2]);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 150 100 L 250 100 L 250 200 L 350 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            // After the collinear filter (250,100) is dropped, only (250,200)
+            // remains — line should end up with a single handle pointed there.
+            expect(line.handles.length).toBe(1);
+            expect(line.handles[0].moveTo).toHaveBeenCalledWith(250, 200);
         });
 
         it("tala: straight polyline leaves handles[0] untouched", async () => {

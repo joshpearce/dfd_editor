@@ -100,19 +100,34 @@ interface RebindableLatchWithAnchor extends RebindableLatch {
  */
 /**
  * A minimal handle surface — `moveTo` to steer a line's elbow toward TALA's
- * polyline bend, and `userSetPosition` to mark that position as intentional
- * so the downstream `DynamicLine.calculateLayout` doesn't snap the handle
- * back to the source/target midpoint on the very next tick.
+ * polyline bend, `userSetPosition` to mark that position as intentional so
+ * the downstream `DynamicLine.calculateLayout` doesn't snap the handle back
+ * to the source/target midpoint on the very next tick, and `clone` so the
+ * engine can manufacture additional handles for multi-bend TALA routes by
+ * cloning the line's existing reference handle.
  */
 interface RebindableHandleSurface {
     userSetPosition: number;
     moveTo(x: number, y: number): void;
+    clone(): RebindableHandleSurface;
 }
 
+/**
+ * The structural surface the engine needs to mutate a line: read the two
+ * endpoints, read+grow+shrink the handle list, and (in TALA mode) project
+ * polyline bend points onto the handles.
+ *
+ * `addHandle` / `dropHandles` mirror the model-layer `Line` API — `addHandle`
+ * appends a handle; `dropHandles(n)` removes everything from index `n`
+ * onward.  Both are no-arg-update calls (the engine triggers a single
+ * `calculateLayout` later).
+ */
 interface RebindableLineSurface {
     readonly node1:   RebindableLatchWithAnchor;
     readonly node2:   RebindableLatchWithAnchor;
     readonly handles: ReadonlyArray<RebindableHandleSurface>;
+    addHandle(handle: RebindableHandleSurface): void;
+    dropHandles(i: number): void;
 }
 
 /**
@@ -658,20 +673,24 @@ function pointToBoxDistance(
  * Lines with unresolved endpoints are skipped silently.
  */
 /**
- * Picks the interior polyline vertex that best captures the "bulge" of a
- * TALA edge — the bend point a single-handle line should route through to
- * approximate TALA's actual path.  For each interior point, computes its
- * perpendicular distance from the straight line between the polyline's
- * start and end, and returns the vertex with the largest distance.
+ * Returns the interior vertices of a TALA polyline, with near-collinear
+ * points discarded so a sub-pixel jitter on a visually-straight edge stays
+ * a one-handle DynamicLine instead of getting promoted to a multi-handle
+ * PolyLine.
  *
- * Returns `null` when the polyline is a straight segment (only two vertices,
- * or all interior points are collinear with the endpoints) — in that case
- * the caller should leave the handle where the line's layout strategy
- * placed it.
+ * "Interior" excludes the polyline's first and last vertices (those bind to
+ * the source/target anchors via the rebind pass).  An interior vertex is
+ * dropped when its perpendicular distance to the straight line through the
+ * endpoints is below {@link COLLINEAR_EPSILON}.
+ *
+ * Returns an empty array when the polyline is a straight segment, when the
+ * endpoints coincide (zero-length segment), or when fewer than three points
+ * were supplied — the caller should leave the line's handles untouched in
+ * those cases.
  */
-function pickPolylineElbow(points: readonly Point[]): Point | null {
+function significantInteriorVertices(points: readonly Point[]): Point[] {
     if (points.length < 3) {
-        return null;
+        return [];
     }
     const a = points[0];
     const b = points[points.length - 1];
@@ -680,28 +699,55 @@ function pickPolylineElbow(points: readonly Point[]): Point | null {
     const segLenSq = dx * dx + dy * dy;
     if (segLenSq === 0) {
         // Zero-length segment — caller's geometric rebind will handle it.
-        return null;
+        return [];
     }
-    let best: Point | null = null;
-    let bestDistSq = 0;
-    // Tolerance for "collinear" — a TALA straight-edge sometimes includes
-    // tiny arrowhead-approach vertices; without this guard a sub-pixel jitter
-    // would snap the handle away from the strategy-chosen elbow.
-    const collinearEpsilon = 0.5;
+    const epsilonSq = COLLINEAR_EPSILON * COLLINEAR_EPSILON;
+    const result: Point[] = [];
     for (let i = 1; i < points.length - 1; i++) {
         const p = points[i];
         // Distance-squared from p to the infinite line through a,b.
         const cross = dx * (p.y - a.y) - dy * (p.x - a.x);
         const distSq = (cross * cross) / segLenSq;
-        if (distSq > bestDistSq) {
-            bestDistSq = distSq;
-            best = p;
+        if (distSq >= epsilonSq) {
+            result.push(p);
         }
     }
-    if (bestDistSq < collinearEpsilon * collinearEpsilon) {
-        return null;
+    return result;
+}
+
+/**
+ * Tolerance for "collinear" interior vertices.  TALA straight-edges
+ * sometimes carry tiny arrowhead-approach vertices; without this guard a
+ * sub-pixel jitter would snap the handle away from the strategy-chosen
+ * elbow position.  Half a pixel is well below the visible threshold and
+ * matches the previous one-handle elbow filter.
+ */
+const COLLINEAR_EPSILON = 0.5;
+
+/**
+ * Resizes `line.handles` to exactly `n` entries.  Excess handles are
+ * dropped; missing handles are added by cloning the line's existing
+ * reference handle.  Throws when `n >= 1` is requested but the line has
+ * no handle to clone — every line built by the view factory carries a
+ * reference handle, so this only fires for malformed input.
+ */
+function ensureHandleCount(line: RebindableLineSurface, n: number): void {
+    if (line.handles.length === n) {
+        return;
     }
-    return best;
+    if (line.handles.length > n) {
+        line.dropHandles(n);
+        return;
+    }
+    if (line.handles.length === 0) {
+        throw new Error(
+            "NewAutoLayoutEngine: cannot grow handle list — line has no handle to clone."
+        );
+    }
+    const template = line.handles[0];
+    while (line.handles.length < n) {
+        line.addHandle(template.clone());
+    }
 }
 
 function rebindLinesTala(
@@ -776,19 +822,40 @@ function rebindLinesTala(
             if (newSrcAnchor) { rebindLatchToAnchor(line.node1, newSrcAnchor); }
             if (newTgtAnchor) { rebindLatchToAnchor(line.node2, newTgtAnchor); }
 
-            // Steer the line's single handle onto TALA's bend point when the
-            // polyline isn't a straight segment.  DynamicLine's layout
-            // strategies build the elbow path from handles[0]'s position, so
-            // moving the handle here is how we route around intermediate
-            // blocks that TALA already solved for.  Lines without a handle
-            // (pure A-to-B with no waypoint) are left alone.
-            const elbow = pickPolylineElbow(bestEdge.points);
-            if (elbow && line.handles.length > 0) {
+            // Project TALA's interior polyline vertices onto the line's
+            // handle list, growing or shrinking the list to match.  The
+            // line's existing reference handle (always present after
+            // template construction) is used as the clone source when more
+            // handles are needed.  When two or more handles end up
+            // populated, the post-layout `inferLineFace` pass swaps the
+            // face from `DynamicLine` to `PolyLine` so the multi-bend
+            // route is rendered verbatim.
+            //
+            // Lines without any handle (malformed input) are skipped — the
+            // engine has nothing to clone and nothing to mutate.
+            if (line.handles.length === 0) {
+                continue;
+            }
+            const interior = significantInteriorVertices(bestEdge.points);
+            if (interior.length === 0) {
+                // Straight edge — leave the existing handle and let
+                // DynamicLine's strategy place it.  Don't shrink the
+                // handle list either; an existing PolyLine being
+                // re-laid-out keeps its prior handle count if TALA
+                // re-routed it as straight.
+                continue;
+            }
+            ensureHandleCount(line, interior.length);
+            for (let i = 0; i < interior.length; i++) {
                 // Mark user-set BEFORE moving: moveTo triggers
-                // DynamicLine.calculateLayout, which resets the handle's X
-                // unless PositionSetByUser.xAxis is already set.
-                line.handles[0].userSetPosition = POSITION_SET_BY_USER_TRUE;
-                line.handles[0].moveTo(elbow.x, elbow.y);
+                // DynamicLine.calculateLayout, which would otherwise reset
+                // the handle position unless PositionSetByUser is set.
+                // PolyLine reads handles directly so this assignment is
+                // redundant for it, but the face swap happens after this
+                // pass, so the handle still has to survive a DynamicLine
+                // layout tick in between.
+                line.handles[i].userSetPosition = POSITION_SET_BY_USER_TRUE;
+                line.handles[i].moveTo(interior[i].x, interior[i].y);
             }
         } else {
             // Fallback: geometric center-to-center rebind for this line.

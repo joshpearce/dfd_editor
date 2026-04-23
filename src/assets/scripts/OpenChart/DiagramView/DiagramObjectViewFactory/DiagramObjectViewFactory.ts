@@ -437,4 +437,49 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
         }
     }
 
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  3. Runtime Face Inference  ////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+
+    /**
+     * Walks every line in the supplied diagram subtree and selects between
+     * {@link DynamicLine} and {@link PolyLine} based on the line's current
+     * handle count.  A line with two or more handles becomes a PolyLine; a
+     * line with one or zero handles becomes a DynamicLine.
+     *
+     * The face style and grid are taken from the line's existing template
+     * design — themes never declare PolyLine directly, so the design carries
+     * a `LineStyle` regardless of which face the line ends up using.
+     *
+     * Use this after any operation that mutates the handle list outside the
+     * normal editor commands (auto-layout import, file load).  Idempotent —
+     * a line whose face already matches the inference result is left alone.
+     *
+     * Lines whose template design is not a line face (defensive) are
+     * skipped silently.
+     */
+    public inferLineFaces(roots: DiagramObjectView[]): void {
+        const grid = this.theme.grid;
+        for (const object of traversePostfix(roots)) {
+            if (!(object instanceof LineView)) {
+                continue;
+            }
+            const design = this.resolveDesign(object.id);
+            if (design.type !== FaceType.DynamicLine && design.type !== FaceType.PolyLine) {
+                continue;
+            }
+            const wantsPolyLine = object.handles.length >= 2;
+            const isPolyLine = object.face instanceof PolyLine;
+            if (wantsPolyLine === isPolyLine) {
+                continue;
+            }
+            const newFace = wantsPolyLine
+                ? new PolyLine(design.style, grid)
+                : new DynamicLine(design.style, grid);
+            object.replaceFace(newFace);
+        }
+    }
+
 }
