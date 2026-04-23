@@ -238,3 +238,182 @@ class TestGetSchema:
         schema = agent_service.get_schema()
         assert schema["title"] == "Diagram"
         assert "nodes" in schema["properties"]
+
+
+_CONTAINER_GUID = "cccccccc-0000-0000-0000-000000000001"
+_DATA_ITEM_GUID = "dddddddd-0000-0000-0000-000000000001"
+
+
+class TestListSummaries:
+    def test_nodes_projection(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        rows = agent_service.list_summaries(
+            created["id"],
+            "nodes",
+            {"guid": "guid", "name": "properties.name", "type": "type"},
+        )
+        assert rows == [
+            {"guid": _PROCESS_GUID, "name": "P", "type": "process"},
+            {"guid": _STORE_GUID, "name": "DS", "type": "data_store"},
+        ]
+
+    def test_containers_projection(self, tmp_storage):
+        doc = {
+            "meta": {"name": "container test"},
+            "nodes": [],
+            "containers": [
+                {
+                    "type": "trust_boundary",
+                    "guid": _CONTAINER_GUID,
+                    "properties": {"name": "TB"},
+                    "children": [],
+                }
+            ],
+            "data_flows": [],
+            "data_items": [],
+        }
+        created = agent_service.create_diagram(doc)
+        rows = agent_service.list_summaries(
+            created["id"],
+            "containers",
+            {"guid": "guid", "name": "properties.name", "type": "type"},
+        )
+        assert len(rows) == 1
+        assert rows[0]["name"] == "TB"
+        assert rows[0]["type"] == "trust_boundary"
+
+    def test_data_flows_projection(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        rows = agent_service.list_summaries(
+            created["id"],
+            "data_flows",
+            {"guid": "guid", "name": "properties.name", "node1": "node1", "node2": "node2"},
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["guid"] == _FLOW_GUID
+        assert row["name"] == "F"
+        # schema canonicalizes endpoints so node1 < node2 lexicographically
+        assert {row["node1"], row["node2"]} == {_PROCESS_GUID, _STORE_GUID}
+
+    def test_data_items_projection(self, tmp_storage):
+        doc = {
+            "meta": {"name": "data item test"},
+            "nodes": [],
+            "containers": [],
+            "data_flows": [],
+            "data_items": [
+                {
+                    "guid": _DATA_ITEM_GUID,
+                    "identifier": "D1",
+                    "name": "Item",
+                    "classification": "pii",
+                    "parent": None,
+                }
+            ],
+        }
+        created = agent_service.create_diagram(doc)
+        rows = agent_service.list_summaries(
+            created["id"],
+            "data_items",
+            {"guid": "guid", "name": "name", "classification": "classification"},
+        )
+        assert len(rows) == 1
+        assert rows[0]["name"] == "Item"
+        assert rows[0]["classification"] == "pii"
+
+    def test_empty_collection_returns_empty_list(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        rows = agent_service.list_summaries(
+            created["id"],
+            "containers",
+            {"guid": "guid", "name": "properties.name"},
+        )
+        assert rows == []
+
+    def test_invalid_collection_raises(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        with pytest.raises(core.InvalidCollectionError):
+            agent_service.list_summaries(created["id"], "edges", {"guid": "guid"})
+
+    def test_unknown_diagram_raises(self, tmp_storage):
+        with pytest.raises(storage.DiagramNotFoundError):
+            agent_service.list_summaries("no-such-id", "nodes", {"guid": "guid"})
+
+
+class TestUpdateElementExpectedCollection:
+    def test_expected_collection_match_succeeds(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        spy = _Spy()
+        result = agent_service.update_element(
+            created["id"], _PROCESS_GUID, {"name": "P2"}, spy,
+            expected_collection="nodes",
+        )
+        assert result["broadcast_delivered"] is True
+        fetched = agent_service.get_diagram(created["id"])
+        node = next(n for n in fetched["nodes"] if n["guid"] == _PROCESS_GUID)
+        assert node["properties"]["name"] == "P2"
+        assert len(spy.envelopes) == 1
+
+    def test_wrong_collection_raises_and_does_not_broadcast(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        spy = _Spy()
+        with pytest.raises(agent_service.WrongCollectionError) as exc_info:
+            agent_service.update_element(
+                created["id"], _PROCESS_GUID, {"name": "x"}, spy,
+                expected_collection="data_flows",
+            )
+        assert spy.envelopes == []
+        # error message must name both the actual and expected collections
+        msg = str(exc_info.value)
+        assert "nodes" in msg
+        assert "data_flows" in msg
+        # confirm no partial write occurred
+        fetched = agent_service.get_diagram(created["id"])
+        node = next(n for n in fetched["nodes"] if n["guid"] == _PROCESS_GUID)
+        assert node["properties"]["name"] == "P"
+
+    def test_expected_collection_unknown_guid_raises_element_not_found(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        spy = _Spy()
+        with pytest.raises(core.ElementNotFoundError):
+            agent_service.update_element(
+                created["id"], "no-such-guid", {}, spy,
+                expected_collection="nodes",
+            )
+        assert spy.envelopes == []
+
+
+class TestDeleteElementExpectedCollection:
+    def test_expected_collection_match_succeeds(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        spy = _Spy()
+        result = agent_service.delete_element(
+            created["id"], _FLOW_GUID, spy,
+            expected_collection="data_flows",
+        )
+        assert result["deleted_collection"] == "data_flows"
+        assert result["broadcast_delivered"] is True
+
+    def test_wrong_collection_raises_and_does_not_broadcast(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        spy = _Spy()
+        with pytest.raises(agent_service.WrongCollectionError):
+            agent_service.delete_element(
+                created["id"], _PROCESS_GUID, spy,
+                expected_collection="data_flows",
+            )
+        assert spy.envelopes == []
+        # confirm the node was not removed (no partial write)
+        fetched = agent_service.get_diagram(created["id"])
+        assert any(n["guid"] == _PROCESS_GUID for n in fetched["nodes"])
+
+    def test_expected_collection_unknown_guid_raises_element_not_found(self, tmp_storage):
+        created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
+        spy = _Spy()
+        with pytest.raises(core.ElementNotFoundError):
+            agent_service.delete_element(
+                created["id"], "no-such-guid", spy,
+                expected_collection="nodes",
+            )
+        assert spy.envelopes == []
