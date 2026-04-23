@@ -285,6 +285,12 @@ export function runVerticalElbowLayout(
  *  aligning the vertices, the function uses `getAbsoluteMultiElbowPath()` to
  *  generate the final set of vertices which curve the line's corners. These
  *  final vertices are then applied to the provided `face`.
+ *
+ *  Consumers: the four DynamicLine layout strategies in this file, and the
+ *  PolyLine face (`PolyLine.calculateLayout` feeds an N+2-point vertex list
+ *  built from `[src, ...handles, trg]`).  The `face` argument must satisfy
+ *  the {@link GenericLineInternalState} structural shape — both faces hold
+ *  matching private fields and pass `this as unknown as GenericLineInternalState`.
  * @param view
  *  The line's view (for reading ref array properties).
  * @param face
