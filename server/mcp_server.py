@@ -24,7 +24,6 @@ import threading
 import time
 import uuid
 import weakref
-from typing import Annotated
 
 # Allow both `python -m server.mcp_server` (from repo root) and
 # `python -m mcp_server` (with cwd=server/).
@@ -33,7 +32,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from mcp.server.fastmcp import Context, FastMCP  # noqa: E402
-from pydantic import BaseModel, Field  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
 import agent_service  # noqa: E402
 import ws  # noqa: E402
@@ -351,102 +350,367 @@ def display_diagram(diagram_id: str, ctx: Context) -> dict:
     return agent_service.display_diagram(diagram_id, _broadcaster)
 
 
+# ---------------------------------------------------------------------------
+# Node tools
+# ---------------------------------------------------------------------------
+
+
 @mcp.tool()
-def update_element(diagram_id: str, guid: str, fields: dict, ctx: Context) -> dict:
-    """Sparse-merge ``fields`` into an existing element in the diagram.
+def add_node(diagram_id: str, node: dict, ctx: Context) -> dict:
+    """Append a node (process / data_store / external_entity) to a diagram.
 
-    Searches all four collections (nodes, containers, data_flows, data_items)
-    for an element whose ``guid`` matches, then applies a partial update:
+    Required node shape:
 
-    - **nodes / containers / data_flows**: ``fields`` is merged into
-      ``element["properties"]`` via ``update()``. The keys ``"guid"`` and
-      ``"type"`` are read-only for nodes and containers; ``"guid"``,
-      ``"node1"``, and ``"node2"`` are read-only for data_flows. Silently
-      skipped if present in ``fields``.
-    - **data_items**: ``fields`` is merged directly onto the flat element
-      dict. The key ``"guid"`` is read-only and silently skipped.
+    - ``guid``: string UUID, unique across every collection in the diagram
+    - ``type``: one of ``"process"``, ``"data_store"``, ``"external_entity"``
+    - ``properties``: type-specific props, always including ``name``
 
-    After mutation the diagram is validated via ``Diagram.model_validate``
-    and persisted. Raises ``ValueError`` if the guid is not found.
+    Example process node::
+
+        {"guid": "<uuid>", "type": "process",
+         "properties": {"name": "API", "assumptions": []}}
+
+    Call ``get_diagram_schema`` for the full per-type properties contract.
+    Validates and persists via ``agent_service.add_element`` in-process.
+    Emits ``diagram-updated``. Returns ``{guid, broadcast_delivered}``.
+    """
+    _stamp(ctx)
+    return agent_service.add_element(diagram_id, "nodes", node, _broadcaster)
+
+
+@mcp.tool()
+def update_node(diagram_id: str, guid: str, fields: dict, ctx: Context) -> dict:
+    """Sparse-merge ``fields`` into an existing node's ``properties``.
+
+    Read-only keys (``guid``, ``type``) are silently skipped if present in
+    ``fields``. Raises ``ValueError`` if ``guid`` is not found in the nodes
+    collection — use the matching typed tool for containers / flows / data
+    items. Validates and persists via ``agent_service.update_element`` in-process.
     Returns ``{guid, broadcast_delivered}``.
     """
     _stamp(ctx)
-    return agent_service.update_element(diagram_id, guid, fields, _broadcaster)
+    return agent_service.update_element(
+        diagram_id, guid, fields, _broadcaster,
+        expected_collection="nodes",
+    )
 
 
 @mcp.tool()
-def delete_element(diagram_id: str, guid: str, ctx: Context) -> dict:
-    """Remove a single element from a diagram, with cascade rules per collection.
+def delete_node(diagram_id: str, guid: str, ctx: Context) -> dict:
+    """Remove a node from a diagram, cascading related refs.
 
-    Cascade rules applied after removing the element:
+    Cascade rules:
 
-    - **nodes**: All data_flows referencing this node (via ``node1`` or
-      ``node2``) are removed; their GUIDs are added to ``cascade_removed``.
-      Any data_item whose ``parent`` equals this guid has its parent set
-      to ``None`` (unparented in place — not removed). The guid is also
-      removed from any container's ``children`` list.
-    - **containers**: The guid is removed from any parent container's
-      ``children`` list. The container's own children (nodes / nested
-      containers) are not deleted — they simply become implicitly top-level.
-    - **data_flows**: No cascade.
-    - **data_items**: The guid is removed from
-      ``flow["properties"]["node1_src_data_item_refs"]`` and
-      ``flow["properties"]["node2_src_data_item_refs"]`` on every data_flow
-      that references it.
+    - any data_flow with ``node1`` or ``node2`` equal to ``guid`` is removed
+      (its guid is returned in ``cascade_removed``);
+    - any data_item whose ``parent`` equals ``guid`` is unparented in place
+      (``parent`` set to ``None``) — not deleted;
+    - the guid is removed from every container's ``children`` list.
 
-    Raises ``ValueError`` if the element is not found. Returns
-    ``{guid, deleted_collection, cascade_removed, broadcast_delivered}``.
+    Raises ``ValueError`` if ``guid`` is not in the nodes collection.
+    Validates and persists via ``agent_service.delete_element`` in-process.
+    Returns ``{guid, deleted_collection, cascade_removed, broadcast_delivered}``.
     """
     _stamp(ctx)
-    return agent_service.delete_element(diagram_id, guid, _broadcaster)
+    return agent_service.delete_element(
+        diagram_id, guid, _broadcaster,
+        expected_collection="nodes",
+    )
 
 
 @mcp.tool()
-def reparent_element(
+def list_nodes(diagram_id: str, ctx: Context) -> list[dict]:
+    """Return a ``{guid, name, type}`` summary row per node.
+
+    Use ``get_diagram`` when you need full properties beyond the display
+    name and type. Calls ``agent_service.list_summaries`` in-process.
+    """
+    _stamp(ctx)
+    return agent_service.list_summaries(
+        diagram_id,
+        "nodes",
+        {"guid": "guid", "name": "properties.name", "type": "type"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Container tools (trust_boundary + container)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def add_container(diagram_id: str, container: dict, ctx: Context) -> dict:
+    """Append a container (trust_boundary / container) to a diagram.
+
+    Required container shape:
+
+    - ``guid``: string UUID, unique across every collection
+    - ``type``: one of ``"trust_boundary"``, ``"container"``
+    - ``properties``: includes ``name`` (and, for trust_boundary, an optional
+      ``trust_level``)
+    - ``children``: list of node / nested-container guids (default ``[]``)
+
+    Prefer ``reparent`` over populating ``children`` post-hoc when moving
+    existing elements into the new container. Validates and persists via
+    ``agent_service.add_element`` in-process. Emits ``diagram-updated``.
+    Returns ``{guid, broadcast_delivered}``.
+    """
+    _stamp(ctx)
+    return agent_service.add_element(diagram_id, "containers", container, _broadcaster)
+
+
+@mcp.tool()
+def update_container(diagram_id: str, guid: str, fields: dict, ctx: Context) -> dict:
+    """Sparse-merge ``fields`` into an existing container's ``properties``.
+
+    Read-only keys (``guid``, ``type``) are silently skipped. Use
+    ``reparent`` to move children in or out — don't edit ``children``
+    through this tool. Raises ``ValueError`` if ``guid`` is not in the
+    containers collection. Validates and persists via
+    ``agent_service.update_element`` in-process.
+    """
+    _stamp(ctx)
+    return agent_service.update_element(
+        diagram_id, guid, fields, _broadcaster,
+        expected_collection="containers",
+    )
+
+
+@mcp.tool()
+def delete_container(diagram_id: str, guid: str, ctx: Context) -> dict:
+    """Remove a container from a diagram.
+
+    The container's own children (nodes / nested containers) are not
+    deleted — they become implicitly top-level. The guid is removed from
+    any parent container's ``children`` list. Raises ``ValueError`` if
+    ``guid`` is not in the containers collection. Validates and persists
+    via ``agent_service.delete_element`` in-process. Returns
+    ``{guid, deleted_collection, cascade_removed, broadcast_delivered}``
+    (``cascade_removed`` is always empty for containers — orphaned children
+    are retained).
+    """
+    _stamp(ctx)
+    return agent_service.delete_element(
+        diagram_id, guid, _broadcaster,
+        expected_collection="containers",
+    )
+
+
+@mcp.tool()
+def list_containers(diagram_id: str, ctx: Context) -> list[dict]:
+    """Return a ``{guid, name, type}`` summary row per container.
+
+    Use ``get_diagram`` when you need the ``children`` list or other
+    properties. Calls ``agent_service.list_summaries`` in-process.
+    """
+    _stamp(ctx)
+    return agent_service.list_summaries(
+        diagram_id,
+        "containers",
+        {"guid": "guid", "name": "properties.name", "type": "type"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Flow tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def add_flow(diagram_id: str, flow: dict, ctx: Context) -> dict:
+    """Append a data flow to a diagram.
+
+    Required flow shape:
+
+    - ``guid``: string UUID, unique across every collection
+    - ``node1``, ``node2``: guids of existing nodes; self-loops are
+      rejected. Endpoints are canonicalized into ``str(node1) < str(node2)``
+      order server-side with the two ref arrays swapped in sync.
+    - ``properties``: includes ``name``, ``authenticated: bool``,
+      ``encrypted: bool``, optional ``protocol``, and the two ref arrays
+      ``node1_src_data_item_refs`` and ``node2_src_data_item_refs``
+      (guids of data items the corresponding endpoint originates).
+
+    Validates and persists via ``agent_service.add_element`` in-process.
+    Emits ``diagram-updated``. Returns ``{guid, broadcast_delivered}``.
+    """
+    _stamp(ctx)
+    return agent_service.add_element(diagram_id, "data_flows", flow, _broadcaster)
+
+
+@mcp.tool()
+def update_flow(diagram_id: str, guid: str, fields: dict, ctx: Context) -> dict:
+    """Sparse-merge ``fields`` into an existing data flow's ``properties``.
+
+    Read-only keys (``guid``, ``node1``, ``node2``) are silently skipped —
+    the endpoint pair is immutable through this tool; delete and re-add
+    the flow to change endpoints. Raises ``ValueError`` if ``guid`` is not
+    in the data_flows collection. Validates and persists via
+    ``agent_service.update_element`` in-process.
+    """
+    _stamp(ctx)
+    return agent_service.update_element(
+        diagram_id, guid, fields, _broadcaster,
+        expected_collection="data_flows",
+    )
+
+
+@mcp.tool()
+def delete_flow(diagram_id: str, guid: str, ctx: Context) -> dict:
+    """Remove a data flow from a diagram. No cascade.
+
+    Raises ``ValueError`` if ``guid`` is not in the data_flows collection.
+    Validates and persists via ``agent_service.delete_element`` in-process.
+    Returns ``{guid, deleted_collection, cascade_removed, broadcast_delivered}``
+    (``cascade_removed`` is always empty for flows).
+    """
+    _stamp(ctx)
+    return agent_service.delete_element(
+        diagram_id, guid, _broadcaster,
+        expected_collection="data_flows",
+    )
+
+
+@mcp.tool()
+def list_flows(diagram_id: str, ctx: Context) -> list[dict]:
+    """Return a ``{guid, name, node1, node2}`` summary row per data flow.
+
+    Endpoints are the canonicalized ``str(node1) < str(node2)`` pair as
+    stored on the flow. Use ``get_diagram`` when you need the full
+    properties (protocol, ref arrays, etc.). Calls
+    ``agent_service.list_summaries`` in-process.
+    """
+    _stamp(ctx)
+    return agent_service.list_summaries(
+        diagram_id,
+        "data_flows",
+        {
+            "guid": "guid",
+            "name": "properties.name",
+            "node1": "node1",
+            "node2": "node2",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Data-item tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def add_data_item(diagram_id: str, data_item: dict, ctx: Context) -> dict:
+    """Append a data item to a diagram.
+
+    Data items are flat (no nested ``properties``). Shape:
+
+    - ``guid``: string UUID, unique across every collection
+    - ``identifier``: short code (e.g. ``"D1"``)
+    - ``name``: display name
+    - ``classification``: one of ``"unclassified"``, ``"internal"``,
+      ``"pii"``, ``"secret"`` (default ``"unclassified"``)
+    - ``parent``: owning node guid, or ``null`` for unowned
+    - ``description``: optional free text
+
+    Validates and persists via ``agent_service.add_element`` in-process.
+    Emits ``diagram-updated``. Returns ``{guid, broadcast_delivered}``.
+    """
+    _stamp(ctx)
+    return agent_service.add_element(diagram_id, "data_items", data_item, _broadcaster)
+
+
+@mcp.tool()
+def update_data_item(diagram_id: str, guid: str, fields: dict, ctx: Context) -> dict:
+    """Sparse-merge ``fields`` directly onto a data item.
+
+    Data items have no nested ``properties`` — fields merge onto the top-
+    level dict. ``guid`` is read-only and silently skipped. To reparent a
+    data item, include ``"parent": "<node_guid>"`` or ``"parent": null`` in
+    ``fields``. Raises ``ValueError`` if ``guid`` is not in the data_items
+    collection. Validates and persists via ``agent_service.update_element``
+    in-process.
+    """
+    _stamp(ctx)
+    return agent_service.update_element(
+        diagram_id, guid, fields, _broadcaster,
+        expected_collection="data_items",
+    )
+
+
+@mcp.tool()
+def delete_data_item(diagram_id: str, guid: str, ctx: Context) -> dict:
+    """Remove a data item, cascading ref-array cleanup on data flows.
+
+    The guid is removed from every data flow's ``node1_src_data_item_refs``
+    and ``node2_src_data_item_refs`` arrays. Raises ``ValueError`` if
+    ``guid`` is not in the data_items collection. Validates and persists via
+    ``agent_service.delete_element`` in-process. Returns
+    ``{guid, deleted_collection, cascade_removed, broadcast_delivered}``
+    (``cascade_removed`` is always empty — it tracks removed *elements*,
+    and ref-array cleanup does not produce any).
+    """
+    _stamp(ctx)
+    return agent_service.delete_element(
+        diagram_id, guid, _broadcaster,
+        expected_collection="data_items",
+    )
+
+
+@mcp.tool()
+def list_data_items(diagram_id: str, ctx: Context) -> list[dict]:
+    """Return a ``{guid, name, classification}`` summary row per data item.
+
+    Use ``get_diagram`` when you need ``parent``, ``identifier``, or other
+    fields. Calls ``agent_service.list_summaries`` in-process.
+    """
+    _stamp(ctx)
+    return agent_service.list_summaries(
+        diagram_id,
+        "data_items",
+        {
+            "guid": "guid",
+            "name": "name",
+            "classification": "classification",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shared reparent (nodes + containers)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def reparent(
     diagram_id: str,
     guid: str,
     new_parent_guid: str | None,
     ctx: Context,
 ) -> dict:
-    """Move an element into a different container (or to top-level).
+    """Move a node or container into a different container (or to top-level).
 
-    Only nodes and containers can be reparented. Data flows and data items
-    do not participate in the container hierarchy.
+    Only nodes and containers participate in the container hierarchy.
+    Flows' endpoints are immutable through this API; data items' parent
+    node is edited via ``update_data_item``.
 
     ``new_parent_guid=null`` removes the element from its current container
-    and leaves it at the top level. If ``new_parent_guid`` is provided it
-    must identify an existing container. If the element being moved is
-    itself a container, a cycle check is run first: the new parent must
-    not be a descendant of the element being moved (including itself).
+    and leaves it at the top level (not inside any container).
+
+    If ``new_parent_guid`` is provided it must identify an existing
+    container. When the element being moved is itself a container, a cycle
+    check is run first: the new parent must not be a descendant of the
+    element being moved (including the element itself). Moving a container
+    into one of its own descendants would create a containment cycle that
+    violates the schema invariant — ``ValueError("reparenting would create
+    a cycle")`` is raised in that case.
 
     Returns ``{guid, old_parent_guid, new_parent_guid, broadcast_delivered}``.
+    ``old_parent_guid`` is the guid of the container that previously held
+    the element, or ``None`` if it was already at top-level. Calls
+    ``agent_service.reparent_element`` in-process.
     """
     _stamp(ctx)
     return agent_service.reparent_element(diagram_id, guid, new_parent_guid, _broadcaster)
-
-
-@mcp.tool()
-def add_element(
-    diagram_id: str,
-    collection: Annotated[
-        str,
-        Field(json_schema_extra={"enum": ["nodes", "containers", "data_flows", "data_items"]}),
-    ],
-    element: dict,
-    ctx: Context,
-) -> dict:
-    """Append a single element to one of a diagram's collections.
-
-    Valid ``collection`` values: ``nodes``, ``containers``, ``data_flows``,
-    ``data_items``. ``element`` must contain a ``guid`` field and must
-    conform to the schema for its collection type (e.g. a node element
-    must have ``type`` and ``properties``). Call ``get_diagram_schema``
-    for the full contract.
-
-    Returns ``{guid, broadcast_delivered}``.
-    """
-    _stamp(ctx)
-    return agent_service.add_element(diagram_id, collection, element, _broadcaster)
 
 
 # ---------------------------------------------------------------------------
