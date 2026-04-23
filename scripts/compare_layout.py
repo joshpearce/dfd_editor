@@ -14,15 +14,19 @@ against the TALA SVG on four independent dimensions:
                          rebind pass uses).  Expect a 2–6 px consistent
                          offset from TALA's arrow-tip clearance; use
                          `--tolerance 6` for a clean PASS.
-  4. Bend points     — each flow's handle positions vs. the TALA
-                         polyline's interior vertices.
+  4. Bend points     — each flow's interior handle positions vs. the
+                         TALA polyline's interior vertices (S-endpoint
+                         per fillet, with near-colinear vertices
+                         dropped).  Counts are compared first;
+                         mismatches are reported as
+                         `bend_count_mismatch` — the multi-bend signal.
 
-Sections 1–3 should pass at default tolerance today. Section 4 is
-expected to fail on any flow TALA routed with three or more bends; the
-`pickPolylineElbow`/`significantInteriorVertices` reduction keeps only
-one handle, so multi-bend routes lose their interior vertices. The
-failing rows are the motivating signal for the `PolyLine`-face design
-work captured in
+Sections 1–3 should pass at a generous tolerance today. Section 4 is
+expected to fail on any flow TALA routed with two or more bends that
+the engine collapsed to a single handle: `significantInteriorVertices`
+keeps only one `handles[i]` per line, so multi-bend routes lose their
+interior vertices. The failing rows are the motivating signal for the
+`PolyLine`-face design work captured in
 `docs/design-plans/2026-04-23-multi-bend-flow-routing.md`.
 
 Usage:
@@ -498,6 +502,177 @@ def collect_flow_edges(diagram: dict) -> list[dict[str, Any]]:
     return flows
 
 
+# Tolerance (px) for discarding near-colinear interior vertices — mirrors
+# `COLLINEAR_EPSILON` in `NewAutoLayoutEngine.ts` so the script agrees
+# with what the engine considers a "real" bend.
+_COLLINEAR_EPSILON = 0.5
+
+
+def extract_polyline_bends(d_attr: str) -> list[tuple[float, float]]:
+    """Return the interior bend vertices of a TALA SVG `d` attribute.
+
+    TALA draws each corner as an `L <pre-fillet> S <ctrl> <post-fillet>`
+    sequence (5 px fillet between two straight segments).  The "logical"
+    bend is the S command's endpoint; the pre-fillet `L` endpoint is the
+    same corner approached from the other side, and the `S` control
+    point is Bézier scaffolding.  The walk therefore keeps every
+    command's endpoint, then drops any `L` endpoint immediately
+    followed by an `S` (the pre-fillet twin), and finally trims the
+    polyline's own start and end.  Remaining vertices are filtered
+    against the straight line through the overall endpoints using the
+    same `_COLLINEAR_EPSILON` the engine uses.
+
+    Returns `[]` for straight edges, zero-length segments, and malformed
+    input.
+    """
+    tokens: list[tuple[str, str | float]] = []
+    for m in _PATH_TOKEN_RE.finditer(d_attr):
+        if m.group(1):
+            tokens.append(("cmd", m.group(1)))
+        else:
+            tokens.append(("num", float(m.group(2))))
+
+    endpoints: list[tuple[str, float, float]] = []  # (cmd_upper, x, y)
+    cur_cmd: str | None = None
+    cx = cy = 0.0
+    i = 0
+
+    def read_nums(count: int) -> list[float] | None:
+        if i + count > len(tokens):
+            return None
+        nums: list[float] = []
+        for k in range(count):
+            kind, val = tokens[i + k]
+            if kind != "num":
+                return None
+            nums.append(val)  # type: ignore[arg-type]
+        return nums
+
+    # Fixed parameter counts per command; M/L/H/V absorb extra pairs as
+    # implicit follow-ons like the SVG spec requires.
+    while i < len(tokens):
+        kind, val = tokens[i]
+        if kind == "cmd":
+            cur_cmd = val  # type: ignore[assignment]
+            i += 1
+            continue
+        if cur_cmd is None:
+            i += 1
+            continue
+        rel = cur_cmd.islower()
+        c = cur_cmd.upper()
+
+        if c == "Z":
+            i += 1
+            continue
+        if c == "M":
+            nums = read_nums(2)
+            if nums is None: i += 1; continue
+            x, y = nums
+            if rel: x += cx; y += cy
+            cx, cy = x, y
+            endpoints.append(("M", x, y))
+            i += 2
+            # Subsequent pairs are implicit L (per SVG spec).
+            cur_cmd = "L" if not rel else "l"
+            continue
+        if c == "L":
+            nums = read_nums(2)
+            if nums is None: i += 1; continue
+            x, y = nums
+            if rel: x += cx; y += cy
+            cx, cy = x, y
+            endpoints.append(("L", x, y))
+            i += 2
+            continue
+        if c == "H":
+            nums = read_nums(1)
+            if nums is None: i += 1; continue
+            x = nums[0]
+            if rel: x += cx
+            cx = x
+            endpoints.append(("L", cx, cy))
+            i += 1
+            continue
+        if c == "V":
+            nums = read_nums(1)
+            if nums is None: i += 1; continue
+            y = nums[0]
+            if rel: y += cy
+            cy = y
+            endpoints.append(("L", cx, cy))
+            i += 1
+            continue
+        if c == "C":
+            nums = read_nums(6)
+            if nums is None: i += 1; continue
+            ex, ey = nums[4], nums[5]
+            if rel: ex += cx; ey += cy
+            cx, cy = ex, ey
+            endpoints.append(("S", ex, ey))  # treat as a fillet endpoint
+            i += 6
+            continue
+        if c == "S":
+            nums = read_nums(4)
+            if nums is None: i += 1; continue
+            ex, ey = nums[2], nums[3]
+            if rel: ex += cx; ey += cy
+            cx, cy = ex, ey
+            endpoints.append(("S", ex, ey))
+            i += 4
+            continue
+        if c == "Q":
+            nums = read_nums(4)
+            if nums is None: i += 1; continue
+            ex, ey = nums[2], nums[3]
+            if rel: ex += cx; ey += cy
+            cx, cy = ex, ey
+            endpoints.append(("S", ex, ey))
+            i += 4
+            continue
+        if c == "T":
+            nums = read_nums(2)
+            if nums is None: i += 1; continue
+            ex, ey = nums
+            if rel: ex += cx; ey += cy
+            cx, cy = ex, ey
+            endpoints.append(("S", ex, ey))
+            i += 2
+            continue
+        # Unknown command — skip.
+        i += 1
+
+    # Drop each L endpoint that is immediately followed by an S endpoint
+    # (pre-fillet corner approach; the S endpoint is the post-fillet
+    # twin at the same logical corner).
+    filtered: list[tuple[str, float, float]] = []
+    for k, ep in enumerate(endpoints):
+        if ep[0] == "L" and k + 1 < len(endpoints) and endpoints[k + 1][0] == "S":
+            continue
+        filtered.append(ep)
+
+    if len(filtered) < 2:
+        return []
+
+    start = (filtered[0][1],  filtered[0][2])
+    end   = (filtered[-1][1], filtered[-1][2])
+    interior = [(p[1], p[2]) for p in filtered[1:-1]]
+
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    seg_len_sq = dx * dx + dy * dy
+    if seg_len_sq == 0:
+        return []
+    epsilon_sq = _COLLINEAR_EPSILON * _COLLINEAR_EPSILON
+    result: list[tuple[float, float]] = []
+    for p in interior:
+        cross = dx * (p[1] - start[1]) - dy * (p[0] - start[0])
+        dist_sq = (cross * cross) / seg_len_sq
+        if dist_sq >= epsilon_sq:
+            result.append(p)
+    return result
+
+
 def _point_to_box(
     p:    tuple[float, float],
     rect: tuple[float, float, float, float],  # (xMin, yMin, xMax, yMax)
@@ -880,6 +1055,131 @@ def compare_edge_endpoints(
     }
 
 
+def compare_bend_points(
+    flows:        list[dict[str, Any]],
+    svg_edges:    list[dict[str, Any]],
+    saved_layout: dict[str, list[float]],
+    tolerance:    float = 2.0,
+) -> dict[str, Any]:
+    """Compare TALA polyline interior vertices to each flow's handle list.
+
+    For every flow, resolve the matching SVG edge (same unordered-pair
+    logic as `compare_edge_endpoints`), extract its interior vertices via
+    `extract_polyline_bends`, and pair each with the saved layout entry
+    for the corresponding `flow.handles[i]`.  Handles absent from
+    `layout` (i.e. `userSetPosition = False`, left for DynamicLine's
+    strategy to re-derive) are paired with a `null` saved position — the
+    row still counts toward `saved_count` but is skipped in the position
+    check.
+
+    A flow is classified as:
+      - `match`                — `svg_count == saved_count` AND every
+                                  pair compared is within tolerance.
+      - `position_mismatch`    — counts agree but at least one pair
+                                  exceeds tolerance.
+      - `bend_count_mismatch`  — counts disagree (the multi-bend signal
+                                  documented in the plan; expected when
+                                  TALA routes more bends than
+                                  `pickPolylineElbow` preserves).
+
+    Position deltas are computed per axis (dx, dy) for the overlapping
+    prefix in all verdict classes, so the multi-bend diagnostic still
+    carries numeric evidence.
+    """
+    matches:        list[dict] = []
+    pos_mismatch:   list[dict] = []
+    count_mismatch: list[dict] = []
+    flow_only:      list[dict] = []
+
+    used: set[int] = set()
+    for flow in flows:
+        edge_idx = match_flow_to_edge(flow, svg_edges, used)
+        if edge_idx is None:
+            flow_only.append({
+                "flow_guid":  flow["flow_guid"],
+                "handles":    list(flow.get("handles") or []),
+            })
+            continue
+        used.add(edge_idx)
+        edge       = svg_edges[edge_idx]
+        svg_bends  = extract_polyline_bends(edge["d"])
+        handles    = flow.get("handles") or []
+        svg_count  = len(svg_bends)
+        saved_count = len(handles)
+
+        deltas: list[dict[str, Any]] = []
+        position_fail = False
+        for i in range(min(svg_count, saved_count)):
+            bend = svg_bends[i]
+            handle_guid = handles[i]
+            saved_pos = saved_layout.get(handle_guid)
+            row: dict[str, Any] = {
+                "index":  i,
+                "handle": handle_guid,
+                "svg":    [round(bend[0], 1), round(bend[1], 1)],
+            }
+            if saved_pos is None:
+                row["saved"]     = None
+                row["delta"]     = None
+                row["max_delta"] = None
+            else:
+                sx, sy = saved_pos
+                dx = abs(sx - bend[0])
+                dy = abs(sy - bend[1])
+                max_delta = max(dx, dy)
+                row["saved"]     = [sx, sy]
+                row["delta"]     = [round(dx, 1), round(dy, 1)]
+                row["max_delta"] = round(max_delta, 1)
+                if max_delta > tolerance:
+                    position_fail = True
+            deltas.append(row)
+
+        entry: dict[str, Any] = {
+            "flow_guid":   flow["flow_guid"],
+            "svg_count":   svg_count,
+            "saved_count": saved_count,
+            "deltas":      deltas,
+        }
+        if svg_count != saved_count:
+            entry["verdict"] = "bend_count_mismatch"
+            count_mismatch.append(entry)
+        elif position_fail:
+            entry["verdict"] = "position_mismatch"
+            pos_mismatch.append(entry)
+        else:
+            entry["verdict"] = "match"
+            matches.append(entry)
+
+    edge_only: list[dict] = []
+    for i, edge in enumerate(svg_edges):
+        if i in used:
+            continue
+        edge_only.append({
+            "src_guid": edge["src_guid"],
+            "tgt_guid": edge["tgt_guid"],
+            "index":    edge["index"],
+        })
+
+    passed = not pos_mismatch and not count_mismatch and not flow_only and not edge_only
+    return {
+        "pass":             passed,
+        "tolerance":        tolerance,
+        "match":            matches,
+        "position_mismatch": pos_mismatch,
+        "bend_count_mismatch": count_mismatch,
+        "flow_only":        flow_only,
+        "edge_only":        edge_only,
+        "summary": {
+            "flows":                len(flows),
+            "match":                len(matches),
+            "position_mismatch":    len(pos_mismatch),
+            "bend_count_mismatch":  len(count_mismatch),
+            "flow_only":            len(flow_only),
+            "edge_only":            len(edge_only),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Report output
 # ---------------------------------------------------------------------------
@@ -1030,6 +1330,66 @@ def _print_edge_endpoints(result: dict[str, Any], verbose: bool) -> None:
     print()
 
 
+def _print_bend_points(result: dict[str, Any], verbose: bool) -> None:
+    summ = result["summary"]
+    tol  = result["tolerance"]
+    print("  Bend points")
+    print("  " + "─" * 40)
+
+    all_rows = (
+        result["match"] + result["position_mismatch"] + result["bend_count_mismatch"]
+    )
+    if verbose and all_rows:
+        w_flow = 38
+        print(
+            f"    {'Flow GUID':<{w_flow}}  svg  saved  Verdict              Max Δ (overlap)"
+        )
+        for entry in sorted(all_rows, key=lambda e: e["flow_guid"]):
+            verdict = entry["verdict"]
+            ok_mark = "✓" if verdict == "match" else "✗"
+            deltas  = entry["deltas"]
+            max_seen = max(
+                (d["max_delta"] for d in deltas if d["max_delta"] is not None),
+                default=None,
+            )
+            d_str = f"{max_seen:.1f}" if max_seen is not None else "—"
+            print(
+                f"    {ok_mark} {entry['flow_guid']:<{w_flow - 2}}  "
+                f"{entry['svg_count']:>3}  {entry['saved_count']:>5}  "
+                f"{verdict:<20} {d_str}"
+            )
+            for d in deltas:
+                if d["saved"] is None:
+                    print(
+                        f"        [{d['index']}] svg={_fmt_pair(d['svg'])}  "
+                        f"saved=<not user-set>"
+                    )
+                else:
+                    print(
+                        f"        [{d['index']}] svg={_fmt_pair(d['svg'])}  "
+                        f"saved={_fmt_pair(d['saved'])}  Δ={_fmt_pair(d['delta'])}"
+                    )
+        if result["flow_only"]:
+            print("    Flows with no SVG edge:")
+            for e in result["flow_only"]:
+                print(f"      {e['flow_guid']}  handles={len(e['handles'])}")
+        if result["edge_only"]:
+            print("    SVG edges with no matching flow:")
+            for e in result["edge_only"]:
+                print(f"      [{e['index']}] {e['src_guid']} → {e['tgt_guid']}")
+
+    print(
+        f"    Summary: {summ['flows']} flows — "
+        f"{summ['match']} match, "
+        f"{summ['position_mismatch']} position-mismatch, "
+        f"{summ['bend_count_mismatch']} bend-count-mismatch, "
+        f"{summ['flow_only']} flow-only, {summ['edge_only']} edge-only"
+    )
+    verdict = "✓  PASS" if result["pass"] else "✗  FAIL"
+    print(f"    Verdict: {verdict}  (tolerance {tol} px)")
+    print()
+
+
 def print_report(
     results:      dict[str, Any],
     diagram_id:   str,
@@ -1056,6 +1416,8 @@ def print_report(
         _print_container_bounds(results["container_bounds"], verbose)
     if "edge_endpoints" in results:
         _print_edge_endpoints(results["edge_endpoints"], verbose)
+    if "bend_points" in results:
+        _print_bend_points(results["bend_points"], verbose)
 
     any_fail = any(not r["pass"] for r in results.values())
     if any_fail:
@@ -1128,6 +1490,9 @@ def run_all_checks(
     results["container_bounds"] = compare_container_bounds(svg_bounds, group_bounds, tolerance)
     results["edge_endpoints"]   = compare_edge_endpoints(
         flows, svg_edges, svg_positions, tolerance,
+    )
+    results["bend_points"]      = compare_bend_points(
+        flows, svg_edges, layout, tolerance,
     )
     return results
 
