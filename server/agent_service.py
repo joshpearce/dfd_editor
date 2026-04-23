@@ -26,7 +26,34 @@ BroadcastFn = Callable[[dict], bool]
 
 
 class WrongCollectionError(ValueError):
-    """Raised when a guid resolves to a different collection than expected."""
+    """Raised when a guid resolves to a different collection than the caller expected.
+
+    ``actual_collection`` carries the collection the guid actually lives in
+    so HTTP translators can surface it as a structured response field
+    without having to re-scan the diagram or parse ``str(exc)``.
+    """
+
+    def __init__(self, message: str, *, actual_collection: str) -> None:
+        super().__init__(message)
+        self.actual_collection = actual_collection
+
+
+def _require_collection(diagram: dict, guid: str, expected: str) -> None:
+    """Verify the element at ``guid`` lives in ``expected``; else raise.
+
+    Raises:
+      * ``core.ElementNotFoundError`` — guid not present in any collection.
+      * ``WrongCollectionError`` — guid present, but in a different collection.
+    """
+    found = core.find_element(diagram, guid)
+    if found is None:
+        raise core.ElementNotFoundError(f"element {guid!r} not found in diagram")
+    _elem, actual = found
+    if actual != expected:
+        raise WrongCollectionError(
+            f"element {guid!r} lives in {actual!r}, not {expected!r}",
+            actual_collection=actual,
+        )
 
 
 def _noop_broadcast(_envelope: dict) -> bool:
@@ -57,7 +84,7 @@ def list_summaries(
     diagram_id: str,
     collection: str,
     field_map: dict[str, str],
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Project each element of ``collection`` to a summary row.
 
     ``field_map`` maps output-key → source-path. A source-path is either
@@ -67,6 +94,8 @@ def list_summaries(
 
     Raises ``storage.DiagramNotFoundError`` if the id is unknown.
     Raises ``core.InvalidCollectionError`` if ``collection`` is not valid.
+
+    Returns a list of ``dict[str, Any]`` rows, one per element.
     """
     if not storage.diagram_exists(diagram_id):
         raise storage.DiagramNotFoundError(diagram_id)
@@ -75,7 +104,7 @@ def list_summaries(
             f"unknown collection {collection!r}; valid: {sorted(core.VALID_COLLECTIONS)}"
         )
     diagram = storage.load_minimal(diagram_id)
-    rows = []
+    rows: list[dict[str, Any]] = []
     for elem in diagram.get(collection, []):
         row: dict[str, Any] = {}
         for out_key, src in field_map.items():
@@ -174,17 +203,11 @@ def update_element(
     If ``expected_collection`` is given, raises ``WrongCollectionError`` when
     the guid resolves to a different collection, and ``core.ElementNotFoundError``
     when the guid is absent.
+    Raises ``WrongCollectionError`` when ``expected_collection`` is set and the guid is in a different collection.
     """
     diagram = storage.load_minimal(diagram_id)
     if expected_collection is not None:
-        found = core.find_element(diagram, guid)
-        if found is None:
-            raise core.ElementNotFoundError(f"element {guid!r} not found in diagram")
-        _elem, actual_collection = found
-        if actual_collection != expected_collection:
-            raise WrongCollectionError(
-                f"element {guid!r} lives in {actual_collection!r}, not {expected_collection!r}"
-            )
+        _require_collection(diagram, guid, expected_collection)
     core.update_element(diagram, guid, fields)
     storage.save_minimal(diagram_id, diagram)
     delivered = broadcast({"type": "diagram-updated", "payload": {"id": diagram_id}})
@@ -203,17 +226,11 @@ def delete_element(
     If ``expected_collection`` is given, raises ``WrongCollectionError`` when
     the guid resolves to a different collection, and ``core.ElementNotFoundError``
     when the guid is absent.
+    Raises ``WrongCollectionError`` when ``expected_collection`` is set and the guid is in a different collection.
     """
     diagram = storage.load_minimal(diagram_id)
     if expected_collection is not None:
-        found = core.find_element(diagram, guid)
-        if found is None:
-            raise core.ElementNotFoundError(f"element {guid!r} not found in diagram")
-        _elem, actual_collection = found
-        if actual_collection != expected_collection:
-            raise WrongCollectionError(
-                f"element {guid!r} lives in {actual_collection!r}, not {expected_collection!r}"
-            )
+        _require_collection(diagram, guid, expected_collection)
     diagram, collection, cascade_removed = core.delete_element(diagram, guid)
     storage.save_minimal(diagram_id, diagram)
     delivered = broadcast({"type": "diagram-updated", "payload": {"id": diagram_id}})

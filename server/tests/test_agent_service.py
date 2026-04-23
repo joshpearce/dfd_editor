@@ -23,6 +23,8 @@ _PROCESS_GUID = "11111111-0000-0000-0000-000000000001"
 _STORE_GUID = "33333333-0000-0000-0000-000000000003"
 _FLOW_GUID = "66666666-0000-0000-0000-000000000006"
 _NEW_NODE_GUID = "aaaaaaaa-0000-0000-0000-000000000001"
+_CONTAINER_GUID = "cccccccc-0000-0000-0000-000000000001"
+_DATA_ITEM_GUID = "dddddddd-0000-0000-0000-000000000001"
 
 
 _MINIMAL_DOC: dict[str, Any] = {
@@ -240,10 +242,6 @@ class TestGetSchema:
         assert "nodes" in schema["properties"]
 
 
-_CONTAINER_GUID = "cccccccc-0000-0000-0000-000000000001"
-_DATA_ITEM_GUID = "dddddddd-0000-0000-0000-000000000001"
-
-
 class TestListSummaries:
     def test_nodes_projection(self, tmp_storage):
         created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
@@ -293,8 +291,9 @@ class TestListSummaries:
         row = rows[0]
         assert row["guid"] == _FLOW_GUID
         assert row["name"] == "F"
-        # schema canonicalizes endpoints so node1 < node2 lexicographically
-        assert {row["node1"], row["node2"]} == {_PROCESS_GUID, _STORE_GUID}
+        # schema canonicalizes endpoints so node1 < node2 lexicographically;
+        # _PROCESS_GUID ("11111111-...") < _STORE_GUID ("33333333-...") so order is deterministic
+        assert row["node1"] == _PROCESS_GUID and row["node2"] == _STORE_GUID
 
     def test_data_items_projection(self, tmp_storage):
         doc = {
@@ -364,10 +363,7 @@ class TestUpdateElementExpectedCollection:
                 expected_collection="data_flows",
             )
         assert spy.envelopes == []
-        # error message must name both the actual and expected collections
-        msg = str(exc_info.value)
-        assert "nodes" in msg
-        assert "data_flows" in msg
+        assert exc_info.value.actual_collection == "nodes"
         # confirm no partial write occurred
         fetched = agent_service.get_diagram(created["id"])
         node = next(n for n in fetched["nodes"] if n["guid"] == _PROCESS_GUID)
@@ -394,16 +390,19 @@ class TestDeleteElementExpectedCollection:
         )
         assert result["deleted_collection"] == "data_flows"
         assert result["broadcast_delivered"] is True
+        fetched = agent_service.get_diagram(created["id"])
+        assert not any(f["guid"] == _FLOW_GUID for f in fetched.get("data_flows", []))
 
     def test_wrong_collection_raises_and_does_not_broadcast(self, tmp_storage):
         created = agent_service.create_diagram(copy.deepcopy(_MINIMAL_DOC))
         spy = _Spy()
-        with pytest.raises(agent_service.WrongCollectionError):
+        with pytest.raises(agent_service.WrongCollectionError) as exc_info:
             agent_service.delete_element(
                 created["id"], _PROCESS_GUID, spy,
                 expected_collection="data_flows",
             )
         assert spy.envelopes == []
+        assert exc_info.value.actual_collection == "nodes"
         # confirm the node was not removed (no partial write)
         fetched = agent_service.get_diagram(created["id"])
         assert any(n["guid"] == _PROCESS_GUID for n in fetched["nodes"])
