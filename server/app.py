@@ -143,6 +143,26 @@ def import_diagram():
     return jsonify({"id": diagram_id}), 201
 
 
+@app.route("/api/diagrams/import-and-display", methods=["POST"])
+def import_and_display():
+    """Import a minimal-format doc, persist it, then broadcast a display event.
+
+    Combines ``POST /api/diagrams/import`` + ``POST /api/internal/broadcast``
+    in one round-trip so scripted callers (e.g. scripts/compare_layout.py)
+    don't have to manage two sequential requests.
+
+    Returns ``{id, broadcast_delivered}`` with HTTP 201 on success.
+    Validation failures return the same 400 shapes as ``import_diagram``.
+    """
+    native, err = _to_native_or_error(request.get_json(silent=True))
+    if err is not None:
+        return err
+    diagram_id = str(uuid.uuid4())
+    (DATA_DIR / f"{diagram_id}.json").write_text(json.dumps(native, indent=4))
+    broadcast({"type": "display", "payload": {"id": diagram_id}})
+    return jsonify({"id": diagram_id, "broadcast_delivered": True}), 201
+
+
 @app.route("/api/diagrams/<diagram_id>/export", methods=["GET"])
 def export_diagram(diagram_id):
     path = DATA_DIR / f"{diagram_id}.json"
