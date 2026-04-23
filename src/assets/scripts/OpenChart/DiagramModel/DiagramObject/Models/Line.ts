@@ -232,7 +232,10 @@ export class Line extends DiagramObject {
      *  (Default: `false`)
      */
     public dropHandles(i: number, update: boolean = false) {
-        for (; i < this._handles.length; i++) {
+        // `deleteHandle` splices the handle out, so the next iteration
+        // must read from the same index (not `i + 1`) — otherwise every
+        // other handle in the trailing slice would be skipped.
+        while (i < this._handles.length) {
             this.deleteHandle(this._handles[i], update);
         }
     }
