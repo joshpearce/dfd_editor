@@ -258,8 +258,12 @@ def layout():
     if not isinstance(source, str):
         return jsonify({"error": "source must be a string"}), 400
     try:
+        # Engine is selected via the $D2_LAYOUT env var (D2's own convention).
+        # package.json's `dev:flask` sets D2_LAYOUT=tala; override from the
+        # shell to sweep engines (`D2_LAYOUT=dagre npm run dev:flask`) or
+        # seeds without editing this file.
         result = subprocess.run(
-            ["d2", "--layout=tala", "-", "-"],
+            ["d2", "-", "-"],
             input=source,
             capture_output=True,
             text=True,

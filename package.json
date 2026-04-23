@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:flask": "cd server && .venv/bin/flask --app app run --debug --port 5050",
+    "dev:flask": "cd server && D2_LAYOUT=tala .venv/bin/flask --app app run --debug --port 5050",
     "dev:mcp": "cd server && .venv/bin/python -m mcp_server",
     "dev:all": "concurrently --names 'vite,flask,mcp' --prefix-colors 'cyan,yellow,magenta' 'npm run dev' 'npm run dev:flask' 'npm run dev:mcp'",
     "build": "run-p type-check \"build-only {@}\" --",

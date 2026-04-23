@@ -29,8 +29,12 @@ surface.)
     minimal doc as JSON. 404 if missing; 500 if the stored file is not a valid
     `dfd_v1` document.
   - `POST /api/layout` — accepts `{"source": "<d2 text>"}`, shells
-    `d2 --layout=tala` via stdin, returns `{"svg": ...}` on 200 or
-    `{"error": ...}` on 400 (bad input) / 502 (d2 absent or non-zero exit)
+    `d2` via stdin, returns `{"svg": ...}` on 200 or `{"error": ...}` on 400
+    (bad input) / 502 (d2 absent or non-zero exit). The engine is selected
+    via the `$D2_LAYOUT` env var (D2's own convention); `npm run dev:flask`
+    sets `D2_LAYOUT=tala`. Override from the shell
+    (`D2_LAYOUT=dagre npm run dev:flask`) to sweep engines without editing
+    code.
 - **Port** — 5050 (set by `npm run dev:flask` in root `package.json`, NOT in
   `app.py`). Flask's own default of 5000 is not used here.
 - **CORS** — locked to `http://localhost:5173` (the Vite dev server). The
