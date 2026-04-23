@@ -9,7 +9,7 @@
 
 import { ThemeLoader, DarkStyle } from "@OpenChart/ThemeLoader";
 import {
-    Alignment, DiagramObjectViewFactory, FaceType
+    Alignment, DiagramObjectViewFactory, FaceType, Orientation
 } from "@OpenChart/DiagramView";
 import { DfdCanvas, DfdObjects, BaseTemplates } from "@/assets/configuration/DfdTemplates";
 import type { DiagramThemeConfiguration } from "@OpenChart/ThemeLoader";
@@ -74,12 +74,12 @@ export const linesTestTheme: DiagramThemeConfiguration = {
         },
         horizontal_anchor: {
             type: FaceType.AnchorPoint,
-            attributes: 0,
+            attributes: Orientation.D0,
             style: DarkStyle.Point()
         },
         vertical_anchor: {
             type: FaceType.AnchorPoint,
-            attributes: 0,
+            attributes: Orientation.D90,
             style: DarkStyle.Point()
         },
         generic_latch: {
