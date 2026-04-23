@@ -62,6 +62,7 @@ from mcp_server import (
     get_diagram,
     list_diagrams,
     mcp,
+    reparent_element,
     update_diagram,
     update_element,
 )
@@ -310,6 +311,7 @@ class TestToolsEnumeration:
             "add_element",
             "update_element",
             "delete_element",
+            "reparent_element",
         }
 
 
@@ -1537,3 +1539,204 @@ class TestDeleteElement:
         # Nodes that were children of the deleted container survive (become top-level).
         node_guids = {n["guid"] for n in fetched["nodes"]}
         assert _DEL_PROCESS_GUID in node_guids
+
+
+# ---------------------------------------------------------------------------
+# reparent_element — move element into a different container or to top-level
+# ---------------------------------------------------------------------------
+
+_RP_NODE_GUID = "aaaa0000-0000-0000-0000-000000000001"
+_RP_NODE2_GUID = "aaaa0000-0000-0000-0000-000000000002"
+_RP_CONTAINER_A_GUID = "bbbb0000-0000-0000-0000-000000000001"
+_RP_CONTAINER_B_GUID = "bbbb0000-0000-0000-0000-000000000002"
+_RP_CONTAINER_C_GUID = "bbbb0000-0000-0000-0000-000000000003"
+
+
+def _make_reparent_diagram() -> dict:
+    """Diagram fixture: two nodes, two containers.
+
+    Layout:
+      Container A  children: [_RP_NODE_GUID, _RP_CONTAINER_C_GUID]
+        Container C  children: []
+      Container B  children: [_RP_NODE2_GUID]
+    """
+    return {
+        "meta": {"name": "reparent test"},
+        "nodes": [
+            {"type": "process", "guid": _RP_NODE_GUID, "properties": {"name": "N1"}},
+            {"type": "process", "guid": _RP_NODE2_GUID, "properties": {"name": "N2"}},
+        ],
+        "containers": [
+            {
+                "type": "trust_boundary",
+                "guid": _RP_CONTAINER_A_GUID,
+                "properties": {"name": "A"},
+                "children": [_RP_NODE_GUID, _RP_CONTAINER_C_GUID],
+            },
+            {
+                "type": "trust_boundary",
+                "guid": _RP_CONTAINER_B_GUID,
+                "properties": {"name": "B"},
+                "children": [_RP_NODE2_GUID],
+            },
+            {
+                "type": "trust_boundary",
+                "guid": _RP_CONTAINER_C_GUID,
+                "properties": {"name": "C"},
+                "children": [],
+            },
+        ],
+        "data_flows": [],
+        "data_items": [],
+    }
+
+
+class TestReparentElement:
+    def _seed(self, live_server) -> str:
+        """Seed the reparent fixture into the live server and return diagram_id."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        result = create_diagram(diagram=_make_reparent_diagram(), ctx=_ctx())
+        return result["id"]
+
+    def test_move_node_between_containers(self, live_server):
+        """Move a node from container A into container B."""
+        diagram_id = self._seed(live_server)
+        result = reparent_element(
+            diagram_id=diagram_id,
+            guid=_RP_NODE_GUID,
+            new_parent_guid=_RP_CONTAINER_B_GUID,
+            ctx=_ctx(),
+        )
+
+        assert result["guid"] == _RP_NODE_GUID
+        assert result["old_parent_guid"] == _RP_CONTAINER_A_GUID
+        assert result["new_parent_guid"] == _RP_CONTAINER_B_GUID
+        assert "broadcast_delivered" in result
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        containers_by_guid = {c["guid"]: c for c in fetched["containers"]}
+        assert _RP_NODE_GUID not in containers_by_guid[_RP_CONTAINER_A_GUID]["children"]
+        assert _RP_NODE_GUID in containers_by_guid[_RP_CONTAINER_B_GUID]["children"]
+
+    def test_move_node_to_top_level(self, live_server):
+        """Move a node out of its container (new_parent_guid=None)."""
+        diagram_id = self._seed(live_server)
+        result = reparent_element(
+            diagram_id=diagram_id,
+            guid=_RP_NODE_GUID,
+            new_parent_guid=None,
+            ctx=_ctx(),
+        )
+
+        assert result["old_parent_guid"] == _RP_CONTAINER_A_GUID
+        assert result["new_parent_guid"] is None
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        containers_by_guid = {c["guid"]: c for c in fetched["containers"]}
+        assert _RP_NODE_GUID not in containers_by_guid[_RP_CONTAINER_A_GUID]["children"]
+
+    def test_move_top_level_node_into_container(self, live_server):
+        """Moving a node that is already top-level (old_parent=None) works."""
+        # First move the node to top-level so it has no parent.
+        diagram_id = self._seed(live_server)
+        reparent_element(
+            diagram_id=diagram_id,
+            guid=_RP_NODE_GUID,
+            new_parent_guid=None,
+            ctx=_ctx(),
+        )
+        result = reparent_element(
+            diagram_id=diagram_id,
+            guid=_RP_NODE_GUID,
+            new_parent_guid=_RP_CONTAINER_B_GUID,
+            ctx=_ctx(),
+        )
+
+        assert result["old_parent_guid"] is None
+        assert result["new_parent_guid"] == _RP_CONTAINER_B_GUID
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        containers_by_guid = {c["guid"]: c for c in fetched["containers"]}
+        assert _RP_NODE_GUID in containers_by_guid[_RP_CONTAINER_B_GUID]["children"]
+
+    def test_move_container_into_sibling(self, live_server):
+        """Move container C (child of A) into container B."""
+        diagram_id = self._seed(live_server)
+        result = reparent_element(
+            diagram_id=diagram_id,
+            guid=_RP_CONTAINER_C_GUID,
+            new_parent_guid=_RP_CONTAINER_B_GUID,
+            ctx=_ctx(),
+        )
+
+        assert result["old_parent_guid"] == _RP_CONTAINER_A_GUID
+        assert result["new_parent_guid"] == _RP_CONTAINER_B_GUID
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        containers_by_guid = {c["guid"]: c for c in fetched["containers"]}
+        assert _RP_CONTAINER_C_GUID not in containers_by_guid[_RP_CONTAINER_A_GUID]["children"]
+        assert _RP_CONTAINER_C_GUID in containers_by_guid[_RP_CONTAINER_B_GUID]["children"]
+
+    def test_cycle_detection_raises(self, live_server):
+        """Moving container A into its own descendant C raises ValueError."""
+        diagram_id = self._seed(live_server)
+        with pytest.raises(ValueError, match="cycle"):
+            reparent_element(
+                diagram_id=diagram_id,
+                guid=_RP_CONTAINER_A_GUID,
+                new_parent_guid=_RP_CONTAINER_C_GUID,
+                ctx=_ctx(),
+            )
+
+    def test_cycle_detection_self_raises(self, live_server):
+        """Moving a container into itself raises ValueError."""
+        diagram_id = self._seed(live_server)
+        with pytest.raises(ValueError, match="cycle"):
+            reparent_element(
+                diagram_id=diagram_id,
+                guid=_RP_CONTAINER_A_GUID,
+                new_parent_guid=_RP_CONTAINER_A_GUID,
+                ctx=_ctx(),
+            )
+
+    def test_unknown_guid_raises(self, live_server):
+        """An unknown element guid raises ValueError."""
+        diagram_id = self._seed(live_server)
+        with pytest.raises(ValueError, match="not found in nodes or containers"):
+            reparent_element(
+                diagram_id=diagram_id,
+                guid="00000000-dead-dead-dead-000000000000",
+                new_parent_guid=None,
+                ctx=_ctx(),
+            )
+
+    def test_unknown_target_container_raises(self, live_server):
+        """An unknown new_parent_guid raises ValueError."""
+        diagram_id = self._seed(live_server)
+        with pytest.raises(ValueError, match="not found in containers"):
+            reparent_element(
+                diagram_id=diagram_id,
+                guid=_RP_NODE_GUID,
+                new_parent_guid="00000000-dead-dead-dead-000000000000",
+                ctx=_ctx(),
+            )
+
+    def test_broadcast_emitted(self, live_server):
+        """reparent_element emits a diagram-updated broadcast."""
+        tmp_path, port = live_server
+        diagram_id = self._seed(live_server)
+
+        ws = simple_websocket.Client(f"ws://127.0.0.1:{port}/ws")
+        try:
+            reparent_element(
+                diagram_id=diagram_id,
+                guid=_RP_NODE_GUID,
+                new_parent_guid=None,
+                ctx=_ctx(),
+            )
+            msg = json.loads(ws.receive(timeout=3))
+            assert msg["type"] == "diagram-updated"
+            assert msg["payload"]["id"] == diagram_id
+        finally:
+            ws.close()

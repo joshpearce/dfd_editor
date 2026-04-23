@@ -610,6 +610,117 @@ def delete_element(diagram_id: str, guid: str, ctx: Context) -> dict:
     }
 
 
+def _container_descendants(diagram: dict, container_guid: str) -> set[str]:
+    """Return the set of container guids reachable from container_guid (inclusive).
+
+    Uses BFS over container children so that a cycle in the input data
+    (which should not exist after validation but is possible in partially-
+    constructed state) does not cause infinite recursion.
+    """
+    visited: set[str] = set()
+    queue = [str(container_guid)]
+    while queue:
+        cg = queue.pop()
+        if cg in visited:
+            continue
+        for c in diagram.get("containers", []):
+            if str(c["guid"]) == cg:
+                visited.add(cg)
+                for child in c.get("children", []):
+                    queue.append(str(child))
+    return visited
+
+
+@mcp.tool()
+def reparent_element(
+    diagram_id: str,
+    guid: str,
+    new_parent_guid: str | None,
+    ctx: Context,
+) -> dict:
+    """Move an element into a different container (or to top-level).
+
+    Only nodes and containers can be reparented. Data flows and data items
+    do not participate in the container hierarchy and cannot be moved this
+    way — update their ``parent`` / endpoint fields via ``update_element``
+    instead.
+
+    ``new_parent_guid=null`` removes the element from its current container
+    and leaves it at the top level (not inside any container).
+
+    If ``new_parent_guid`` is provided it must identify an existing container.
+    If the element being moved is itself a container, a cycle check is run
+    first: the new parent must not be a descendant of the element being moved
+    (including the element itself). Moving a container into one of its own
+    descendants would create a containment cycle that violates the schema
+    invariant. ``ValueError("reparenting would create a cycle")`` is raised
+    if a cycle is detected.
+
+    Returns ``{guid, old_parent_guid, new_parent_guid, broadcast_delivered}``.
+    ``old_parent_guid`` is the guid of the container that previously held the
+    element, or None if it was already at top-level.
+    """
+    _stamp(ctx)
+    diagram = _fetch_minimal(diagram_id)
+
+    # Validate the element exists in nodes or containers.
+    found_in_nodes = any(
+        str(e.get("guid")) == str(guid) for e in diagram.get("nodes", [])
+    )
+    found_in_containers = any(
+        str(e.get("guid")) == str(guid) for e in diagram.get("containers", [])
+    )
+    if not found_in_nodes and not found_in_containers:
+        raise ValueError(f"element {guid!r} not found in nodes or containers")
+
+    # Find the current parent by scanning container children lists.
+    old_parent_guid: str | None = None
+    for container in diagram.get("containers", []):
+        if any(str(child) == str(guid) for child in container.get("children", [])):
+            old_parent_guid = str(container["guid"])
+            break
+
+    # Validate the target container and check for cycles.
+    if new_parent_guid is not None:
+        target_exists = any(
+            str(c.get("guid")) == str(new_parent_guid)
+            for c in diagram.get("containers", [])
+        )
+        if not target_exists:
+            raise ValueError(
+                f"target container {new_parent_guid!r} not found in containers"
+            )
+        if found_in_containers:
+            descendants = _container_descendants(diagram, guid)
+            if str(new_parent_guid) in descendants:
+                raise ValueError("reparenting would create a cycle")
+
+    # Remove from old parent's children list.
+    if old_parent_guid is not None:
+        for container in diagram.get("containers", []):
+            if str(container["guid"]) == old_parent_guid:
+                container["children"] = [
+                    c for c in container.get("children", [])
+                    if str(c) != str(guid)
+                ]
+                break
+
+    # Append to the new parent's children list.
+    if new_parent_guid is not None:
+        for container in diagram.get("containers", []):
+            if str(container["guid"]) == str(new_parent_guid):
+                container.setdefault("children", []).append(str(guid))
+                break
+
+    broadcast_delivered = _save_minimal(diagram_id, diagram)
+    return {
+        "guid": guid,
+        "old_parent_guid": old_parent_guid,
+        "new_parent_guid": new_parent_guid,
+        "broadcast_delivered": broadcast_delivered,
+    }
+
+
 @mcp.tool()
 def add_element(
     diagram_id: str,
