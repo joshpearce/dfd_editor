@@ -1,7 +1,3 @@
-// Handle positions originate from TALA's `parseFloat`'d SVG vertices; snap
-// equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
-const AXIS_EPSILON = 1e-6;
-
 import { LineFace } from "../Bases";
 import { findUnlinkedObjectAt } from "../../ViewLocators";
 import {
@@ -19,6 +15,10 @@ import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
 import type { DiagramObjectView } from "../../Views";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
+
+// Handle positions originate from TALA's `parseFloat`'d SVG vertices; snap
+// equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
+const AXIS_EPSILON = 1e-6;
 
 /**
  * A {@link LineFace} that renders an arbitrary-vertex polyline whose interior
