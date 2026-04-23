@@ -93,6 +93,111 @@ describe("PolyLine", () => {
         expect(face.hitboxes.length).toBe(3);
     });
 
+    it("dragging an interior handle moves only that handle's contribution to the polyline", async () => {
+        // Capture the layout, drag handle[1] (the middle interior handle),
+        // and verify only handle[1]'s coordinates change in the points
+        // list while handles[0] / handles[2] / latches stay put.  This
+        // is the user-facing interaction from the design doc — every
+        // bend remains independently addressable.
+        const line = await createPolyLineWithHandles([
+            [100, 50],
+            [200, 100],
+            [300, 50]
+        ]);
+        const face = line.face as unknown as GenericLineInternalState;
+
+        const beforeH0 = [line.handles[0].x, line.handles[0].y];
+        const beforeH2 = [line.handles[2].x, line.handles[2].y];
+        const beforeNode1 = [line.node1.x, line.node1.y];
+        const beforeNode2 = [line.node2.x, line.node2.y];
+
+        (line.handles[1] as HandleView).moveTo(220, 180);
+
+        // Moved handle reflects its new coordinate.
+        expect(line.handles[1].x).toBe(220);
+        expect(line.handles[1].y).toBe(180);
+        // Other handles and latches are untouched.
+        expect([line.handles[0].x, line.handles[0].y]).toEqual(beforeH0);
+        expect([line.handles[2].x, line.handles[2].y]).toEqual(beforeH2);
+        expect([line.node1.x, line.node1.y]).toEqual(beforeNode1);
+        expect([line.node2.x, line.node2.y]).toEqual(beforeNode2);
+
+        // Layout rebuilt with the moved handle slotted into the points list.
+        expect(face.points[2]).toBe(line.handles[1]);
+        expect(face.points.length).toBe(5);
+        expect(face.hitboxes.length).toBe(4);
+    });
+
+    it("dragging a latch endpoint leaves interior handles in place", async () => {
+        // The complement of the previous test: moving an endpoint must
+        // not perturb interior handle coordinates.  PolyLine reads the
+        // handles' own positions, so endpoint motion only changes the
+        // first/last segment of the polyline.
+        const line = await createPolyLineWithHandles([
+            [100, 50],
+            [200, 100],
+            [300, 50]
+        ]);
+
+        const beforeHandles = line.handles.map(h => [h.x, h.y]);
+
+        line.node2.moveTo(450, 75);
+
+        expect(line.node2.x).toBe(450);
+        expect(line.node2.y).toBe(75);
+        const afterHandles = line.handles.map(h => [h.x, h.y]);
+        expect(afterHandles).toEqual(beforeHandles);
+    });
+
+    it("moveBy translates every handle and unlinked latch by the same delta", async () => {
+        // LineFace.moveBy sweeps every handle and any unlinked latch.
+        // PolyLine inherits this behavior unchanged from DynamicLine,
+        // but the test pins it down in case a future PolyLine override
+        // forgets to translate a vertex.
+        const line = await createPolyLineWithHandles([
+            [100, 50],
+            [200, 100],
+            [300, 50]
+        ]);
+
+        const beforeHandles = line.handles.map(h => [h.x, h.y]);
+        const beforeNode1 = [line.node1.x, line.node1.y];
+        const beforeNode2 = [line.node2.x, line.node2.y];
+
+        line.moveBy(40, 30);
+
+        for (let i = 0; i < line.handles.length; i++) {
+            expect(line.handles[i].x).toBe(beforeHandles[i][0] + 40);
+            expect(line.handles[i].y).toBe(beforeHandles[i][1] + 30);
+        }
+        // Latches are unlinked in this fixture, so they translate too.
+        expect(line.node1.x).toBe(beforeNode1[0] + 40);
+        expect(line.node1.y).toBe(beforeNode1[1] + 30);
+        expect(line.node2.x).toBe(beforeNode2[0] + 40);
+        expect(line.node2.y).toBe(beforeNode2[1] + 30);
+    });
+
+    it("calculateLayout survives an unlinked endpoint without throwing or losing handles", async () => {
+        // Approximates the "delete the source block" reparent path: a
+        // line whose latch was previously linked to a block anchor ends
+        // up with `latch.anchor === null`.  PolyLine.calculateLayout
+        // (and the underlying LineFace.isAnchored guard) must handle
+        // this without crashing or discarding interior handles.
+        const line = await createPolyLineWithHandles([
+            [100, 50],
+            [200, 100],
+            [300, 50]
+        ]);
+        // Sanity: latches are unlinked in this fixture, so calculateLayout
+        // already runs through the unlinked path.  Re-running it after a
+        // hypothetical reparent must remain stable.
+        const beforeHandleCount = line.handles.length;
+
+        expect(() => line.calculateLayout()).not.toThrow();
+        expect(line.handles.length).toBe(beforeHandleCount);
+        expect(line.face).toBeInstanceOf(PolyLine);
+    });
+
     it("clone: returns a new PolyLine carrying the same style/grid", async () => {
         const line = await createPolyLineWithHandles([
             [100, 50],
