@@ -17,11 +17,11 @@
 // Environment shims (vi.stubGlobal window; see file for rationale on vi.mock).
 import "./PowerEditPlugin.testing.setup";
 
-import { DiagramViewFile, BlockView, CanvasView, GroupView, LatchView, LineView } from "@OpenChart/DiagramView";
+import { DiagramViewFile, BlockView, CanvasView, GroupView, LatchView, LineView, PolyLineSpanView } from "@OpenChart/DiagramView";
 import { DiagramViewEditor } from "../../DiagramViewEditor";
 import { PowerEditPlugin } from "./PowerEditPlugin";
 import { SubjectTrack } from "@OpenChart/DiagramInterface";
-import { BlockMover, GenericMover, GroupMover, LatchMover } from "./ObjectMovers";
+import { BlockMover, GenericMover, GroupMover, LatchMover, PolyLineSpanMover } from "./ObjectMovers";
 import { makeEmptyCanvas } from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 import type { DiagramObjectView, HitTarget } from "@OpenChart/DiagramView";
@@ -224,6 +224,29 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
         return (execute) => this.dispatchHandle(execute, obj, event);
     }
 
+    /**
+     * Calls the production {@link handleSpan} from a test so that span-dispatch
+     * tests can assert the correct mover type without coupling to the private
+     * implementation.
+     *
+     * `handleSpan` is `protected` in production so this subclass can reach it.
+     * The `event` parameter is used by `handleSpan` when calling `this.select`,
+     * so a stub `MouseEvent` is sufficient for tests that only assert the
+     * returned mover type.
+     *
+     * @param execute - The command executor for this drag session.
+     * @param span    - The span to dispatch.
+     * @param event   - Mouse event stub (passed through to `this.select`).
+     * @returns The constructed {@link PolyLineSpanMover}.
+     */
+    public dispatchSpan(
+        execute: CommandExecutor,
+        span: PolyLineSpanView,
+        event: MouseEvent = { ctrlKey: false, altKey: false, shiftKey: false, metaKey: false } as MouseEvent
+    ): PolyLineSpanMover {
+        return this.handleSpan(execute, span, event) as PolyLineSpanMover;
+    }
+
 }
 
 
@@ -264,7 +287,7 @@ export function createTestableEditor(
     const settings = {
         factory,
         lineTemplate      : DEFAULT_LINE_TEMPLATE,
-        multiselectHotkey : "ctrl"
+        multiselectHotkey : "control"
     } satisfies PowerEditPluginSettings;
     const plugin = new TestablePowerEditPlugin(editor, settings);
 

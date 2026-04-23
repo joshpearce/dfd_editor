@@ -20,6 +20,14 @@ import type { GenericLineInternalState } from "./GenericLineInternalState";
 // equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
 const AXIS_EPSILON = 1e-6;
 
+// Radius used for the handle-dot dead-zone fix in getObjectAt.
+// Source of truth: HandlePoint.getObjectAt uses `r * r` where `r = this.style.radius`,
+// taken from the theme's PointStyle (default 6 in both Dark and Light builtin
+// designs — ThemeLoader/Styles/BuiltinDesigns.ts).  Mirrored here without
+// importing HandlePoint to avoid a cross-layer dependency.
+const HANDLE_DOT_RADIUS = 6;
+const HANDLE_DOT_RADIUS_SQ = HANDLE_DOT_RADIUS * HANDLE_DOT_RADIUS;
+
 /**
  * A {@link LineFace} that renders an arbitrary-vertex polyline whose interior
  * vertices each correspond to a real, stored, user-draggable handle.
@@ -50,6 +58,13 @@ export class PolyLine extends LineFace {
     private arrowAtNode2: number[] | null;
     private hitboxes: number[][];
     private spans: PolyLineSpanView[];
+    /**
+     * Cached two-element array of the end latches, used by {@link getObjectAt}
+     * to avoid a new allocation on every hit-test call.  Populated in
+     * {@link calculateLayout}; mirrors how `this.points`, `this.hitboxes`, and
+     * `this.spans` are already cached.
+     */
+    private latchEndpoints: DiagramObjectView[];
 
     constructor(style: LineStyle, grid: [number, number]) {
         super();
@@ -61,6 +76,7 @@ export class PolyLine extends LineFace {
         this.arrowAtNode2 = null;
         this.hitboxes = [];
         this.spans = [];
+        this.latchEndpoints = [];
     }
 
     /**
@@ -92,11 +108,38 @@ export class PolyLine extends LineFace {
     public getObjectAt(x: number, y: number): HitTarget | undefined {
         // Only test the two end latches — interior handle dots are rendered but
         // are not drag targets (point-drag is disabled for PolyLine).
-        const obj = findUnlinkedObjectAt([this.view.node1, this.view.node2], x, y);
+        const obj = findUnlinkedObjectAt(this.latchEndpoints, x, y);
         if (obj) {
             return obj;
         }
         if (this.isAnchored()) {
+            // Dead-zone fix: clicks within the visible handle-dot radius of an
+            // interior handle resolve to an adjacent span, not to undefined.
+            // Strict-inequality hitboxes leave a ~1px gap at each H/V corner
+            // that sits inside the visible dot area; catch those here before the
+            // main hitbox scan.
+            //
+            // Radius source: HandlePoint.getObjectAt uses `r * r` where `r` is
+            // `this.style.radius`, which comes from the theme's PointStyle
+            // (default 6 in both Dark and Light builtin designs — see
+            // ThemeLoader/Styles/BuiltinDesigns.ts).  We mirror that value with
+            // a local constant rather than importing the style (no cross-layer
+            // dependency).
+            for (let h = 0; h < this.view.handles.length; h++) {
+                const handle = this.view.handles[h];
+                const dx = x - handle.x;
+                const dy = y - handle.y;
+                if (dx * dx + dy * dy <= HANDLE_DOT_RADIUS_SQ) {
+                    // Prefer the span whose handleB === handle (the segment
+                    // ending at this handle), falling back to the span starting
+                    // at it.  Deterministic: iteration order reads forward.
+                    const span =
+                        this.spans.find(s => s.handleB === handle) ??
+                        this.spans.find(s => s.handleA === handle);
+                    if (span) { return span; }
+                }
+            }
+
             for (let i = 0; i < this.hitboxes.length; i++) {
                 if (!isInsideRegion(x, y, this.hitboxes[i])) {
                     continue;
@@ -113,7 +156,15 @@ export class PolyLine extends LineFace {
                     const span = this.spans.find(
                         s => s.handleA === handleA && s.handleB === handleB
                     );
-                    return span ?? this.view;
+                    if (span) {
+                        return span;
+                    }
+                    console.warn(
+                        "PolyLine.getObjectAt: interior hitbox has no matching span " +
+                        "(classifier skipped a diagonal segment?)",
+                        { handleA, handleB }
+                    );
+                    return this.view;
                 } else {
                     return this.view;
                 }
@@ -141,6 +192,9 @@ export class PolyLine extends LineFace {
         }
 
         this.points = [src, ...handles, trg];
+        // Cache the two end latches so getObjectAt can reuse the same array
+        // instead of allocating [node1, node2] on every hit-test call.
+        this.latchEndpoints = [src, trg];
         const vertices = this.points.flatMap(p => [p.x, p.y]);
 
         runMultiElbowLayout(this.view, this as unknown as GenericLineInternalState, vertices);

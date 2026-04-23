@@ -457,26 +457,27 @@ describe("PolyLine", () => {
 
         it("interior-handle-dot coordinates resolve to the span beneath, not the handle", async () => {
             // Interior handle dots are not drag targets (Step 3 design
-            // decision). A click at a coordinate inside an interior hitbox
-            // that is also near a handle dot position must return the span,
-            // not a HandleView.
+            // decision). A click at the exact coordinate of an interior
+            // handle must return the adjacent span, not a HandleView.
             //
-            // handles[1] is at (200, 50), the H/V corner.  The strict-
-            // inequality hitbox check (`minX < x < maxX, minY < y < maxY`)
-            // means the exact corner point sits outside both hitboxes, so
-            // we use (199, 50) — one pixel inside the H span hitbox and at
-            // the same y as the handle dot — to demonstrate that the handle
-            // is bypassed.
+            // handles[1] is at (200, 50), the H/V corner.  Without the
+            // dead-zone fix the strict-inequality hitbox check
+            // (`minX < x < maxX`) excludes x=200 from both adjacent hitboxes,
+            // leaving a dead zone.  The dead-zone fix in getObjectAt catches
+            // clicks within the handle's visible dot radius (6 px) and resolves
+            // them to the flanking span, so exact-coord clicks now work.
             const { line, spans } = await createAnchoredFixture();
 
-            // (199, 50) is inside the H span hitbox (minX=100 maxX=200, minY=40 maxY=60).
-            const hit = line.face.getObjectAt(199, 50);
+            // (200, 50) is the exact coordinate of handles[1] — previously a
+            // dead zone, now resolved to the H span by the dead-zone fix.
+            const hit = line.face.getObjectAt(200, 50);
             expect(hit).toBeInstanceOf(PolyLineSpanView);
-            // Must be a span (H), not a handle.
+            // Must be a span, not a handle.  The dead-zone fix prefers the span
+            // whose handleB === handles[1], which is spans[0] (the H span).
             expect(hit).toBe(spans[0]);
         });
 
-        it("end-segment hitbox returns the line view (unchanged)", async () => {
+        it("end-segment hitbox returns the line view (unanchored)", async () => {
             // End hitboxes (the first and last segments connecting the
             // latches to the outermost interior handles) still return the
             // LineView, matching DynamicLine parity.  This test uses an
@@ -502,6 +503,24 @@ describe("PolyLine", () => {
 
             // hitboxes[3]: end segment h2(200,150)→node2(400,400).
             // Midpoint (300, 275) is well inside the tail end hitbox.
+            const hitEnd = line.face.getObjectAt(300, 275);
+            expect(hitEnd).toBe(line);
+        });
+
+        it("end-segment hitbox returns the line view (anchored)", async () => {
+            // Companion to the unanchored test: verify the anchored branch of
+            // getObjectAt (isAnchored() === true) also returns the LineView for
+            // end-segment clicks, not a PolyLineSpanView.
+            const { line } = await createAnchoredFixture();
+
+            // hitboxes[0]: end segment node1(0,0)→h0(100,50).
+            // node1 is linked (anchored), so the anchored branch of getObjectAt runs.
+            // Midpoint (50, 25) must return the line view.
+            const hitStart = line.face.getObjectAt(50, 25);
+            expect(hitStart).toBe(line);
+
+            // hitboxes[3]: end segment h2(200,150)→node2(400,400).
+            // Midpoint (300, 275) must also return the line view.
             const hitEnd = line.face.getObjectAt(300, 275);
             expect(hitEnd).toBe(line);
         });

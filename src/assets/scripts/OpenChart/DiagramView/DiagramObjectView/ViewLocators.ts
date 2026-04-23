@@ -1,4 +1,5 @@
 import { LatchView } from "./Views";
+import { PolyLineSpanView } from "./Faces/Lines/PolyLineSpanView";
 import { Tangibility } from "./ViewAttributes";
 import type { CanvasView, DiagramObjectView, GroupView } from "./Views";
 
@@ -16,18 +17,27 @@ import type { CanvasView, DiagramObjectView, GroupView } from "./Views";
  */
 export function findObjectAt(views: DiagramObjectView[], x: number, y: number): DiagramObjectView | undefined {
     let select = undefined;
-    let object = undefined;
     for (let i = views.length - 1; 0 <= i; i--) {
         const view = views[i];
-        // If no object, skip
-        // Cast: callers never pass LineView instances whose PolyLine face
-        // could return a PolyLineSpanView — inputs are latches, anchors,
-        // blocks, and groups.  The narrow assertion is safe by invariant.
-        if (!(object = view.getObjectAt(x, y) as DiagramObjectView | undefined)) {
+        const result = view.getObjectAt(x, y);
+        if (!result) {
             continue;
         }
+        if (result instanceof PolyLineSpanView) {
+            // findObjectAt is called with anchors/latches/handles/blocks/groups —
+            // never with LineViews.  Passing a LineView would let a PolyLine return
+            // a PolyLineSpanView and corrupt the downstream instanceof dispatch.
+            // Surface the bug instead of silently narrowing.
+            console.warn(
+                "findObjectAt received a PolyLineSpanView — callers must not pass LineView arrays",
+                result
+            );
+            continue;
+        }
+        // result is now DiagramObjectView by narrowing
+        const object = result;
         // Update selection
-        if (object?.tangibility === Tangibility.Priority) {
+        if (object.tangibility === Tangibility.Priority) {
             return object;
         } else {
             select ??= object;
@@ -50,22 +60,31 @@ export function findObjectAt(views: DiagramObjectView[], x: number, y: number): 
  */
 export function findUnlinkedObjectAt(views: DiagramObjectView[], x: number, y: number): DiagramObjectView | undefined {
     let select = undefined;
-    let object = undefined;
     for (let i = views.length - 1; 0 <= i; i--) {
         const view = views[i];
         // If linked latch, skip
         if (view instanceof LatchView && view.isLinked()) {
             continue;
         }
-        // If no object, skip
-        // Cast: callers never pass LineView instances whose PolyLine face
-        // could return a PolyLineSpanView — inputs are latches, anchors,
-        // blocks, and groups.  The narrow assertion is safe by invariant.
-        if (!(object = view.getObjectAt(x, y) as DiagramObjectView | undefined)) {
+        const result = view.getObjectAt(x, y);
+        if (!result) {
             continue;
         }
+        if (result instanceof PolyLineSpanView) {
+            // findUnlinkedObjectAt is called with anchors/latches/handles/blocks/groups —
+            // never with LineViews.  Passing a LineView would let a PolyLine return
+            // a PolyLineSpanView and corrupt the downstream instanceof dispatch.
+            // Surface the bug instead of silently narrowing.
+            console.warn(
+                "findUnlinkedObjectAt received a PolyLineSpanView — callers must not pass LineView arrays",
+                result
+            );
+            continue;
+        }
+        // result is now DiagramObjectView by narrowing
+        const object = result;
         // Update selection
-        if (object?.tangibility === Tangibility.Priority) {
+        if (object.tangibility === Tangibility.Priority) {
             return object;
         } else {
             select ??= object;

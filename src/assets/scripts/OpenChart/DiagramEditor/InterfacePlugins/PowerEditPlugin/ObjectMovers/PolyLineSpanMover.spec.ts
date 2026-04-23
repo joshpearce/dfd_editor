@@ -4,11 +4,6 @@
  * 9325: Unit tests for PolyLineSpanMover — axis-locked delta, invariant
  * preservation, and single-undo collapsing across a multi-tick drag.
  *
- * Construction: PolyLineSpanMover is instantiated directly via
- * `new PolyLineSpanMover(plugin, execute, span)` — plugin dispatch (Step 3)
- * does not yet exist. driveDrag is used for the full capture→move→release
- * cycle so the command stream is correctly opened and committed.
- *
  * The fixture produces a 3-handle PolyLine with axis-aligned vertices:
  *   handles[0] = (100, 50)
  *   handles[1] = (200, 50)   ← shared y with handles[0] → span[0] is "H"
@@ -16,11 +11,13 @@
  * spans[0] is H (horizontal).
  * spans[1] is V (vertical).
  *
- * A second describe block ("PowerEditPlugin span dispatch") covers Step 3b
- * optional tests: plugin dispatch to PolyLineSpanMover and cursor-map checks.
+ * A second describe block ("PowerEditPlugin span dispatch + cursor map") covers
+ * plugin dispatch to PolyLineSpanMover and cursor-map checks, both driven
+ * through the production code paths (dispatchSpan → handleSpan; hoverAt →
+ * smartHover → CursorMap).
  */
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 
 // @OpenChart/DiagramInterface is stubbed globally via PowerEditPlugin.testing.setup.ts
 
@@ -36,7 +33,7 @@ import {
 } from "../../../../DiagramView/DiagramObjectView/Faces/Lines/Lines.testing";
 
 // View types
-import { BlockView, HandleView, LineView, PolyLine, PolyLineSpanView } from "@OpenChart/DiagramView";
+import { BlockView, CanvasView, HandleView, LineView, PolyLine, PolyLineSpanView } from "@OpenChart/DiagramView";
 import { Cursor } from "@OpenChart/DiagramInterface";
 
 // The mover under test
@@ -283,25 +280,22 @@ describe("PolyLineSpanMover", () => {
 
 /**
  * Tests that PowerEditPlugin routes a PolyLineSpanView selection to
- * PolyLineSpanMover and that the cursor map assigns the correct resize cursors.
+ * PolyLineSpanMover via the production `handleSpan` path, and that the cursor
+ * map assigns the correct resize cursors via the production `smartHover` →
+ * `hover` → `CursorMap[PolyLineSpanView.name]` lookup.
  *
- * Strategy: We construct a `TestablePowerEditPlugin` whose `setCursor` public
- * method calls `editor.interface.emit("cursor-change", cursor)`.  Because the
- * DiagramInterface is stubbed (see `PowerEditPlugin.testing.setup.ts`), we
- * spy on `editor.interface.emit` to capture the emitted cursor value.
+ * Dispatch test (H2): `TestablePowerEditPlugin.dispatchSpan(execute, span, event)`
+ * calls the production-protected `handleSpan` and returns the resulting mover.
+ * We assert `instanceof PolyLineSpanMover` — the correct dispatch is the only
+ * observable contract worth pinning here.
  *
- * For mover dispatch: `handleSelectStart` is protected, so we drive the
- * scenario through `driveDrag` with a `MoverBuilder` that calls
- * `plugin.dispatchHandle` — but `dispatchHandle` currently only handles
- * DiagramObjectView subtypes, not PolyLineSpanView.  Instead we wire the
- * mover builder directly using `PolyLineSpanMover` (as the PolyLineSpanMover
- * unit tests do) and assert that the correct drag behaviour results — this is
- * functionally equivalent to asserting that the plugin would produce a
- * `PolyLineSpanMover` for a span selection.
- *
- * The cursor test drives the full hover path: we add the PolyLine to a
- * temporary canvas, anchor it, call `plugin.hoverAt` at an interior-segment
- * midpoint (which returns a PolyLineSpanView), and spy on the cursor emitted.
+ * Cursor test (H1): The line IS added to the editor canvas so that
+ * `plugin.hoverAt(x, y)` (alias of `smartHover`) can find it in `canvas.lines`
+ * and call `line.getObjectAt(x, y)`, which returns a `PolyLineSpanView`.
+ * `handleHoverStart` then calls `hover()` which looks up `CursorMap` and emits
+ * "cursor-change".  We spy on `editor.interface.emit` with a `beforeEach` /
+ * `afterEach` bracket so the spy is guaranteed to be restored even if an
+ * assertion throws.
  */
 describe("PowerEditPlugin span dispatch + cursor map", () => {
 
@@ -312,17 +306,21 @@ describe("PowerEditPlugin span dispatch + cursor map", () => {
     });
 
     /**
-     * Builds the standard 3-handle fixture and links node1 to a block anchor
-     * so isAnchored() returns true.  The line is NOT added to any canvas
-     * because the canvas-level hoverAt path is not needed for the mover tests.
+     * Builds the standard 3-handle fixture, links node1 to a block anchor
+     * (isAnchored() → true), and adds the line to the editor's canvas so
+     * `plugin.hoverAt(x, y)` can discover it via `canvas.lines`.
+     *
+     * The block is NOT added to the canvas — only the line needs to be in
+     * `canvas.lines` for the hoverAt path to work.
      */
-    async function createAnchoredFixture(): Promise<{
+    async function createCanvasFixture(): Promise<{
         editor: DiagramViewEditor;
         plugin: TestablePowerEditPlugin;
+        canvas: CanvasView;
         line: LineView;
         spans: PolyLineSpanView[];
     }> {
-        const { editor, plugin } = createTestableEditor(factory);
+        const { editor, plugin, canvas } = createTestableEditor(factory);
 
         const line = factory.createNewDiagramObject("data_flow", LineView);
         line.node1.moveTo(0, 0);
@@ -339,76 +337,95 @@ describe("PowerEditPlugin span dispatch + cursor map", () => {
         (line.handles[1] as HandleView).moveTo(200, 50);
         (line.handles[2] as HandleView).moveTo(200, 150);
 
-        // Link node1 → span-aware branch of getObjectAt.
+        // Link node1 to a block anchor → activates the anchored/span-aware
+        // branch of PolyLine.getObjectAt so interior hitbox clicks return spans.
         const block = factory.createNewDiagramObject("process", BlockView);
         block.moveTo(50, 50);
         const blockAnchor = block.anchors.values().next().value!;
         line.node1.link(blockAnchor);
 
+        // Add the line to the editor canvas so smartHover can find it.
+        // canvas.addObject dispatches on type (Line → _lines array).
+        canvas.addObject(line);
+
         line.calculateLayout();
 
         const spans = (line.face as unknown as PolyLineInternalState).spans;
-        return { editor, plugin, line, spans };
+        return { editor, plugin, canvas, line, spans };
     }
 
-    it("PolyLineSpanMover constrains H span drag to vertical axis (plugin-dispatch parity)", async () => {
-        // Validates the end-to-end contract: driveDrag with a PolyLineSpanMover
-        // built for an H span moves both flanking handles vertically only.
-        // This mirrors what PowerEditPlugin.handleSpan() would produce —
-        // the mover type determines all observable behaviour so testing the
-        // mover directly is sufficient.
-        const { editor, plugin, line, spans } = await createAnchoredFixture();
+    // -------------------------------------------------------------------------
+    // Spy lifecycle (M3): bracket the whole describe block with beforeEach /
+    // afterEach so the spy is always restored, even if an assertion throws.
+    // -------------------------------------------------------------------------
 
-        const h0BeforeY = line.handles[0].y;
-        const h1BeforeY = line.handles[1].y;
+    let emitSpy: ReturnType<typeof vi.spyOn> | null = null;
 
-        const builder: MoverBuilder = (execute) =>
-            new PolyLineSpanMover(plugin, execute, spans[0]);
-
-        driveDrag(editor, builder, [[0, 0], [5, 3]]);
-
-        // H span: only vertical delta (3) applied; horizontal (5) is zeroed.
-        expect(line.handles[0].y).toBe(h0BeforeY + 3);
-        expect(line.handles[1].y).toBe(h1BeforeY + 3);
-        expect(line.handles[0].x).toBe(100); // unchanged
-        expect(line.handles[1].x).toBe(200); // unchanged
+    beforeEach(() => {
+        // Reset — the actual spy is set up lazily per-test via the fixture.
+        emitSpy = null;
     });
 
-    it("cursor map: H span → Cursor.NS_Resize; V span → Cursor.EW_Resize", async () => {
-        // Spy on `editor.interface.emit` to capture the cursor-change event.
-        // The DiagramInterface stub implements `emit() { return this; }`,
-        // so vi.spyOn intercepts calls without any side effects.
-        const { editor, plugin } = await createAnchoredFixture();
+    afterEach(() => {
+        emitSpy?.mockRestore();
+        emitSpy = null;
+    });
 
-        const emitSpy = vi.spyOn(editor.interface, "emit");
+    it("PowerEditPlugin dispatches a PolyLineSpanView selection to PolyLineSpanMover via handleSpan", async () => {
+        // Drives dispatch through the production-protected handleSpan method via
+        // TestablePowerEditPlugin.dispatchSpan.  We assert the returned mover is
+        // a PolyLineSpanMover — the correct dispatch is the only contract to pin.
+        // The redundant axis-lock behavior is already covered by the H/V span
+        // tests in the PolyLineSpanMover describe block above.
+        const { editor, plugin, spans } = await createCanvasFixture();
 
-        // H span — drag vertically → NS_Resize cursor.
-        const hSpan = new PolyLineSpanView(
-            {} as LineView, // parent reference not needed for cursor lookup
-            {} as HandleView,
-            {} as HandleView,
-            "H",
-            []
-        );
-        plugin.setCursor(
-            hSpan.axis === "H" ? Cursor.NS_Resize : Cursor.EW_Resize
-        );
-        expect(emitSpy).toHaveBeenLastCalledWith("cursor-change", Cursor.NS_Resize);
+        const streamId = "dispatch-test-stream";
+        editor.beginCommandStream(streamId);
+        const execute = (cmd: import("../../../Commands").SynchronousEditorCommand) =>
+            editor.execute(cmd, streamId);
 
-        // V span — drag horizontally → EW_Resize cursor.
-        const vSpan = new PolyLineSpanView(
-            {} as LineView,
-            {} as HandleView,
-            {} as HandleView,
-            "V",
-            []
-        );
-        plugin.setCursor(
-            vSpan.axis === "H" ? Cursor.NS_Resize : Cursor.EW_Resize
-        );
-        expect(emitSpy).toHaveBeenLastCalledWith("cursor-change", Cursor.EW_Resize);
+        const mover = plugin.dispatchSpan(execute, spans[0]);
 
-        emitSpy.mockRestore();
+        editor.endCommandStream(streamId);
+
+        expect(mover).toBeInstanceOf(PolyLineSpanMover);
+    });
+
+    it("cursor map: H span → Cursor.NS_Resize; V span → Cursor.EW_Resize (via handleHoverStart → smartHover → CursorMap)", async () => {
+        // Drives the full production cursor path:
+        //   plugin.handleHoverStart(x, y, event)
+        //     → smartHover → canvas.lines[i].getObjectAt(x, y) → PolyLineSpanView
+        //     → hover() → CursorMap[PolyLineSpanView.name](span)
+        //     → setCursor → editor.interface.emit("cursor-change", cursor)
+        //
+        // We use handleHoverStart (public) rather than hoverAt (which only calls
+        // smartHover and does not trigger hover() or the cursor emit).
+        //
+        // Coordinate lookup:
+        //   H span midpoint (150, 50) — strictly inside hitboxes[1]
+        //     (minX=100 maxX=200, minY=40 maxY=60).
+        //   V span midpoint (200, 100) — strictly inside hitboxes[2]
+        //     (minX=190 maxX=210, minY=50 maxY=150).
+        const { editor, plugin, line } = await createCanvasFixture();
+        emitSpy = vi.spyOn(editor.interface, "emit");
+
+        const stubEvent = {} as MouseEvent;
+
+        // Hover at the H span midpoint — should emit NS_Resize.
+        plugin.handleHoverStart(150, 50, stubEvent);
+        expect(emitSpy).toHaveBeenCalledWith("cursor-change", Cursor.NS_Resize);
+
+        // Hover at the V span midpoint — should emit EW_Resize.
+        plugin.handleHoverStart(200, 100, stubEvent);
+        expect(emitSpy).toHaveBeenCalledWith("cursor-change", Cursor.EW_Resize);
+
+        // Sanity: verify getObjectAt returns the expected span types at those coords.
+        expect(line.face.getObjectAt(150, 50)).toBeInstanceOf(PolyLineSpanView);
+        expect(line.face.getObjectAt(200, 100)).toBeInstanceOf(PolyLineSpanView);
+        const spanAtH = line.face.getObjectAt(150, 50) as PolyLineSpanView;
+        const spanAtV = line.face.getObjectAt(200, 100) as PolyLineSpanView;
+        expect(spanAtH.axis).toBe("H");
+        expect(spanAtV.axis).toBe("V");
     });
 
 });

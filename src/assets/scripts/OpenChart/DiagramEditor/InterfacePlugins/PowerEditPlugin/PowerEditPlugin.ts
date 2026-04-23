@@ -50,8 +50,9 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
                     return Cursor.Move;
             }
         },
-        // An H (horizontal) span drags vertically → NS_Resize.
-        // A V (vertical) span drags horizontally → EW_Resize.
+        // Drag motion is perpendicular to the segment's axis: H span (horizontal
+        // segment) moves vertically (NS cursor, ↕); V span (vertical segment)
+        // moves horizontally (EW cursor, ↔).
         [PolyLineSpanView.name] : (o) => {
             return (o as PolyLineSpanView).axis === "H" ? Cursor.NS_Resize : Cursor.EW_Resize;
         }
@@ -405,7 +406,7 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      *  The resulting {@link PolyLineSpanMover} constrains motion to the axis
      *  perpendicular to the span's own direction.
      */
-    private handleSpan(
+    protected handleSpan(
         execute: CommandExecutor, span: PolyLineSpanView, event: MouseEvent
     ): ObjectMover {
         // Keep the parent line selected while the span is being dragged.

@@ -34,6 +34,12 @@ vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
         render() { /* no-op */ }
         registerPlugin() { /* no-op */ }
         deregisterPlugin() { /* no-op */ }
+        // Used by StopContinuousAnimation / RunAnimation (constructed by
+        // unselectAllObjects and selectObject commands).  No-op stubs so
+        // animation commands are silently ignored in tests.
+        isAnimationRunning() { return false; }
+        runAnimation() { /* no-op */ }
+        stopAnimation() { /* no-op */ }
     }
     return { ...original, DiagramInterface: DiagramInterfaceStub };
 });
@@ -71,6 +77,9 @@ export async function diagramInterfaceMockFactory() {
         render() { /* no-op */ }
         registerPlugin() { /* no-op */ }
         deregisterPlugin() { /* no-op */ }
+        isAnimationRunning() { return false; }
+        runAnimation() { /* no-op */ }
+        stopAnimation() { /* no-op */ }
     }
     return { ...original, DiagramInterface: DiagramInterfaceStub };
 }
