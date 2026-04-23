@@ -1,0 +1,95 @@
+import * as EditorCommands from "../../../Commands";
+import { PolyLineSpanView } from "@OpenChart/DiagramView";
+import { ObjectMover } from "./ObjectMover";
+import type { SubjectTrack } from "@OpenChart/DiagramInterface";
+import type { PowerEditPlugin } from "../PowerEditPlugin";
+import type { CommandExecutor } from "../CommandExecutor";
+
+/**
+ * Moves one interior segment of a {@link PolyLine} perpendicular to its axis.
+ *
+ * A span-drag translates both flanking handles of a segment by an equal,
+ * axis-locked delta: horizontal spans (`axis === "H"`) accept only a vertical
+ * delta; vertical spans (`axis === "V"`) accept only a horizontal delta.
+ * Locking preserves the H/V alternation invariant that
+ * `getAbsoluteMultiElbowPath`'s corner-radius math depends on — letting dx
+ * move freely on an H span would produce a diagonal corner and invert the
+ * rendered curve.
+ *
+ * A single `moveObjectsBy` over `[handleA, handleB]` is emitted per drag
+ * tick.  That keeps the entire drag as one undo step regardless of how many
+ * ticks fire during the gesture.
+ */
+export class PolyLineSpanMover extends ObjectMover {
+
+    /**
+     * The span being dragged.
+     */
+    private readonly span: PolyLineSpanView;
+
+
+    /**
+     * Creates a new {@link PolyLineSpanMover}.
+     * @param plugin
+     *  The mover's plugin.
+     * @param execute
+     *  The mover's command executor.
+     * @param span
+     *  The span to drag.
+     */
+    constructor(plugin: PowerEditPlugin, execute: CommandExecutor, span: PolyLineSpanView) {
+        super(plugin, execute);
+        this.span = span;
+    }
+
+
+    /**
+     * Captures the subject.
+     *
+     * Snapshots ancestor group bounds for the owning line so that any
+     * auto-expansion of a containing trust boundary during the drag is
+     * reversible.  The `RestoreGroupBounds` command must land first in the
+     * drag stream so its undo runs last on reverse playback — the same
+     * ordering requirement that `LatchMover` and `GenericMover` follow.
+     */
+    public captureSubject(): void {
+        // The span's parent is the LineView; walk from LineView's parent
+        // (the container — canvas or group) to pin any ancestor group bounds.
+        this.pinAncestorGroupBounds(this.span.parent.parent);
+    }
+
+    /**
+     * Moves the subject.
+     * @param track
+     *  The subject's track.
+     */
+    public moveSubject(track: SubjectTrack): void {
+        let [dx, dy] = track.getDistance();
+        // Lock delta to the axis perpendicular to the span's own direction:
+        // an H (horizontal) span can only move vertically; a V (vertical)
+        // span can only move horizontally.
+        if (this.span.axis === "H") {
+            dx = 0;
+        } else {
+            dy = 0;
+        }
+        if (dx | dy) {
+            this.execute(EditorCommands.moveObjectsBy([this.span.handleA, this.span.handleB], dx, dy));
+        }
+        track.applyDelta([dx, dy]);
+    }
+
+    /**
+     * Releases the subject from movement.
+     *
+     * No reparenting is needed: a span-drag translates two interior handles
+     * of an existing line by equal perpendicular deltas. The line's
+     * lowest-common-ancestor container does not change as a result, so
+     * there is nothing to reparent here (contrast with LatchMover, which
+     * reparents the line when its endpoints move to a new container).
+     */
+    public releaseSubject(): void {
+        // Intentional no-op — see JSDoc above.
+    }
+
+}
