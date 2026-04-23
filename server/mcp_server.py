@@ -547,7 +547,7 @@ def delete_element(diagram_id: str, guid: str, ctx: Context) -> dict:
     found = _find_element(diagram, guid)
     if found is None:
         raise ValueError(f"element {guid!r} not found in diagram {diagram_id!r}")
-    elem, collection = found
+    _elem, collection = found
 
     # Remove the element itself from its collection.
     diagram[collection] = [

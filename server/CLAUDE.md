@@ -157,6 +157,7 @@ bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
 | `display_diagram` | `POST /api/internal/broadcast` with `type: "display"` | `display` |
 | `add_element` | fetch → append → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
 | `update_element` | fetch → mutate → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+| `delete_element` | fetch → cascade-delete → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
 
 `create_diagram` and `update_diagram` take `diagram: dict` (not
 `diagram: Diagram`) — validation happens inside the tool body via

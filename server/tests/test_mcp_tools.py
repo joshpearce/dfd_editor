@@ -1479,3 +1479,61 @@ class TestDeleteElement:
         assert matching[0]["payload"]["id"] == diagram_id
 
         ws.close()
+
+    def test_delete_node_cascades_flow_where_node_is_node2(self, live_server):
+        """Deleting a node that appears as node2 in a flow also cascades that flow."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        # _DEL_STORE_GUID is node2 in _DEL_FLOW; deleting it must cascade the flow.
+        result = delete_element(diagram_id=diagram_id, guid=_DEL_STORE_GUID, ctx=_ctx())
+
+        assert result["deleted_collection"] == "nodes"
+        assert _DEL_FLOW_GUID in result["cascade_removed"]
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        flow_guids = {f["guid"] for f in fetched.get("data_flows", [])}
+        assert _DEL_FLOW_GUID not in flow_guids
+        node_guids = {n["guid"] for n in fetched["nodes"]}
+        assert _DEL_STORE_GUID not in node_guids
+
+    def test_delete_data_item_removes_from_node2_src_refs(self, live_server):
+        """Deleting a data_item also scrubs it from node2_src_data_item_refs."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        # Build a doc where the data_item appears in node2_src_data_item_refs.
+        doc = _make_doc_for_delete()
+        doc["data_flows"][0]["properties"]["node2_src_data_item_refs"] = [_DEL_DATA_ITEM_GUID]
+        doc["data_flows"][0]["properties"]["node1_src_data_item_refs"] = []
+        create_result = create_diagram(diagram=doc, ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        delete_element(diagram_id=diagram_id, guid=_DEL_DATA_ITEM_GUID, ctx=_ctx())
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        flow = next(f for f in fetched["data_flows"] if f["guid"] == _DEL_FLOW_GUID)
+        assert _DEL_DATA_ITEM_GUID not in flow["properties"].get("node2_src_data_item_refs", [])
+
+    def test_delete_top_level_container_not_in_any_children(self, live_server):
+        """Deleting a container that is not in any parent's children list works cleanly."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        # _DEL_CONTAINER_GUID is a top-level container — no parent holds it in children.
+        result = delete_element(
+            diagram_id=diagram_id, guid=_DEL_CONTAINER_GUID, ctx=_ctx()
+        )
+
+        assert result["deleted_collection"] == "containers"
+        assert result["cascade_removed"] == []
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        container_guids = {c["guid"] for c in fetched["containers"]}
+        assert _DEL_CONTAINER_GUID not in container_guids
+        # Nodes that were children of the deleted container survive (become top-level).
+        node_guids = {n["guid"] for n in fetched["nodes"]}
+        assert _DEL_PROCESS_GUID in node_guids
