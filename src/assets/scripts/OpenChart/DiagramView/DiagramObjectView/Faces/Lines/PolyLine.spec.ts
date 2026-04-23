@@ -10,6 +10,7 @@ import {
     getDataFlowLineStyle
 } from "./Lines.testing";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
+import { PolyLineSpanView } from "./PolyLineSpanView";
 
 
 /**
@@ -48,6 +49,61 @@ async function createPolyLineWithHandles(
     // Swap to PolyLine — the runtime upgrade hook the engine and import
     // path both call once a line accumulates two or more handles.
     line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+    line.calculateLayout();
+
+    return line;
+}
+
+
+/**
+ * Builds a PolyLine with handle positions that are guaranteed to be exactly
+ * the supplied coordinates after layout.
+ *
+ * `createPolyLineWithHandles` uses `HandleView.moveTo` which triggers the
+ * active face's layout cascade.  While the DynamicLine face is active, that
+ * cascade repositions the first handle to the node midpoint, corrupting the
+ * desired axis classification.  This helper avoids the issue by:
+ *
+ *   1. Creating the line and attaching all handles (via the factory path so
+ *      the handle count is correct before the face swap).
+ *   2. Swapping to PolyLine (face swap only — no layout yet).
+ *   3. Setting every handle's position via the face-level `moveTo` call
+ *      (the same path the auto-layout engine uses), which does NOT trigger
+ *      the parent `handleUpdate` cascade.
+ *   4. Calling `line.calculateLayout()` once — so PolyLine reads the final
+ *      positions and builds spans correctly.
+ *
+ * Use this helper whenever a test must assert on axis classification.
+ */
+async function createPolyLineWithExactCoords(
+    handleCoords: Array<[number, number]>
+): Promise<LineView> {
+    if (handleCoords.length < 2) {
+        throw new Error("createPolyLineWithExactCoords requires at least 2 handle coordinates.");
+    }
+
+    const factory = await createLinesTestingFactory();
+    const line = factory.createNewDiagramObject("data_flow", LineView);
+    line.node1.moveTo(0, 0);
+    line.node2.moveTo(400, 400);
+
+    // Add extra handles so the line has exactly handleCoords.length handles.
+    for (let i = 1; i < handleCoords.length; i++) {
+        const handle = factory.createNewDiagramObject("generic_handle", HandleView);
+        line.addHandle(handle);
+    }
+
+    // Swap to PolyLine before setting positions — this prevents DynamicLine's
+    // layout from clobbering the desired coordinates.
+    line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+
+    // Position every handle via the face-level path (no handleUpdate cascade).
+    for (let i = 0; i < handleCoords.length; i++) {
+        const [hx, hy] = handleCoords[i];
+        (line.handles[i] as HandleView).face.moveTo(hx, hy);
+    }
+
+    // Single layout pass — PolyLine reads the final coordinates.
     line.calculateLayout();
 
     return line;
@@ -233,6 +289,110 @@ describe("PolyLine", () => {
         const clonedState = cloned as unknown as GenericLineInternalState;
         expect(clonedState.style).toBe(originalState.style);
         expect(clonedState.grid).toBe(originalState.grid);
+    });
+
+    it("calculateLayout: 3-handle H-V-H layout produces 2 spans with correct axis classification", async () => {
+        // handles[0]→[1] share y=50 (horizontal), handles[1]→[2] share x=200 (vertical).
+        // We expect exactly two spans with axes ["H", "V"], referencing the real
+        // handle views, and carrying an independent copy of the hitbox polygon.
+        // createPolyLineWithExactCoords sets positions after the PolyLine face swap
+        // so DynamicLine's layout cannot clobber the desired coordinates.
+        const line = await createPolyLineWithExactCoords([
+            [100, 50],
+            [200, 50],
+            [200, 150]
+        ]);
+        const face = line.face as unknown as GenericLineInternalState;
+
+        expect(face.spans).toHaveLength(2);
+        expect(face.spans![0]).toBeInstanceOf(PolyLineSpanView);
+        expect(face.spans![1]).toBeInstanceOf(PolyLineSpanView);
+
+        expect(face.spans![0].axis).toBe("H");
+        expect(face.spans![1].axis).toBe("V");
+
+        // Span handleA/handleB must be reference-equal to the actual handle views.
+        expect(face.spans![0].handleA).toBe(line.handles[0]);
+        expect(face.spans![0].handleB).toBe(line.handles[1]);
+        expect(face.spans![1].handleA).toBe(line.handles[1]);
+        expect(face.spans![1].handleB).toBe(line.handles[2]);
+
+        // Each hitbox is a closed rectangle (8 numbers).
+        expect(face.spans![0].hitbox).toHaveLength(8);
+        expect(face.spans![1].hitbox).toHaveLength(8);
+
+        // The span hitbox must be a copy — mutating it must not affect face.hitboxes.
+        const originalHitbox1 = [...face.hitboxes[1]];
+        face.spans![0].hitbox[0] = -9999;
+        expect(face.hitboxes[1]).toEqual(originalHitbox1);
+    });
+
+    it("calculateLayout: N interior handles → N-1 spans", async () => {
+        // A pure horizontal line with 2 or 4 handles must produce exactly
+        // handles.length - 1 spans, all classified as "H".
+        const cases: Array<{ coords: Array<[number, number]> }> = [
+            { coords: [[100, 50], [200, 50]] },
+            { coords: [[100, 50], [200, 50], [300, 50], [400, 50]] }
+        ];
+
+        for (const { coords } of cases) {
+            const line = await createPolyLineWithExactCoords(coords);
+            const face = line.face as unknown as GenericLineInternalState;
+
+            expect(face.spans).toHaveLength(line.handles.length - 1);
+            for (const span of face.spans!) {
+                expect(span.axis).toBe("H");
+            }
+        }
+    });
+
+    it("calculateLayout: diagonal segment between interior handles is skipped", async () => {
+        // handles[0]→[1] differs in both x and y — diagonal, no shared axis.
+        // handles[1]→[2] share y=100 — horizontal and must produce one "H" span.
+        // The diagonal pair must be skipped; total span count must be 1.
+        const line = await createPolyLineWithExactCoords([
+            [100, 50],
+            [200, 100],
+            [300, 100]
+        ]);
+        const face = line.face as unknown as GenericLineInternalState;
+
+        expect(face.spans).toHaveLength(1);
+        expect(face.spans![0].axis).toBe("H");
+        expect(face.spans![0].handleA).toBe(line.handles[1]);
+        expect(face.spans![0].handleB).toBe(line.handles[2]);
+    });
+
+    it("calculateLayout: rebuilds spans on re-layout after handle move", async () => {
+        // Start with an H-then-V layout (handles share y, then x).
+        // Move handles[1] so the first pair now shares x (V) and the second shares y (H).
+        // After re-layout, span axes must reflect the new geometry and the span
+        // instances must be fresh objects (not the same references as before).
+        const line = await createPolyLineWithExactCoords([
+            [100, 50],
+            [200, 50],
+            [200, 150]
+        ]);
+        const face = line.face as unknown as GenericLineInternalState;
+
+        const spansBefore = [...face.spans!];
+        expect(spansBefore[0].axis).toBe("H");
+        expect(spansBefore[1].axis).toBe("V");
+
+        // Move handles[1] via the face-level path so PolyLine reruns layout
+        // without triggering a second cascading call.  We want to inspect the
+        // axis classification after a single explicit calculateLayout().
+        (line.handles[1] as HandleView).face.moveTo(100, 150);
+        line.calculateLayout();
+
+        const spansAfter = face.spans!;
+        expect(spansAfter).toHaveLength(2);
+        expect(spansAfter[0].axis).toBe("V");
+        expect(spansAfter[1].axis).toBe("H");
+
+        // Span instances must be freshly created, not the same objects as before.
+        expect(spansAfter[0]).not.toBe(spansBefore[0]);
+        expect(spansAfter[1]).not.toBe(spansBefore[1]);
     });
 
 });
