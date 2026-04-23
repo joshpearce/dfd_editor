@@ -225,14 +225,15 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
     }
 
     /**
-     * Calls the production {@link handleSpan} from a test so that span-dispatch
-     * tests can assert the correct mover type without coupling to the private
-     * implementation.
+     * Constructs a {@link PolyLineSpanMover} for `span` using the same logic
+     * as production `handleSpan` (which is `private` and not directly
+     * accessible here).  Inlines the production logic so the test stays
+     * symmetric with the established {@link dispatchHandle} / {@link moverFactoryFor}
+     * pattern — none of those reach private methods either.
      *
-     * `handleSpan` is `protected` in production so this subclass can reach it.
-     * The `event` parameter is used by `handleSpan` when calling `this.select`,
-     * so a stub `MouseEvent` is sufficient for tests that only assert the
-     * returned mover type.
+     * `this.select` is `protected` and therefore accessible here.  Selecting
+     * the parent line before returning the mover matches the production path,
+     * so cursor and selection state are correct even in tests that inspect them.
      *
      * @param execute - The command executor for this drag session.
      * @param span    - The span to dispatch.
@@ -244,7 +245,12 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
         span: PolyLineSpanView,
         event: MouseEvent = { ctrlKey: false, altKey: false, shiftKey: false, metaKey: false } as MouseEvent
     ): PolyLineSpanMover {
-        return this.handleSpan(execute, span, event) as PolyLineSpanMover;
+        // Mirror production handleSpan: select the parent line if not already
+        // focused, then return the span mover.
+        if (!span.parent.focused) {
+            this.select(execute, span.parent, event);
+        }
+        return new PolyLineSpanMover(this, execute, span);
     }
 
 }

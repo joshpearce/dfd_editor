@@ -1,4 +1,4 @@
-import { LineFace } from "../Bases";
+import { LineFace, HandleFace } from "../Bases";
 import { findUnlinkedObjectAt } from "../../ViewLocators";
 import {
     doRegionsOverlap,
@@ -21,12 +21,11 @@ import type { GenericLineInternalState } from "./GenericLineInternalState";
 const AXIS_EPSILON = 1e-6;
 
 // Radius used for the handle-dot dead-zone fix in getObjectAt.
-// Source of truth: HandlePoint.getObjectAt uses `r * r` where `r = this.style.radius`,
-// taken from the theme's PointStyle (default 6 in both Dark and Light builtin
-// designs — ThemeLoader/Styles/BuiltinDesigns.ts).  Mirrored here without
-// importing HandlePoint to avoid a cross-layer dependency.
+// Source of truth: HandlePoint (via HandleFace.isInsideHandleDot) uses the
+// theme's PointStyle radius (default 6 in both Dark and Light builtin designs —
+// see ThemeLoader/Styles/BuiltinDesigns.ts).  We mirror that constant so we
+// can call HandleFace.isInsideHandleDot without reading the live style object.
 const HANDLE_DOT_RADIUS = 6;
-const HANDLE_DOT_RADIUS_SQ = HANDLE_DOT_RADIUS * HANDLE_DOT_RADIUS;
 
 /**
  * A {@link LineFace} that renders an arbitrary-vertex polyline whose interior
@@ -108,7 +107,9 @@ export class PolyLine extends LineFace {
     public getObjectAt(x: number, y: number): HitTarget | undefined {
         // Only test the two end latches — interior handle dots are rendered but
         // are not drag targets (point-drag is disabled for PolyLine).
-        const obj = findUnlinkedObjectAt(this.latchEndpoints, x, y);
+        // latchEndpoints contains only LatchView instances — never LineViews —
+        // so the result is always DiagramObjectView | undefined.
+        const obj = findUnlinkedObjectAt(this.latchEndpoints, x, y) as DiagramObjectView | undefined;
         if (obj) {
             return obj;
         }
@@ -127,9 +128,7 @@ export class PolyLine extends LineFace {
             // dependency).
             for (let h = 0; h < this.view.handles.length; h++) {
                 const handle = this.view.handles[h];
-                const dx = x - handle.x;
-                const dy = y - handle.y;
-                if (dx * dx + dy * dy <= HANDLE_DOT_RADIUS_SQ) {
+                if (HandleFace.isInsideHandleDot(handle.x, handle.y, x, y, HANDLE_DOT_RADIUS)) {
                     // Prefer the span whose handleB === handle (the segment
                     // ending at this handle), falling back to the span starting
                     // at it.  Deterministic: iteration order reads forward.

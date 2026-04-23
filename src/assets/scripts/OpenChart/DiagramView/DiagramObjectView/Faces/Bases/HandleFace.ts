@@ -18,6 +18,42 @@ export abstract class HandleFace extends DiagramFace {
 
 
     ///////////////////////////////////////////////////////////////////////////
+    //  0. Static Helpers  ////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+
+    /**
+     * Returns `true` if the point `(x, y)` is inside the visible handle dot
+     * centred at the handle's stored position `(hx, hy)`.
+     *
+     * The marker is rendered at `(hx + markerOffset, hy + markerOffset)` —
+     * the same convention used by {@link HandlePoint.renderTo} and
+     * {@link HandlePoint.getObjectAt}.  The test uses strict inequality
+     * (`<`) so the boundary edge is NOT considered a hit, matching
+     * `HandlePoint.getObjectAt`.
+     *
+     * @param hx - The handle's `x` coordinate (bounding-box x, NOT the
+     *   rendered centre).
+     * @param hy - The handle's `y` coordinate (bounding-box y, NOT the
+     *   rendered centre).
+     * @param x - The point to test.
+     * @param y - The point to test.
+     * @param radius - The handle dot radius (from the theme's PointStyle).
+     */
+    public static isInsideHandleDot(
+        hx: number, hy: number,
+        x: number, y: number,
+        radius: number
+    ): boolean {
+        const cx = hx + HandleFace.markerOffset;
+        const cy = hy + HandleFace.markerOffset;
+        const dx = x - cx;
+        const dy = y - cy;
+        return dx * dx + dy * dy < radius * radius;
+    }
+
+
+    ///////////////////////////////////////////////////////////////////////////
     //  1. Movement  //////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////
 

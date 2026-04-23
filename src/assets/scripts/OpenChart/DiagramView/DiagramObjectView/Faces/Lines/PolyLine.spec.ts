@@ -468,9 +468,13 @@ describe("PolyLine", () => {
             // them to the flanking span, so exact-coord clicks now work.
             const { line, spans } = await createAnchoredFixture();
 
-            // (200, 50) is the exact coordinate of handles[1] — previously a
-            // dead zone, now resolved to the H span by the dead-zone fix.
-            const hit = line.face.getObjectAt(200, 50);
+            // handles[1] is at (200, 50).  HandleFace.isInsideHandleDot renders
+            // the marker at (handle.x + markerOffset, handle.y + markerOffset)
+            // = (201, 51).  We click at the exact marker centre so the test
+            // uses the same geometry as the helper (no implicit offset arithmetic).
+            const h1MarkerX = (line.handles[1] as HandleView).x + 1; // + markerOffset
+            const h1MarkerY = (line.handles[1] as HandleView).y + 1;
+            const hit = line.face.getObjectAt(h1MarkerX, h1MarkerY);
             expect(hit).toBeInstanceOf(PolyLineSpanView);
             // Must be a span, not a handle.  The dead-zone fix prefers the span
             // whose handleB === handles[1], which is spans[0] (the H span).
@@ -549,13 +553,19 @@ describe("PolyLine", () => {
             expect(line.node1.isLinked()).toBe(false);
             expect(line.node2.isLinked()).toBe(false);
 
-            // Click at node1's coordinates (0, 0): latch marker is at (0+1, 0+1),
-            // so dx=-1, dy=-1, distance²=2 < 36 → hit.
-            const hitNode1 = line.face.getObjectAt(0, 0);
+            // LatchPoint.getObjectAt uses a circular hit-test centred at
+            // (latch.x + markerOffset, latch.y + markerOffset) with strict `<`
+            // radius.  markerOffset = DiagramFace.markerOffset = 1, radius = 6.
+            // Click at the exact marker centre — guaranteed inside regardless of
+            // floating-point details.
+            const node1MarkerX = line.node1.x + 1; // + markerOffset
+            const node1MarkerY = line.node1.y + 1;
+            const hitNode1 = line.face.getObjectAt(node1MarkerX, node1MarkerY);
             expect(hitNode1).toBe(line.node1);
 
-            // Click at node2's coordinates (400, 400): same radius logic.
-            const hitNode2 = line.face.getObjectAt(400, 400);
+            const node2MarkerX = line.node2.x + 1;
+            const node2MarkerY = line.node2.y + 1;
+            const hitNode2 = line.face.getObjectAt(node2MarkerX, node2MarkerY);
             expect(hitNode2).toBe(line.node2);
         });
 

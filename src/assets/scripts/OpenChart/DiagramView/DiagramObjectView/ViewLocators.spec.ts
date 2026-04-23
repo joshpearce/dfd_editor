@@ -1,10 +1,10 @@
 /**
  * @file ViewLocators.spec.ts
  *
- * Unit tests for `findDeepestContainingGroup` and the private
- * `isDescendantOf` walker that backs its `exclude` parameter.
+ * Unit tests for `findDeepestContainingGroup`, `findLowestCommonContainer`,
+ * and `findUnlinkedObjectAt` / `findObjectAt`.
  *
- * Key contracts verified:
+ * Key contracts verified for findDeepestContainingGroup:
  *   - Returns the deepest (innermost) containing group for a nested tree.
  *   - Returns `null` when the point is outside every group.
  *   - `exclude` skips the excluded group itself (short-circuit: `g === exclude`).
@@ -18,19 +18,36 @@
  *   - Exact-boundary point (inclusive edge) hits the group.
  *   - Mixed non-nested + nested tree — deepest group from last-added outer.
  *
+ * Key contracts verified for findUnlinkedObjectAt (H1 regression):
+ *   - Returns a `PolyLineSpanView` when the topmost hit is an interior span
+ *     of a PolyLine (regression: previous code silently swallowed span hits
+ *     with a `console.warn` + `continue`).
+ *   - Returns a `DiagramObjectView` for non-line views (existing behavior).
+ *
  * @see {@link findDeepestContainingGroup}
  *
  * pattern: Functional Core
  */
 
 import { beforeAll, describe, it, expect } from "vitest";
-import { findDeepestContainingGroup, findLowestCommonContainer } from "./ViewLocators";
+import { findDeepestContainingGroup, findLowestCommonContainer, findUnlinkedObjectAt } from "./ViewLocators";
 import {
     createGroupTestingFactory,
     makeEmptyCanvas,
     makeBlockView,
     makeGroupWithChildren
 } from "./Faces/Bases/GroupFace.testing";
+import {
+    BlockView,
+    HandleView,
+    LineView,
+    PolyLine,
+    PolyLineSpanView
+} from "@OpenChart/DiagramView";
+import {
+    createLinesTestingFactory,
+    getDataFlowLineStyle
+} from "./Faces/Lines/Lines.testing";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 
 
@@ -589,3 +606,108 @@ describe("findLowestCommonContainer", () => {
     });
 
 });
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  findUnlinkedObjectAt — H1 regression (PolyLineSpanView pass-through)  ////
+///////////////////////////////////////////////////////////////////////////////
+
+
+/**
+ * These tests verify the H1 regression fix: `findUnlinkedObjectAt` previously
+ * swallowed `PolyLineSpanView` hits from `LineView.getObjectAt` with a
+ * `console.warn` + `continue`.  After the fix the span flows through as-is so
+ * callers that include `LineView` instances in their search array (e.g.
+ * `CanvasFace.getObjectAt` and `GroupFace.getObjectAt` via `view.objects`) can
+ * reach interior segment hits.
+ */
+describe("findUnlinkedObjectAt — PolyLineSpanView pass-through (H1 regression)", () => {
+
+    /**
+     * Builds a 3-handle PolyLine (H-V fixture) and links node1 to a block
+     * anchor so `isAnchored()` returns true (required for the span-aware
+     * branch of `PolyLine.getObjectAt`).
+     *
+     * handle layout:
+     *   handles[0] = (100, 50)  — shared y with handles[1] → H span
+     *   handles[1] = (200, 50)  — shared x with handles[2] → V span
+     *   handles[2] = (200, 150)
+     */
+    async function createAnchoredPolyLine(): Promise<{
+        line: LineView;
+        spans: PolyLineSpanView[];
+    }> {
+        const factory = await createLinesTestingFactory();
+        const line = factory.createNewDiagramObject("data_flow", LineView);
+        line.node1.moveTo(0, 0);
+        line.node2.moveTo(400, 400);
+
+        for (let i = 1; i < 3; i++) {
+            const h = factory.createNewDiagramObject("generic_handle", HandleView);
+            line.addHandle(h);
+        }
+
+        line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+
+        (line.handles[0] as HandleView).moveTo(100, 50);
+        (line.handles[1] as HandleView).moveTo(200, 50);
+        (line.handles[2] as HandleView).moveTo(200, 150);
+
+        // Link node1 to a block anchor → activates the span-aware getObjectAt path.
+        const block = factory.createNewDiagramObject("process", BlockView);
+        block.moveTo(50, 50);
+        const blockAnchor = block.anchors.values().next().value!;
+        line.node1.link(blockAnchor);
+
+        line.calculateLayout();
+
+        const spans = (line.face as unknown as { spans: PolyLineSpanView[] }).spans;
+        return { line, spans };
+    }
+
+    it("returns a PolyLineSpanView when the line array contains a PolyLine hit at an interior span", async () => {
+        // This is the H1 regression: before the fix, findUnlinkedObjectAt
+        // would silently swallow the PolyLineSpanView returned by
+        // LineView.getObjectAt and return undefined instead.
+        const { line, spans } = await createAnchoredPolyLine();
+
+        // H span (hitboxes[1], h0→h1): midpoint (150, 50) is inside.
+        const result = findUnlinkedObjectAt([line], 150, 50);
+
+        expect(result).toBeInstanceOf(PolyLineSpanView);
+        expect(result).toBe(spans[0]);
+        expect((result as PolyLineSpanView).axis).toBe("H");
+    });
+
+    it("returns a PolyLineSpanView for the V span when the hit is in the vertical interior segment", async () => {
+        const { line, spans } = await createAnchoredPolyLine();
+
+        // V span (hitboxes[2], h1→h2): midpoint (200, 100) is inside.
+        const result = findUnlinkedObjectAt([line], 200, 100);
+
+        expect(result).toBeInstanceOf(PolyLineSpanView);
+        expect(result).toBe(spans[1]);
+        expect((result as PolyLineSpanView).axis).toBe("V");
+    });
+
+    it("returns a DiagramObjectView (the line view) when the hit is on an end segment", async () => {
+        // End segments return this.view (the LineView), not a PolyLineSpanView.
+        // findUnlinkedObjectAt must pass this through normally.
+        const { line } = await createAnchoredPolyLine();
+
+        // hitboxes[0]: end segment node1(0,0)→h0(100,50). Midpoint (50, 25).
+        const result = findUnlinkedObjectAt([line], 50, 25);
+
+        expect(result).toBe(line);
+        expect(result instanceof PolyLineSpanView).toBe(false);
+    });
+
+    it("returns undefined when the point is outside all views", async () => {
+        const { line } = await createAnchoredPolyLine();
+
+        const result = findUnlinkedObjectAt([line], 9999, 9999);
+        expect(result).toBeUndefined();
+    });
+
+});
+

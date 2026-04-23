@@ -42,10 +42,9 @@ export class HandlePoint extends HandleFace {
      *  The topmost view, undefined if there isn't one.
      */
     public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
-        const dx = x - (this.boundingBox.x + HandleFace.markerOffset);
-        const dy = y - (this.boundingBox.y + HandleFace.markerOffset);
-        const r = this.radius;
-        return dx * dx + dy * dy < r * r ? this.view : undefined;
+        return HandleFace.isInsideHandleDot(
+            this.boundingBox.x, this.boundingBox.y, x, y, this.radius
+        ) ? this.view : undefined;
     }
 
     /**

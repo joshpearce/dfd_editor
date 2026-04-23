@@ -406,7 +406,7 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      *  The resulting {@link PolyLineSpanMover} constrains motion to the axis
      *  perpendicular to the span's own direction.
      */
-    protected handleSpan(
+    private handleSpan(
         execute: CommandExecutor, span: PolyLineSpanView, event: MouseEvent
     ): ObjectMover {
         // Keep the parent line selected while the span is being dragged.

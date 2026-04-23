@@ -3,7 +3,7 @@ import { PositionSetByUser } from "../../ViewAttributes";
 import { findUnlinkedObjectAt } from "../../ViewLocators";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
-import type { DiagramObjectView, CanvasView } from "../../Views";
+import type { CanvasView, HitTarget } from "../../Views";
 
 export abstract class CanvasFace extends DiagramFace {
 
@@ -76,9 +76,10 @@ export abstract class CanvasFace extends DiagramFace {
      * @returns
      *  The topmost view, undefined if there isn't one.
      */
-    public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
+    public getObjectAt(x: number, y: number): HitTarget | undefined {
         if (this.boundingBox.contains(x, y)) {
-            // Try objects
+            // Try objects (view.objects yields groups, lines, and blocks;
+            // findUnlinkedObjectAt now passes PolyLineSpanView hits through)
             const object = findUnlinkedObjectAt(
                 [...this.view.objects], x, y
             );
