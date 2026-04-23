@@ -36,7 +36,6 @@ from pydantic import BaseModel  # noqa: E402
 
 import agent_service  # noqa: E402
 import ws  # noqa: E402
-from schema import Diagram  # noqa: E402
 
 
 logger = logging.getLogger(__name__)

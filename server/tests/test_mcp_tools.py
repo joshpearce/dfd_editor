@@ -45,7 +45,6 @@ import storage
 import ws as ws_module
 from app import app
 from mcp_server import (
-    _mark_active,
     _sweep_once,
     _stamp,
     add_container,
@@ -82,6 +81,7 @@ from mcp_server import (
 _PROCESS_GUID = "11111111-0000-0000-0000-000000000001"
 _DATA_STORE_GUID = "33333333-0000-0000-0000-000000000003"
 _FLOW_GUID = "66666666-0000-0000-0000-000000000006"
+_LIST_CONTAINER_GUID = "bbbb0000-0000-0000-0000-000000000099"
 
 _MINIMAL_DOC: dict[str, Any] = {
     "meta": {"name": "MCP test diagram"},
@@ -1692,19 +1692,19 @@ class TestDeleteNode:
             )
 
     def test_wrong_collection_raises_wrong_collection_error(self, live_server):
-        """delete_flow must reject a guid that resolves to a node."""
+        """delete_node must reject a guid that resolves to a data_flow."""
         _tmp_path, _port = live_server
         mcp_server._was_active = True
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        with pytest.raises(agent_service.WrongCollectionError):
-            delete_flow(diagram_id=diagram_id, guid=_PROCESS_GUID, ctx=_ctx())
+        with pytest.raises(agent_service.WrongCollectionError) as exc_info:
+            delete_node(diagram_id=diagram_id, guid=_FLOW_GUID, ctx=_ctx())
+        assert exc_info.value.actual_collection == "data_flows"
 
-        # Diagram must be unchanged (node still there).
+        # Flow must be untouched.
         fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
-        node_guids = {n["guid"] for n in fetched["nodes"]}
-        assert _PROCESS_GUID in node_guids
+        assert any(f["guid"] == _FLOW_GUID for f in fetched.get("data_flows", []))
 
 
 class TestDeleteContainer:
@@ -1897,7 +1897,6 @@ class TestList:
         # Build a diagram that populates every collection so each list_* has
         # both an element to match and fields to project.
         data_item_guid = "cccc0000-0000-0000-0000-000000000001"
-        container_guid = "bbbb0000-0000-0000-0000-000000000001"
         doc = {
             "meta": {"name": "list test"},
             "nodes": [
@@ -1907,7 +1906,7 @@ class TestList:
                  "properties": {"name": "The Store"}},
             ],
             "containers": [
-                {"type": "trust_boundary", "guid": container_guid,
+                {"type": "trust_boundary", "guid": _LIST_CONTAINER_GUID,
                  "properties": {"name": "VPC"}, "children": [_PROCESS_GUID]},
             ],
             "data_flows": [
