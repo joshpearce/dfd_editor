@@ -193,3 +193,10 @@ Option 3 is enough.
   the unbounded `_handles` model (already sufficient for Option 1)
 - `scripts/compare_layout.py` — today's block-only validator; the natural
   place to add the rendered-path fidelity check
+
+## Status
+
+2026-04-23 — Option 1 (PolyLine face) implemented per
+`docs/implementation-plans/2026-04-23-polyline-face.md`. Multi-bend
+TALA routes now survive auto-layout import and round-trip through
+save/reload as PolyLine; user-drawn flows continue to use DynamicLine.
