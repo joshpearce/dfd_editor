@@ -466,7 +466,15 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
             if (!(object instanceof LineView)) {
                 continue;
             }
-            const design = this.resolveDesign(object.id);
+            // Skip lines whose template has no design in the current theme.
+            // resolveDesign throws on unknown templates; we want to leave
+            // those lines alone rather than abort the entire pass.
+            let design;
+            try {
+                design = this.resolveDesign(object.id);
+            } catch {
+                continue;
+            }
             if (design.type !== FaceType.DynamicLine && design.type !== FaceType.PolyLine) {
                 continue;
             }
