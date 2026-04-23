@@ -73,7 +73,8 @@ export class PolyLineSpanMover extends ObjectMover {
         } else {
             dy = 0;
         }
-        // Float-safe check: bitwise OR coerces to int32 and silently drops sub-pixel deltas.
+        // Skip when cursor motion was purely parallel to the span's own axis:
+        // after axis-locking, both components are zero and there's nothing to emit.
         if (dx !== 0 || dy !== 0) {
             this.execute(EditorCommands.moveObjectsBy([this.span.handleA, this.span.handleB], dx, dy));
             track.applyDelta([dx, dy]);

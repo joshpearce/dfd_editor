@@ -21,14 +21,6 @@ import type { GenericLineInternalState } from "./GenericLineInternalState";
 // equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
 const AXIS_EPSILON = 1e-6;
 
-// Radius used for the handle-dot dead-zone fix in getObjectAt.  Source of
-// truth: each handle's HandlePoint face carries its own `radius` from the
-// theme's PointStyle.  Both the Dark and Light builtin designs use 6 (see
-// ThemeLoader/Styles/BuiltinDesigns.ts); mirroring the constant here avoids a
-// cross-layer read through an untyped cast on every hit-test tick.  Revisit if
-// DFD themes ever override the handle-dot radius per-face.
-const HANDLE_DOT_RADIUS = 6;
-
 /**
  * A {@link LineFace} that renders an arbitrary-vertex polyline whose interior
  * vertices each correspond to a real, stored, user-draggable handle.
@@ -123,7 +115,7 @@ export class PolyLine extends LineFace {
             // main hitbox scan.
             for (let h = 0; h < this.view.handles.length; h++) {
                 const handle = this.view.handles[h];
-                if (DiagramFace.isInsideMarkerDot(handle.x, handle.y, x, y, HANDLE_DOT_RADIUS)) {
+                if (DiagramFace.isInsideMarkerDot(handle.x, handle.y, x, y, handle.face.radius)) {
                     // Prefer the span whose handleB === handle (the segment
                     // ending at this handle), falling back to the span starting
                     // at it.  Deterministic: iteration order reads forward.
@@ -150,15 +142,11 @@ export class PolyLine extends LineFace {
                     const span = this.spans.find(
                         s => s.handleA === handleA && s.handleB === handleB
                     );
-                    if (span) {
-                        return span;
-                    }
-                    console.warn(
-                        "PolyLine.getObjectAt: interior hitbox has no matching span " +
-                        "(classifier skipped a diagonal segment?)",
-                        { handleA, handleB }
-                    );
-                    return this.view;
+                    // If no span matches (diagonal segment skipped during
+                    // classification — defensive only, TALA never produces
+                    // diagonals), fall through to the line view.  Silent because
+                    // getObjectAt runs on every hover tick.
+                    return span ?? this.view;
                 } else {
                     return this.view;
                 }
