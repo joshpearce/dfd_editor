@@ -71,11 +71,22 @@ export class DiagramViewFile extends DiagramModelFile {
 
     /**
      * Runs the specified async layout engine on the file's diagram.
+     *
+     * After the engine returns, every line's face is reconciled against
+     * its current handle count via {@link DiagramObjectViewFactory.inferLineFaces} —
+     * an auto-layout pass that grew a line to two or more handles needs
+     * its face swapped from `DynamicLine` to `PolyLine` so the multi-bend
+     * route renders verbatim.  Calling `inferLineFaces` here keeps the
+     * engine layer free of any view-face imports (PolyLine drags in a
+     * canvas-dependent FontStore that the engine's jsdom tests can't boot).
+     *
      * @param layout
      *  The layout engine to apply.
      */
     public async runLayout(layout: AsyncDiagramLayoutEngine): Promise<void> {
         await layout.run([this.canvas]);
+        this.factory.inferLineFaces([this.canvas]);
+        this.canvas.calculateLayout();
     }
 
     /**
