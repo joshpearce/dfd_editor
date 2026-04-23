@@ -405,6 +405,12 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      *  we select it first so the line stays selected while dragging the span.
      *  The resulting {@link PolyLineSpanMover} constrains motion to the axis
      *  perpendicular to the span's own direction.
+     *
+     *  Test-harness note: `TestablePowerEditPlugin.dispatchSpan` in
+     *  `PowerEditPlugin.testing.ts` inlines this method's logic so the test
+     *  surface can reach the dispatch without widening visibility.  If the
+     *  body here grows beyond "select parent; return new mover", mirror the
+     *  change there too.
      */
     private handleSpan(
         execute: CommandExecutor, span: PolyLineSpanView, event: MouseEvent

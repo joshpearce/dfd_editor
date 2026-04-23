@@ -1,4 +1,5 @@
-import { LineFace, HandleFace } from "../Bases";
+import { LineFace } from "../Bases";
+import { DiagramFace } from "../DiagramFace";
 import { findUnlinkedObjectAt } from "../../ViewLocators";
 import {
     doRegionsOverlap,
@@ -20,11 +21,12 @@ import type { GenericLineInternalState } from "./GenericLineInternalState";
 // equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
 const AXIS_EPSILON = 1e-6;
 
-// Radius used for the handle-dot dead-zone fix in getObjectAt.
-// Source of truth: HandlePoint (via HandleFace.isInsideHandleDot) uses the
-// theme's PointStyle radius (default 6 in both Dark and Light builtin designs —
-// see ThemeLoader/Styles/BuiltinDesigns.ts).  We mirror that constant so we
-// can call HandleFace.isInsideHandleDot without reading the live style object.
+// Radius used for the handle-dot dead-zone fix in getObjectAt.  Source of
+// truth: each handle's HandlePoint face carries its own `radius` from the
+// theme's PointStyle.  Both the Dark and Light builtin designs use 6 (see
+// ThemeLoader/Styles/BuiltinDesigns.ts); mirroring the constant here avoids a
+// cross-layer read through an untyped cast on every hit-test tick.  Revisit if
+// DFD themes ever override the handle-dot radius per-face.
 const HANDLE_DOT_RADIUS = 6;
 
 /**
@@ -119,16 +121,9 @@ export class PolyLine extends LineFace {
             // Strict-inequality hitboxes leave a ~1px gap at each H/V corner
             // that sits inside the visible dot area; catch those here before the
             // main hitbox scan.
-            //
-            // Radius source: HandlePoint.getObjectAt uses `r * r` where `r` is
-            // `this.style.radius`, which comes from the theme's PointStyle
-            // (default 6 in both Dark and Light builtin designs — see
-            // ThemeLoader/Styles/BuiltinDesigns.ts).  We mirror that value with
-            // a local constant rather than importing the style (no cross-layer
-            // dependency).
             for (let h = 0; h < this.view.handles.length; h++) {
                 const handle = this.view.handles[h];
-                if (HandleFace.isInsideHandleDot(handle.x, handle.y, x, y, HANDLE_DOT_RADIUS)) {
+                if (DiagramFace.isInsideMarkerDot(handle.x, handle.y, x, y, HANDLE_DOT_RADIUS)) {
                     // Prefer the span whose handleB === handle (the segment
                     // ending at this handle), falling back to the span starting
                     // at it.  Deterministic: iteration order reads forward.
