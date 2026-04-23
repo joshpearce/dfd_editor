@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+    BlockView,
     HandleView,
     LineView,
     PolyLine
@@ -177,24 +178,43 @@ describe("PolyLine", () => {
         expect(line.node2.y).toBe(beforeNode2[1] + 30);
     });
 
-    it("calculateLayout survives an unlinked endpoint without throwing or losing handles", async () => {
-        // Approximates the "delete the source block" reparent path: a
-        // line whose latch was previously linked to a block anchor ends
-        // up with `latch.anchor === null`.  PolyLine.calculateLayout
-        // (and the underlying LineFace.isAnchored guard) must handle
-        // this without crashing or discarding interior handles.
-        const line = await createPolyLineWithHandles([
-            [100, 50],
-            [200, 100],
-            [300, 50]
-        ]);
-        // Sanity: latches are unlinked in this fixture, so calculateLayout
-        // already runs through the unlinked path.  Re-running it after a
-        // hypothetical reparent must remain stable.
-        const beforeHandleCount = line.handles.length;
+    it("link → unlink (the 'delete source block' reparent path) leaves PolyLine intact", async () => {
+        // Build a line that mirrors the production reparent flow: link
+        // node1 to a real block anchor (so isAnchored() returns true),
+        // then unlink it (the equivalent of the source block being
+        // deleted out from under the line).  PolyLine.calculateLayout
+        // must run cleanly across the isAnchored true → false transition
+        // without crashing or discarding the interior handles.
+        const factory = await createLinesTestingFactory();
+        const line = factory.createNewDiagramObject("data_flow", LineView);
+        line.node1.moveTo(0, 0);
+        line.node2.moveTo(400, 0);
+        (line.handles[0] as HandleView).moveTo(100, 50);
+        const h1 = factory.createNewDiagramObject("generic_handle", HandleView);
+        h1.moveTo(200, 100);
+        line.addHandle(h1);
+        const h2 = factory.createNewDiagramObject("generic_handle", HandleView);
+        h2.moveTo(300, 50);
+        line.addHandle(h2);
+        line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+
+        // Link node1 to a real block anchor and lay out — exercises the
+        // anchored branch of LineFace.isAnchored / PolyLine.getObjectAt.
+        const block = factory.createNewDiagramObject("process", BlockView);
+        block.moveTo(50, 50);
+        const blockAnchor = block.anchors.values().next().value!;
+        line.node1.link(blockAnchor);
+        line.calculateLayout();
+        expect(line.node1.isLinked()).toBe(true);
+
+        // Snapshot handle positions, unlink (the reparent), and re-lay out.
+        const handleSnapshot = line.handles.map(h => [h.x, h.y]);
+        line.node1.unlink();
+        expect(line.node1.isLinked()).toBe(false);
 
         expect(() => line.calculateLayout()).not.toThrow();
-        expect(line.handles.length).toBe(beforeHandleCount);
+        expect(line.handles.length).toBe(3);
+        expect(line.handles.map(h => [h.x, h.y])).toEqual(handleSnapshot);
         expect(line.face).toBeInstanceOf(PolyLine);
     });
 
