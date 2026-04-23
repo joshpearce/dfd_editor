@@ -28,7 +28,7 @@ import { createLinesTestingFactory } from "./DiagramObjectView/Faces/Lines/Lines
 
 describe("DiagramViewFile — import-time PolyLine inference", () => {
 
-    it("PolyLine-backed line round-trips through export → import without losing handles or face", async () => {
+    it("PolyLine line round-trips face and handle positions through export/import", async () => {
         // Build a canvas with a 3-handle line and upgrade it to PolyLine
         // (the same path the auto-layout engine produces).
         const factory = await createLinesTestingFactory();

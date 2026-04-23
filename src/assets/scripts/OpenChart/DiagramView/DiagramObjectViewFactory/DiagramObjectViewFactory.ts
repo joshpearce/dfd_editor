@@ -410,6 +410,10 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     // DynamicLine.  Building a DynamicLine here would
                     // trigger view.dropHandles(1) on the next layout
                     // tick (called below) and lose the user's bends.
+                    //
+                    // The `instanceof LineView` guard narrows TS — at
+                    // runtime, design.type ensures the object is a Line
+                    // (assertTemplateMatchesFace would have thrown earlier).
                     const wantsPolyLine
                         = object instanceof LineView
                         && object.handles.length >= 2;
