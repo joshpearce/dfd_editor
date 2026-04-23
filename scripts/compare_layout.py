@@ -2,13 +2,24 @@
 """compare_layout.py
 
 Import a DFD minimal-format file into the running editor, wait for TALA
-auto-layout to complete, then compare the SVG node positions against the
-positions stored in the diagram's layout key.
+auto-layout to complete, then compare the browser's stored geometry
+against the TALA SVG on four independent dimensions:
 
-The comparison validates that the browser's SVG-parsing pipeline
-(parseTalaSvg → placeBlock → moveTo(center)) correctly translates each
-TALA rect's (x, y, width, height) into the center-based (cx, cy) stored
-in the diagram's `layout` key.
+  1. Block centers   — SVG rect center vs. saved `layout[guid]` (cx, cy).
+  2. Container bounds — SVG container rect vs. saved `groupBounds[guid]`
+                         (xMin, yMin, xMax, yMax).
+  3. Edge endpoints  — each flow latch's saved (cx, cy) vs. the TALA
+                         polyline's start/end vertex.
+  4. Bend points     — each flow's handle positions vs. the TALA
+                         polyline's interior vertices.
+
+Sections 1–3 should pass at default tolerance today. Section 4 is
+expected to fail on any flow TALA routed with three or more bends; the
+`pickPolylineElbow`/`significantInteriorVertices` reduction keeps only
+one handle, so multi-bend routes lose their interior vertices. The
+failing rows are the motivating signal for the `PolyLine`-face design
+work captured in
+`docs/design-plans/2026-04-23-multi-bend-flow-routing.md`.
 
 Usage:
     # Import, display in browser, wait for auto-layout, compare:
@@ -39,6 +50,9 @@ Options:
                         and save (default: 60).
     --tolerance PX      Maximum pixel delta per axis considered a "match"
                         (default: 2.0).
+    --verbose           Print per-row tables for every section. Without
+                        this flag each section prints only summary counts
+                        plus its pass/fail verdict.
     --json              Emit machine-readable JSON instead of human output.
 """
 
@@ -124,6 +138,26 @@ def load_diagram_layout(data_dir: Path, diagram_id: str) -> dict[str, list[float
         layout = data.get("layout")
         if layout:
             return layout
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def load_group_bounds(
+    data_dir: Path, diagram_id: str
+) -> dict[str, list[float]] | None:
+    """Return the `groupBounds` key from a saved diagram file, or None if absent.
+
+    `groupBounds[guid]` is `[xMin, yMin, xMax, yMax]`.  Containers with no
+    user-set bounds are absent from the map; auto-sized groups land in it
+    after the first save.
+    """
+    path = data_dir / f"{diagram_id}.json"
+    try:
+        data = json.loads(path.read_text())
+        bounds = data.get("groupBounds")
+        if bounds:
+            return bounds
     except (FileNotFoundError, json.JSONDecodeError):
         pass
     return None
@@ -215,6 +249,35 @@ def parse_svg_positions(svg_text: str) -> dict[str, dict[str, Any]]:
         }
 
     return positions
+
+
+def parse_svg_container_bounds(
+    svg_text: str,
+) -> dict[str, tuple[float, float, float, float]]:
+    """Extract `(xMin, yMin, xMax, yMax)` for every container in the TALA SVG.
+
+    A container is any node whose leaf GUID also appears as a non-leaf
+    segment of some other node's decoded D2 path.  Top-level blocks that
+    have no nested children are *not* containers and are excluded.  The
+    returned rect is the container's outer bounding box, ready to compare
+    against the saved `groupBounds` entry.
+    """
+    positions = parse_svg_positions(svg_text)
+
+    container_leaves: set[str] = set()
+    for info in positions.values():
+        parts = info["d2_path"].split(".")
+        if len(parts) > 1:
+            for segment in parts[:-1]:  # every non-leaf segment is a container
+                container_leaves.add(segment)
+
+    bounds: dict[str, tuple[float, float, float, float]] = {}
+    for leaf, info in positions.items():
+        if leaf not in container_leaves:
+            continue
+        x, y, w, h = info["x"], info["y"], info["w"], info["h"]
+        bounds[leaf] = (x, y, x + w, y + h)
+    return bounds
 
 
 # ---------------------------------------------------------------------------
@@ -343,72 +406,206 @@ def compare_layouts(
     }
 
 
+def compare_container_bounds(
+    svg_bounds:   dict[str, tuple[float, float, float, float]],
+    saved_bounds: dict[str, list[float]],
+    tolerance:    float = 2.0,
+) -> dict[str, Any]:
+    """Compare SVG-derived container rects to the saved `groupBounds` map.
+
+    Mirrors the shape of :func:`compare_layouts` so the caller can reuse
+    the reporting code: `{match, mismatch, svg_only, saved_only, summary}`.
+
+    The per-axis delta is the maximum absolute difference across the four
+    rect coordinates (xMin/yMin/xMax/yMax); a row passes when that delta
+    is within `tolerance`.
+    """
+    all_guids = sorted(set(svg_bounds) | set(saved_bounds))
+
+    match:      list[dict] = []
+    mismatch:   list[dict] = []
+    svg_only:   list[dict] = []
+    saved_only: list[dict] = []
+
+    for guid in all_guids:
+        in_svg   = guid in svg_bounds
+        in_saved = guid in saved_bounds
+
+        if in_svg and not in_saved:
+            x0, y0, x1, y1 = svg_bounds[guid]
+            svg_only.append({
+                "guid": guid,
+                "svg":  [x0, y0, x1, y1],
+            })
+            continue
+        if in_saved and not in_svg:
+            saved_only.append({
+                "guid":  guid,
+                "saved": list(saved_bounds[guid]),
+            })
+            continue
+
+        svg_rect   = svg_bounds[guid]
+        saved_rect = saved_bounds[guid]
+        deltas     = [abs(svg_rect[k] - saved_rect[k]) for k in range(4)]
+        max_delta  = max(deltas)
+
+        entry: dict = {
+            "guid":      guid,
+            "svg":       [round(v, 1) for v in svg_rect],
+            "saved":     list(saved_rect),
+            "delta":     [round(d, 1) for d in deltas],
+            "max_delta": round(max_delta, 1),
+        }
+        (match if max_delta <= tolerance else mismatch).append(entry)
+
+    # Pass only when no mismatches AND no orphan entries on either side.
+    # Orphans indicate a structural disagreement (a container the browser
+    # thinks exists but TALA didn't draw, or vice versa) — both are real
+    # failures, even though they don't carry a numeric delta.
+    passed = not mismatch and not svg_only and not saved_only
+    return {
+        "pass":       passed,
+        "tolerance":  tolerance,
+        "match":      match,
+        "mismatch":   mismatch,
+        "svg_only":   svg_only,
+        "saved_only": saved_only,
+        "summary": {
+            "total":      len(all_guids),
+            "match":      len(match),
+            "mismatch":   len(mismatch),
+            "svg_only":   len(svg_only),
+            "saved_only": len(saved_only),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Report output
 # ---------------------------------------------------------------------------
 
-def print_report(result: dict[str, Any], diagram_id: str, reference_id: str) -> None:
+def _fmt_pair(pair: list | tuple) -> str:
+    return f"({pair[0]:.1f}, {pair[1]:.1f})"
+
+
+def _fmt_rect(rect: list | tuple) -> str:
+    return f"({rect[0]:.0f}, {rect[1]:.0f}, {rect[2]:.0f}, {rect[3]:.0f})"
+
+
+def _print_block_centers(result: dict[str, Any], verbose: bool) -> None:
     summ = result["summary"]
     tol  = result["tolerance"]
+    print("  Block centers")
+    print("  " + "─" * 40)
 
+    if verbose and (result["mismatch"] or result["match"]):
+        w_guid  = 38
+        w_coord = 18
+        print(
+            f"    {'GUID':<{w_guid}}  {'SVG center':<{w_coord}}  "
+            f"{'Saved center':<{w_coord}}  Max Δ"
+        )
+        for entry in sorted(result["match"] + result["mismatch"],
+                            key=lambda e: e["guid"]):
+            ok_mark = "✓" if entry["max_delta"] <= tol else "✗"
+            print(
+                f"    {ok_mark} {entry['guid']:<{w_guid - 2}}  "
+                f"{_fmt_pair(entry['svg']):<{w_coord}}  "
+                f"{_fmt_pair(entry['saved']):<{w_coord}}  "
+                f"{entry['max_delta']:.1f}"
+            )
+        if result["svg_only"]:
+            print("    In SVG only (not in saved layout):")
+            for e in result["svg_only"]:
+                print(f"      {e['guid']}  {_fmt_pair([e['cx'], e['cy']])}")
+        if result["layout_only"]:
+            print("    In saved layout only (not in SVG):")
+            for e in result["layout_only"]:
+                print(f"      {e['guid']}  {_fmt_pair(e['saved'])}")
+
+    print(
+        f"    Summary: {summ['total']} nodes — "
+        f"{summ['match']} match, {summ['mismatch']} mismatch, "
+        f"{summ['svg_only']} SVG-only (containers), "
+        f"{summ['layout_only']} layout-only (handles / auto)"
+    )
+    verdict = "✓  PASS" if result["pass"] else "✗  FAIL"
+    print(f"    Verdict: {verdict}  (tolerance {tol} px)")
+    print()
+
+
+def _print_container_bounds(result: dict[str, Any], verbose: bool) -> None:
+    summ = result["summary"]
+    tol  = result["tolerance"]
+    print("  Container bounds")
+    print("  " + "─" * 40)
+
+    if verbose and (result["mismatch"] or result["match"]):
+        w_guid = 38
+        w_rect = 26
+        print(
+            f"    {'GUID':<{w_guid}}  {'SVG rect':<{w_rect}}  "
+            f"{'Saved rect':<{w_rect}}  Max Δ"
+        )
+        for entry in sorted(result["match"] + result["mismatch"],
+                            key=lambda e: e["guid"]):
+            ok_mark = "✓" if entry["max_delta"] <= tol else "✗"
+            print(
+                f"    {ok_mark} {entry['guid']:<{w_guid - 2}}  "
+                f"{_fmt_rect(entry['svg']):<{w_rect}}  "
+                f"{_fmt_rect(entry['saved']):<{w_rect}}  "
+                f"{entry['max_delta']:.1f}"
+            )
+        if result["svg_only"]:
+            print("    In SVG only (not in saved groupBounds):")
+            for e in result["svg_only"]:
+                print(f"      {e['guid']}  {_fmt_rect(e['svg'])}")
+        if result["saved_only"]:
+            print("    In saved groupBounds only (not in SVG):")
+            for e in result["saved_only"]:
+                print(f"      {e['guid']}  {_fmt_rect(e['saved'])}")
+
+    print(
+        f"    Summary: {summ['total']} containers — "
+        f"{summ['match']} match, {summ['mismatch']} mismatch, "
+        f"{summ['svg_only']} SVG-only, {summ['saved_only']} saved-only"
+    )
+    verdict = "✓  PASS" if result["pass"] else "✗  FAIL"
+    print(f"    Verdict: {verdict}  (tolerance {tol} px)")
+    print()
+
+
+def print_report(
+    results:      dict[str, Any],
+    diagram_id:   str,
+    reference_id: str,
+    verbose:      bool = False,
+) -> None:
+    """Print every section's result table (verbose) or summary (default).
+
+    `results` is a dict keyed by section name (`block_centers`,
+    `container_bounds`, …); missing sections are silently skipped so the
+    caller can extend the script incrementally.
+    """
     print()
     if diagram_id != reference_id:
         print(f"  Fresh diagram    : {diagram_id}")
         print(f"  Reference layout : {reference_id}")
     else:
         print(f"  Diagram : {diagram_id}")
-    print(f"  Tolerance        : {tol} px")
     print()
 
-    # Column widths
-    w_guid  = 38
-    w_coord = 18
-    header  = (
-        f"  {'GUID':<{w_guid}}  {'SVG center':<{w_coord}}  "
-        f"{'Saved center':<{w_coord}}  Max Δ"
-    )
-    rule = "  " + "─" * (len(header) - 2)
+    if "block_centers" in results:
+        _print_block_centers(results["block_centers"], verbose)
+    if "container_bounds" in results:
+        _print_container_bounds(results["container_bounds"], verbose)
 
-    def fmt_pair(pair: list | tuple) -> str:
-        return f"({pair[0]:.1f}, {pair[1]:.1f})"
-
-    if result["mismatch"] or result["match"]:
-        print(header)
-        print(rule)
-
-    for entry in sorted(result["match"] + result["mismatch"],
-                        key=lambda e: e["guid"]):
-        ok_mark = "✓" if entry["max_delta"] <= tol else "✗"
-        print(
-            f"  {ok_mark} {entry['guid']:<{w_guid - 2}}  "
-            f"{fmt_pair(entry['svg']):<{w_coord}}  "
-            f"{fmt_pair(entry['saved']):<{w_coord}}  "
-            f"{entry['max_delta']:.1f}"
-        )
-
-    if result["svg_only"]:
-        print()
-        print("  In SVG only (not in saved layout):")
-        for e in result["svg_only"]:
-            print(f"    {e['guid']}  {fmt_pair([e['cx'], e['cy']])}")
-
-    if result["layout_only"]:
-        print()
-        print("  In saved layout only (not in SVG):")
-        for e in result["layout_only"]:
-            print(f"    {e['guid']}  {fmt_pair(e['saved'])}")
-
-    print()
-    print(f"  Summary: {summ['total']} nodes total — "
-          f"{summ['match']} match, "
-          f"{summ['mismatch']} mismatch, "
-          f"{summ['svg_only']} SVG-only (containers / groups), "
-          f"{summ['layout_only']} layout-only (handles / auto-generated)")
-    print()
-    if result["pass"]:
-        print("  ✓  PASS  — all shared nodes match (SVG positions == saved layout)")
+    any_fail = any(not r["pass"] for r in results.values())
+    if any_fail:
+        print("  ✗  OVERALL FAIL — one or more sections reported mismatches")
     else:
-        print("  ✗  FAIL  — position mismatches found (see table above)")
+        print("  ✓  OVERALL PASS — every section matched within tolerance")
     print()
 
 
@@ -442,9 +639,48 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Seconds to wait for auto-layout (default: 60)")
     p.add_argument("--tolerance", type=float, default=2.0,
                    help="Max pixel delta per axis considered a match (default: 2.0)")
+    p.add_argument("--verbose", action="store_true",
+                   help="Print per-row tables for every section")
     p.add_argument("--json", action="store_true", dest="emit_json",
                    help="Emit machine-readable JSON result to stdout")
     return p
+
+
+def run_all_checks(
+    svg_text:     str,
+    data_dir:     Path,
+    diagram_id:   str,
+    tolerance:    float,
+) -> dict[str, Any]:
+    """Parse the SVG and saved diagram once, run every check, return a dict
+    keyed by section name (`block_centers`, `container_bounds`, …).
+
+    Unavailable sections (e.g. the saved diagram has no `groupBounds`) are
+    included with `pass=True` and an empty summary so the caller's
+    aggregate verdict logic stays uniform.
+    """
+    svg_positions = parse_svg_positions(svg_text)
+    layout        = load_diagram_layout(data_dir, diagram_id) or {}
+    group_bounds  = load_group_bounds(data_dir, diagram_id) or {}
+    svg_bounds    = parse_svg_container_bounds(svg_text)
+
+    results: dict[str, Any] = {}
+    results["block_centers"]    = compare_layouts(svg_positions, layout, tolerance)
+    results["container_bounds"] = compare_container_bounds(svg_bounds, group_bounds, tolerance)
+    return results
+
+
+def emit_results(
+    results:      dict[str, Any],
+    diagram_id:   str,
+    reference_id: str,
+    emit_json:    bool,
+    verbose:      bool,
+) -> None:
+    if emit_json:
+        print(json.dumps(results, indent=2))
+    else:
+        print_report(results, diagram_id, reference_id, verbose=verbose)
 
 
 def main() -> int:
@@ -464,17 +700,12 @@ def main() -> int:
             print(f"ERROR: {svg_path} does not exist", file=sys.stderr)
             return 1
         svg_text = svg_path.read_text()
-        layout   = load_diagram_layout(data_dir, diagram_id)
-        if layout is None:
+        if load_diagram_layout(data_dir, diagram_id) is None:
             print(f"ERROR: diagram {diagram_id!r} not found or has no layout key", file=sys.stderr)
             return 1
-        svg_positions = parse_svg_positions(svg_text)
-        result = compare_layouts(svg_positions, layout, args.tolerance)
-        if args.emit_json:
-            print(json.dumps(result, indent=2))
-        else:
-            print_report(result, diagram_id, diagram_id)
-        return 0 if result["pass"] else 2
+        results = run_all_checks(svg_text, data_dir, diagram_id, args.tolerance)
+        emit_results(results, diagram_id, diagram_id, args.emit_json, args.verbose)
+        return 0 if all(r["pass"] for r in results.values()) else 2
 
     # -----------------------------------------------------------------------
     # Normal mode: import → [display] → wait → compare
@@ -518,12 +749,14 @@ def main() -> int:
     # Determine comparison targets
     # -----------------------------------------------------------------------
     reference_id: str
+    compare_source_id: str  # whose saved JSON holds the reference geometry
 
     if args.reference:
         # Use the named reference diagram — no need to wait for auto-layout on
         # the fresh import.  Still useful to generate a fresh SVG then compare
         # it to a known-good reference.
         reference_id = args.reference
+        compare_source_id = args.reference
         print(f"  → Using reference layout: {reference_id}")
 
         # If display was broadcast, wait for the SVG to be updated.
@@ -541,8 +774,7 @@ def main() -> int:
         else:
             svg_text = svg_path.read_text()
 
-        layout = load_diagram_layout(data_dir, reference_id)
-        if layout is None:
+        if load_diagram_layout(data_dir, reference_id) is None:
             print(f"ERROR: reference diagram {reference_id!r} not found or has no layout key",
                   file=sys.stderr)
             return 1
@@ -550,8 +782,9 @@ def main() -> int:
     else:
         # No reference — wait for the browser to auto-layout the fresh import.
         reference_id = diagram_id
+        compare_source_id = diagram_id
         try:
-            svg_text, layout = wait_for_layout(
+            svg_text, _layout = wait_for_layout(
                 data_dir, diagram_id, svg_mtime_before, args.timeout
             )
         except TimeoutError as exc:
@@ -559,25 +792,17 @@ def main() -> int:
             return 1
 
     # -----------------------------------------------------------------------
-    # Parse SVG positions and compare
+    # Run every check against the SVG and the selected reference.
     # -----------------------------------------------------------------------
-    print(f"  Parsing SVG positions …")
+    print("  Parsing SVG and saved diagram …")
     try:
-        svg_positions = parse_svg_positions(svg_text)
+        results = run_all_checks(svg_text, data_dir, compare_source_id, args.tolerance)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-    print(f"  → Found {len(svg_positions)} positioned nodes in SVG")
-    print(f"  → Saved layout has {len(layout)} entries")
 
-    result = compare_layouts(svg_positions, layout, args.tolerance)
-
-    if args.emit_json:
-        print(json.dumps(result, indent=2))
-    else:
-        print_report(result, diagram_id, reference_id)
-
-    return 0 if result["pass"] else 2
+    emit_results(results, diagram_id, reference_id, args.emit_json, args.verbose)
+    return 0 if all(r["pass"] for r in results.values()) else 2
 
 
 if __name__ == "__main__":
