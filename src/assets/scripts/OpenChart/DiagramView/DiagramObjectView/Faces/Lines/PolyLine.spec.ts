@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import {
     BlockView,
     HandleView,
@@ -11,6 +11,7 @@ import {
 } from "./Lines.testing";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
 import { PolyLineSpanView } from "./PolyLineSpanView";
+import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 
 /**
  * A scoped lens that extends `GenericLineInternalState` with the
@@ -354,6 +355,191 @@ describe("PolyLine", () => {
         // Span instances must be freshly created, not the same objects as before.
         expect(spansAfter[0]).not.toBe(spansBefore[0]);
         expect(spansAfter[1]).not.toBe(spansBefore[1]);
+    });
+
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  getObjectAt (Step 3 hit-test cutover)  ////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+    /*
+     * Fixture used by all four getObjectAt tests:
+     *
+     *   handles[0] = (100,  50)
+     *   handles[1] = (200,  50)  → span[0] axis "H"  (shared y)
+     *   handles[2] = (200, 150)  → span[1] axis "V"  (shared x)
+     *
+     *   node1 = (0, 0)   node2 = (400, 400)
+     *
+     * Hitbox layout (hitboxWidth = 20, w = 10):
+     *
+     *   hitboxes[0]:  node1 → h0  (end segment, diagonal)
+     *   hitboxes[1]:  h0   → h1  (interior, H-axis)
+     *                   hitbox bounds: minX=100 maxX=200, minY=40 maxY=60
+     *   hitboxes[2]:  h1   → h2  (interior, V-axis)
+     *                   hitbox bounds: minX=190 maxX=210, minY=50 maxY=150
+     *   hitboxes[3]:  h2   → node2 (end segment, diagonal)
+     *
+     * Tests 1 and 2 (span returns) require isAnchored()=true, so node1 is
+     * linked to a real block anchor.  Tests 3 and 4 work with unlinked lines.
+     */
+
+    describe("getObjectAt", () => {
+
+        let factory: DiagramObjectViewFactory;
+
+        beforeAll(async () => {
+            factory = await createLinesTestingFactory();
+        });
+
+        /**
+         * Helper: builds the standard 3-handle PolyLine and links node1 to a
+         * block anchor so isAnchored() returns true (required for the
+         * span-aware hitbox path in getObjectAt).
+         */
+        async function createAnchoredFixture(): Promise<{
+            line: LineView;
+            spans: PolyLineSpanView[];
+        }> {
+            const line = factory.createNewDiagramObject("data_flow", LineView);
+            line.node1.moveTo(0, 0);
+            line.node2.moveTo(400, 400);
+
+            // Add two extra handles so total count is 3.
+            for (let i = 1; i < 3; i++) {
+                const h = factory.createNewDiagramObject("generic_handle", HandleView);
+                line.addHandle(h);
+            }
+
+            line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+
+            (line.handles[0] as HandleView).moveTo(100, 50);
+            (line.handles[1] as HandleView).moveTo(200, 50);
+            (line.handles[2] as HandleView).moveTo(200, 150);
+
+            // Link node1 to a block anchor so isAnchored() → true, which
+            // activates the span-aware branch of getObjectAt.
+            const block = factory.createNewDiagramObject("process", BlockView);
+            block.moveTo(50, 50);
+            const blockAnchor = block.anchors.values().next().value!;
+            line.node1.link(blockAnchor);
+
+            line.calculateLayout();
+
+            const spans = (line.face as unknown as PolyLineInternalState).spans;
+            return { line, spans };
+        }
+
+        it("interior-segment hitbox returns the matching PolyLineSpanView", async () => {
+            // A click in the middle of an interior segment must return the
+            // PolyLineSpanView for that segment, not a handle view and not
+            // the line view.
+            //
+            // H span (hitboxes[1], h0→h1): hitbox bounds minX=100 maxX=200, minY=40 maxY=60.
+            //   Midpoint (150, 50) is strictly inside.
+            //
+            // V span (hitboxes[2], h1→h2): hitbox bounds minX=190 maxX=210, minY=50 maxY=150.
+            //   Midpoint (200, 100) is strictly inside.
+            const { line, spans } = await createAnchoredFixture();
+
+            // H span midpoint.
+            const hitH = line.face.getObjectAt(150, 50);
+            expect(hitH).toBeInstanceOf(PolyLineSpanView);
+            expect(hitH).toBe(spans[0]);
+            expect(spans[0].axis).toBe("H");
+
+            // V span midpoint.
+            const hitV = line.face.getObjectAt(200, 100);
+            expect(hitV).toBeInstanceOf(PolyLineSpanView);
+            expect(hitV).toBe(spans[1]);
+            expect(spans[1].axis).toBe("V");
+        });
+
+        it("interior-handle-dot coordinates resolve to the span beneath, not the handle", async () => {
+            // Interior handle dots are not drag targets (Step 3 design
+            // decision). A click at a coordinate inside an interior hitbox
+            // that is also near a handle dot position must return the span,
+            // not a HandleView.
+            //
+            // handles[1] is at (200, 50), the H/V corner.  The strict-
+            // inequality hitbox check (`minX < x < maxX, minY < y < maxY`)
+            // means the exact corner point sits outside both hitboxes, so
+            // we use (199, 50) — one pixel inside the H span hitbox and at
+            // the same y as the handle dot — to demonstrate that the handle
+            // is bypassed.
+            const { line, spans } = await createAnchoredFixture();
+
+            // (199, 50) is inside the H span hitbox (minX=100 maxX=200, minY=40 maxY=60).
+            const hit = line.face.getObjectAt(199, 50);
+            expect(hit).toBeInstanceOf(PolyLineSpanView);
+            // Must be a span (H), not a handle.
+            expect(hit).toBe(spans[0]);
+        });
+
+        it("end-segment hitbox returns the line view (unchanged)", async () => {
+            // End hitboxes (the first and last segments connecting the
+            // latches to the outermost interior handles) still return the
+            // LineView, matching DynamicLine parity.  This test uses an
+            // unlinked line — both branches of getObjectAt return this.view
+            // for end hitboxes, so anchoring is not required here.
+            const line = factory.createNewDiagramObject("data_flow", LineView);
+            line.node1.moveTo(0, 0);
+            line.node2.moveTo(400, 400);
+            for (let i = 1; i < 3; i++) {
+                const h = factory.createNewDiagramObject("generic_handle", HandleView);
+                line.addHandle(h);
+            }
+            line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+            (line.handles[0] as HandleView).moveTo(100, 50);
+            (line.handles[1] as HandleView).moveTo(200, 50);
+            (line.handles[2] as HandleView).moveTo(200, 150);
+            line.calculateLayout();
+
+            // hitboxes[0]: end segment node1(0,0)→h0(100,50).
+            // Midpoint (50, 25) is well inside the end hitbox.
+            const hitStart = line.face.getObjectAt(50, 25);
+            expect(hitStart).toBe(line);
+
+            // hitboxes[3]: end segment h2(200,150)→node2(400,400).
+            // Midpoint (300, 275) is well inside the tail end hitbox.
+            const hitEnd = line.face.getObjectAt(300, 275);
+            expect(hitEnd).toBe(line);
+        });
+
+        it("unlinked src/trg latch still returns the latch view", async () => {
+            // The findUnlinkedObjectAt([node1, node2], ...) call runs before
+            // any hitbox check, so clicking near an unlinked latch marker
+            // always returns that latch — regardless of whether the line is
+            // anchored.  LatchPoint.getObjectAt uses a circular radius check
+            // (r=6, markerOffset=1), so clicking at the raw latch coordinate
+            // (dx=-1, dy=-1 from the marker centre → distance²=2 < 36) hits.
+            const line = factory.createNewDiagramObject("data_flow", LineView);
+            line.node1.moveTo(0, 0);
+            line.node2.moveTo(400, 400);
+            for (let i = 1; i < 3; i++) {
+                const h = factory.createNewDiagramObject("generic_handle", HandleView);
+                line.addHandle(h);
+            }
+            line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+            (line.handles[0] as HandleView).moveTo(100, 50);
+            (line.handles[1] as HandleView).moveTo(200, 50);
+            (line.handles[2] as HandleView).moveTo(200, 150);
+            line.calculateLayout();
+
+            // Both latches are unlinked in this fixture.
+            expect(line.node1.isLinked()).toBe(false);
+            expect(line.node2.isLinked()).toBe(false);
+
+            // Click at node1's coordinates (0, 0): latch marker is at (0+1, 0+1),
+            // so dx=-1, dy=-1, distance²=2 < 36 → hit.
+            const hitNode1 = line.face.getObjectAt(0, 0);
+            expect(hitNode1).toBe(line.node1);
+
+            // Click at node2's coordinates (400, 400): same radius logic.
+            const hitNode2 = line.face.getObjectAt(400, 400);
+            expect(hitNode2).toBe(line.node2);
+        });
+
     });
 
 });
