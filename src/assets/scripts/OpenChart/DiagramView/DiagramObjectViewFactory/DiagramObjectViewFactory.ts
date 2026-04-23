@@ -402,13 +402,23 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     object.replaceFace(face);
                     break;
                 case FaceType.DynamicLine:
-                    face = new DynamicLine(design.style, grid);
+                case FaceType.PolyLine: {
+                    // Preserve runtime face inference across restyle: a
+                    // line that was upgraded to PolyLine because it has
+                    // two or more handles must stay a PolyLine after the
+                    // theme swap, even when the new design declares
+                    // DynamicLine.  Building a DynamicLine here would
+                    // trigger view.dropHandles(1) on the next layout
+                    // tick (called below) and lose the user's bends.
+                    const wantsPolyLine
+                        = object instanceof LineView
+                        && object.handles.length >= 2;
+                    face = wantsPolyLine
+                        ? new PolyLine(design.style, grid)
+                        : new DynamicLine(design.style, grid);
                     object.replaceFace(face);
                     break;
-                case FaceType.PolyLine:
-                    face = new PolyLine(design.style, grid);
-                    object.replaceFace(face);
-                    break;
+                }
                 case FaceType.Group: {
                     // Rebuild with the new design's style, but preserve the
                     // user-chosen bounds from the old face.
