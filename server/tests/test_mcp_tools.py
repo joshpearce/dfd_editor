@@ -57,6 +57,7 @@ from mcp_server import (
     add_element,
     create_diagram,
     delete_diagram,
+    delete_element,
     display_diagram,
     get_diagram,
     list_diagrams,
@@ -308,6 +309,7 @@ class TestToolsEnumeration:
             "display_diagram",
             "add_element",
             "update_element",
+            "delete_element",
         }
 
 
@@ -1242,3 +1244,238 @@ class TestUpdateElement:
         fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
         ds = next(n for n in fetched["nodes"] if n["guid"] == _DATA_STORE_GUID)
         assert ds["properties"].get("contains_pii") != "yes_please"
+
+
+# ---------------------------------------------------------------------------
+# delete_element — granular element CRUD: remove with cascade
+# ---------------------------------------------------------------------------
+
+_DEL_PROCESS_GUID = "eeeeeeee-0000-0000-0000-000000000001"
+_DEL_STORE_GUID = "eeeeeeee-0000-0000-0000-000000000002"
+_DEL_FLOW_GUID = "eeeeeeee-0000-0000-0000-000000000003"
+_DEL_CONTAINER_GUID = "eeeeeeee-0000-0000-0000-000000000004"
+_DEL_NESTED_CONTAINER_GUID = "eeeeeeee-0000-0000-0000-000000000005"
+_DEL_DATA_ITEM_GUID = "eeeeeeee-0000-0000-0000-000000000006"
+
+
+def _make_doc_for_delete() -> dict:
+    """Build a diagram document with all cascade-relevant cross-references."""
+    return {
+        "meta": {"name": "delete_element test"},
+        "nodes": [
+            {"type": "process", "guid": _DEL_PROCESS_GUID, "properties": {"name": "P"}},
+            {"type": "data_store", "guid": _DEL_STORE_GUID, "properties": {"name": "DS"}},
+        ],
+        "containers": [
+            {
+                "type": "trust_boundary",
+                "guid": _DEL_CONTAINER_GUID,
+                "properties": {"name": "TB"},
+                "children": [_DEL_PROCESS_GUID, _DEL_NESTED_CONTAINER_GUID],
+            },
+            {
+                "type": "trust_boundary",
+                "guid": _DEL_NESTED_CONTAINER_GUID,
+                "properties": {"name": "Inner TB"},
+                "children": [],
+            },
+        ],
+        "data_flows": [
+            {
+                "guid": _DEL_FLOW_GUID,
+                "node1": _DEL_PROCESS_GUID,
+                "node2": _DEL_STORE_GUID,
+                "properties": {
+                    "name": "F",
+                    "node1_src_data_item_refs": [_DEL_DATA_ITEM_GUID],
+                    "node2_src_data_item_refs": [],
+                },
+            }
+        ],
+        "data_items": [
+            {
+                "guid": _DEL_DATA_ITEM_GUID,
+                "identifier": "D1",
+                "name": "Item",
+                "classification": "unclassified",
+                "parent": _DEL_PROCESS_GUID,
+            }
+        ],
+    }
+
+
+class TestDeleteElement:
+    def test_delete_data_flow_no_cascade(self, live_server):
+        """Deleting a data_flow removes only that flow; no cascade_removed."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        result = delete_element(diagram_id=diagram_id, guid=_DEL_FLOW_GUID, ctx=_ctx())
+
+        assert result["guid"] == _DEL_FLOW_GUID
+        assert result["deleted_collection"] == "data_flows"
+        assert result["cascade_removed"] == []
+        assert result["broadcast_delivered"] is True
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        flow_guids = {f["guid"] for f in fetched.get("data_flows", [])}
+        assert _DEL_FLOW_GUID not in flow_guids
+        # Nodes and data_items must be untouched.
+        node_guids = {n["guid"] for n in fetched["nodes"]}
+        assert _DEL_PROCESS_GUID in node_guids
+        assert _DEL_STORE_GUID in node_guids
+
+    def test_delete_node_cascades_flows_and_unparents_data_items(self, live_server):
+        """Deleting a node removes it, cascades connected flows, and unparents its data_items."""
+        tmp_path, port = live_server
+        ws, messages, reader_errors = _open_ws_and_drain(port)
+
+        create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        result = delete_element(diagram_id=diagram_id, guid=_DEL_PROCESS_GUID, ctx=_ctx())
+
+        assert result["guid"] == _DEL_PROCESS_GUID
+        assert result["deleted_collection"] == "nodes"
+        assert _DEL_FLOW_GUID in result["cascade_removed"]
+        assert result["broadcast_delivered"] is True
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+
+        # Node gone.
+        node_guids = {n["guid"] for n in fetched["nodes"]}
+        assert _DEL_PROCESS_GUID not in node_guids
+
+        # Flow cascaded away.
+        flow_guids = {f["guid"] for f in fetched.get("data_flows", [])}
+        assert _DEL_FLOW_GUID not in flow_guids
+
+        # data_item unparented (parent=None), not removed.
+        items = fetched.get("data_items", [])
+        item_guids = {di["guid"] for di in items}
+        assert _DEL_DATA_ITEM_GUID in item_guids
+        item = next(di for di in items if di["guid"] == _DEL_DATA_ITEM_GUID)
+        assert item.get("parent") is None
+
+        # Node removed from container children.
+        container = next(
+            c for c in fetched["containers"] if c["guid"] == _DEL_CONTAINER_GUID
+        )
+        assert _DEL_PROCESS_GUID not in container["children"]
+
+        matching = _wait_for_broadcast(messages, "diagram-updated", reader_errors=reader_errors)
+        assert len(matching) == 1
+        assert matching[0]["payload"]["id"] == diagram_id
+
+        ws.close()
+
+    def test_delete_node_not_in_container_children_removes_cleanly(self, live_server):
+        """Deleting a node that is NOT in any container's children still works."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        # Use _MINIMAL_DOC which has no containers.
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        result = delete_element(diagram_id=diagram_id, guid=_PROCESS_GUID, ctx=_ctx())
+
+        assert result["deleted_collection"] == "nodes"
+        assert _FLOW_GUID in result["cascade_removed"]
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        node_guids = {n["guid"] for n in fetched["nodes"]}
+        assert _PROCESS_GUID not in node_guids
+
+    def test_delete_container_removes_from_parent_children(self, live_server):
+        """Deleting a container removes it from its parent's children list, keeps inner elements."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        result = delete_element(
+            diagram_id=diagram_id, guid=_DEL_NESTED_CONTAINER_GUID, ctx=_ctx()
+        )
+
+        assert result["deleted_collection"] == "containers"
+        assert result["cascade_removed"] == []
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+
+        # Nested container gone.
+        container_guids = {c["guid"] for c in fetched["containers"]}
+        assert _DEL_NESTED_CONTAINER_GUID not in container_guids
+
+        # Outer container no longer references nested container in children.
+        outer = next(c for c in fetched["containers"] if c["guid"] == _DEL_CONTAINER_GUID)
+        assert _DEL_NESTED_CONTAINER_GUID not in outer["children"]
+
+        # Nodes are untouched.
+        node_guids = {n["guid"] for n in fetched["nodes"]}
+        assert _DEL_PROCESS_GUID in node_guids
+
+    def test_delete_data_item_removes_from_flow_refs(self, live_server):
+        """Deleting a data_item removes its guid from all flow src_data_item_refs."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        result = delete_element(
+            diagram_id=diagram_id, guid=_DEL_DATA_ITEM_GUID, ctx=_ctx()
+        )
+
+        assert result["deleted_collection"] == "data_items"
+        assert result["cascade_removed"] == []
+
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+
+        # data_item removed.
+        item_guids = {di["guid"] for di in fetched.get("data_items", [])}
+        assert _DEL_DATA_ITEM_GUID not in item_guids
+
+        # Flow no longer references the data_item.
+        flow = next(f for f in fetched["data_flows"] if f["guid"] == _DEL_FLOW_GUID)
+        refs = flow["properties"].get("node1_src_data_item_refs", [])
+        assert _DEL_DATA_ITEM_GUID not in refs
+
+    def test_nonexistent_guid_raises_value_error(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        with pytest.raises(ValueError, match="not found"):
+            delete_element(
+                diagram_id=diagram_id,
+                guid="00000000-ffff-ffff-ffff-000000000000",
+                ctx=_ctx(),
+            )
+
+    def test_nonexistent_diagram_raises(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+
+        with pytest.raises(Exception):
+            delete_element(
+                diagram_id="does-not-exist",
+                guid=_PROCESS_GUID,
+                ctx=_ctx(),
+            )
+
+    def test_broadcasts_diagram_updated(self, live_server):
+        tmp_path, port = live_server
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        ws, messages, reader_errors = _open_ws_and_drain(port)
+
+        delete_element(diagram_id=diagram_id, guid=_DATA_STORE_GUID, ctx=_ctx())
+
+        matching = _wait_for_broadcast(messages, "diagram-updated", reader_errors=reader_errors)
+        assert len(matching) == 1
+        assert matching[0]["payload"]["id"] == diagram_id
+
+        ws.close()

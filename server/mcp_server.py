@@ -516,6 +516,101 @@ def update_element(diagram_id: str, guid: str, fields: dict, ctx: Context) -> di
 
 
 @mcp.tool()
+def delete_element(diagram_id: str, guid: str, ctx: Context) -> dict:
+    """Remove a single element from a diagram, with cascade rules per collection.
+
+    Cascade rules applied after removing the element:
+
+    - **nodes**: All data_flows referencing this node (via ``node1`` or
+      ``node2``) are removed; their GUIDs are added to ``cascade_removed``.
+      Any data_item whose ``parent`` equals this guid has its parent set to
+      ``None`` (unparented in place — not removed). The guid is also removed
+      from any container's ``children`` list.
+
+    - **containers**: The guid is removed from any parent container's
+      ``children`` list. The container's own children (nodes / nested
+      containers) are not deleted — they simply become implicitly top-level.
+
+    - **data_flows**: No cascade.
+
+    - **data_items**: The guid is removed from
+      ``flow["properties"]["node1_src_data_item_refs"]`` and
+      ``flow["properties"]["node2_src_data_item_refs"]`` on every data_flow
+      that references it.
+
+    Raises ``ValueError`` if the element is not found. Validates and saves
+    the diagram after mutation. Returns
+    ``{guid, deleted_collection, cascade_removed, broadcast_delivered}``.
+    """
+    _stamp(ctx)
+    diagram = _fetch_minimal(diagram_id)
+    found = _find_element(diagram, guid)
+    if found is None:
+        raise ValueError(f"element {guid!r} not found in diagram {diagram_id!r}")
+    elem, collection = found
+
+    # Remove the element itself from its collection.
+    diagram[collection] = [
+        e for e in diagram.get(collection, [])
+        if str(e.get("guid")) != str(guid)
+    ]
+
+    cascade_removed: list[str] = []
+
+    if collection == "nodes":
+        # Cascade 1: remove data_flows that reference this node.
+        surviving_flows = []
+        for flow in diagram.get("data_flows", []):
+            if str(flow.get("node1")) == str(guid) or str(flow.get("node2")) == str(guid):
+                cascade_removed.append(str(flow["guid"]))
+            else:
+                surviving_flows.append(flow)
+        diagram["data_flows"] = surviving_flows
+
+        # Cascade 2: unparent data_items whose parent was this node.
+        for item in diagram.get("data_items", []):
+            if str(item.get("parent")) == str(guid):
+                item["parent"] = None
+
+        # Cascade 3: remove guid from any container's children list.
+        for container in diagram.get("containers", []):
+            container["children"] = [
+                c for c in container.get("children", [])
+                if str(c) != str(guid)
+            ]
+
+    elif collection == "containers":
+        # Remove guid from any parent container's children list.
+        for container in diagram.get("containers", []):
+            container["children"] = [
+                c for c in container.get("children", [])
+                if str(c) != str(guid)
+            ]
+        # The container's own children are not deleted — they become top-level.
+
+    elif collection == "data_items":
+        # Remove this data_item guid from all flow src_data_item_refs lists.
+        for flow in diagram.get("data_flows", []):
+            props = flow.get("properties", {})
+            for ref_key in ("node1_src_data_item_refs", "node2_src_data_item_refs"):
+                if ref_key in props:
+                    props[ref_key] = [
+                        r for r in props[ref_key]
+                        if str(r) != str(guid)
+                    ]
+
+    # collection == "data_flows" requires no cascade.
+
+    broadcast_delivered = _save_minimal(diagram_id, diagram)
+    return {
+        "guid": guid,
+        "deleted_collection": collection,
+        "cascade_removed": cascade_removed,
+        "broadcast_delivered": broadcast_delivered,
+    }
+
+
+@mcp.tool()
 def add_element(
     diagram_id: str,
     collection: Annotated[
