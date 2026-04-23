@@ -143,7 +143,7 @@ only; Flask's broadcast endpoint rejects non-loopback callers with 403.
 
 ### MCP tools (Step 2)
 
-Seven tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP transport
+Eleven tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP transport
 bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
 
 | Tool | Flask call | Emits |
@@ -158,6 +158,7 @@ bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
 | `add_element` | fetch → append → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
 | `update_element` | fetch → mutate → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
 | `delete_element` | fetch → cascade-delete → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+| `reparent_element` | fetch → move between containers → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
 
 `create_diagram` and `update_diagram` take `diagram: dict` (not
 `diagram: Diagram`) — validation happens inside the tool body via
