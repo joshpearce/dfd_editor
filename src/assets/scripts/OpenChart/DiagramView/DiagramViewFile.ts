@@ -42,6 +42,13 @@ export class DiagramViewFile extends DiagramModelFile {
     constructor(factory: DiagramObjectViewFactory, diagram?: DiagramViewExport) {
         // Create / Import
         super(factory, diagram);
+        // Reconcile line faces against the imported handle counts BEFORE
+        // the first calculateLayout.  A previously auto-laid-out diagram
+        // restores N-handle lines via DiagramObjectSerializer's import
+        // path; without the swap, DynamicLine.calculateLayout would
+        // immediately call view.dropHandles(1) and discard every TALA
+        // bend past index 0.  See DiagramObjectViewFactory.inferLineFaces.
+        this.factory.inferLineFaces([this.canvas]);
         // Calculate layout
         this.canvas.calculateLayout();
         // Run layout engine
