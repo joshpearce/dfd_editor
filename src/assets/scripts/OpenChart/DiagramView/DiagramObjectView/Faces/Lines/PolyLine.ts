@@ -8,6 +8,7 @@ import {
     isInsideRegion
 } from "@OpenChart/Utilities";
 import { runMultiElbowLayout } from "./LineLayoutStrategies";
+import { PolyLineSpanView } from "./PolyLineSpanView";
 import type { LineStyle } from "../Styles";
 import type { BoundingBox } from "../BoundingBox";
 import type { ViewportRegion } from "../../ViewportRegion";
@@ -44,6 +45,7 @@ export class PolyLine extends LineFace {
     private arrowAtNode1: number[] | null;
     private arrowAtNode2: number[] | null;
     private hitboxes: number[][];
+    private spans: PolyLineSpanView[];
 
     constructor(style: LineStyle, grid: [number, number]) {
         super();
@@ -54,6 +56,7 @@ export class PolyLine extends LineFace {
         this.arrowAtNode1 = null;
         this.arrowAtNode2 = null;
         this.hitboxes = [];
+        this.spans = [];
     }
 
     /**
@@ -107,6 +110,23 @@ export class PolyLine extends LineFace {
         const vertices = this.points.flatMap(p => [p.x, p.y]);
 
         runMultiElbowLayout(this.view, this as unknown as GenericLineInternalState, vertices);
+
+        // Rebuild spans: one per axis-aligned interior segment (handles[i] → handles[i+1]).
+        // hitboxes[i+1] is the segment between points[i+1] and points[i+2], i.e. handles[i] and handles[i+1].
+        this.spans = [];
+        for (let i = 0; i < handles.length - 1; i++) {
+            const a = handles[i];
+            const b = handles[i + 1];
+            let axis: "H" | "V";
+            if (a.y === b.y) {
+                axis = "H";
+            } else if (a.x === b.x) {
+                axis = "V";
+            } else {
+                continue;
+            }
+            this.spans.push(new PolyLineSpanView(this.view, a, b, axis, [...this.hitboxes[i + 1]]));
+        }
 
         this.calculateBoundingBoxFromViews(this.points);
         this.boundingBox.x = this.boundingBox.xMid;
