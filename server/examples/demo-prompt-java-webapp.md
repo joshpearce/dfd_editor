@@ -2,8 +2,9 @@
 
 Paste the **Prompt** section into a Claude Code session with the `dfd-editor`
 MCP server available. The agent builds a DFD of a modern Java web app on
-AWS from an empty canvas, one element at a time, using the granular
-`add_element` tool so each addition is immediately visible in the browser.
+AWS from an empty canvas, one element at a time, using the typed
+`add_node` / `add_container` / `add_flow` / `add_data_item` tools so each
+addition is immediately visible in the browser.
 
 The target diagram is richer than a plain topology: every node gets
 **data items** attached, and every request/response flow carries **both**
@@ -34,11 +35,13 @@ MCP tool calls instead of having to invent payloads.
 >
 > - `mcp__dfd-editor__create_diagram({"diagram": <minimal-doc>})` — returns `{"id": "...", ...}`. Call **once** in Step 1; save the returned id as `DIAGRAM_ID`.
 > - `mcp__dfd-editor__display_diagram({"diagram_id": DIAGRAM_ID})` — broadcasts to the browser. Call **once** in Step 1.
-> - `mcp__dfd-editor__add_element({"diagram_id": DIAGRAM_ID, "collection": <collection>, "element": <element>})` — appends one element to the named collection and persists. Call once **per element** in Steps 2–11.
+> - `mcp__dfd-editor__add_node({"diagram_id": DIAGRAM_ID, "node": <node>})` — per-element node add.
+> - `mcp__dfd-editor__add_container({"diagram_id": DIAGRAM_ID, "container": <container>})` — per-container add.
+> - `mcp__dfd-editor__add_flow({"diagram_id": DIAGRAM_ID, "flow": <flow>})` — per-flow add.
+> - `mcp__dfd-editor__add_data_item({"diagram_id": DIAGRAM_ID, "data_item": <data_item>})` — per-data-item add.
 >
-> `add_element` fetches the current diagram, appends your element, validates, and
-> persists — you do **not** need to track or resend the full document. Valid
-> `collection` values: `"nodes"`, `"containers"`, `"data_flows"`, `"data_items"`.
+> Each `add_*` tool appends one element to its collection and persists — you do
+> **not** need to track or resend the full document.
 >
 > ### Step 1 — create empty diagram and display it
 >
@@ -61,54 +64,54 @@ MCP tool calls instead of having to invent payloads.
 >
 > ### Step 2 — external entities
 >
-> Call `add_element` three times with `collection="nodes"`:
+> Call `add_node` three times:
 > `EE_USER`, `EE_STRIPE`, `EE_SES`.
 >
 > ### Step 3 — edge processes + Cognito
 >
-> Call `add_element` three times with `collection="nodes"`:
+> Call `add_node` three times:
 > `P_CDN`, `P_ALB`, `P_COGNITO`.
 >
 > ### Step 4 — four Spring Boot ECS Fargate services
 >
-> Call `add_element` four times with `collection="nodes"`:
+> Call `add_node` four times:
 > `P_WEB`, `P_API`, `P_AUTH`, `P_WORKER`.
 >
 > ### Step 5 — data stores
 >
-> Call `add_element` four times with `collection="nodes"`:
+> Call `add_node` four times:
 > `DS_REDIS`, `DS_RDS`, `DS_S3`, `DS_SQS`.
 >
 > ### Step 6 — trust boundaries + ECS Cluster container
 >
-> Call `add_element` six times with `collection="containers"`:
+> Call `add_container` six times:
 > `TB_INTERNET`, `TB_PUBLIC_SUBNET`, `TB_PRIVATE_SUBNET`, `TB_DATA_TIER`, `TB_MANAGED_SERVICES`, `CT_ECS`.
 >
 > ### Step 7 — data items
 >
-> Call `add_element` twenty-six times with `collection="data_items"`:
+> Call `add_data_item` twenty-six times:
 > `D1`, `D2`, `D3`, `D4`, `D5`, `D6`, `D7`, `D8`, `D9`, `D10`, `D11`,
 > `D12`, `D13`, `D14`, `D15`, `D16`, `D17`, `D18`, `D19`, `D20`,
 > `D21`, `D22`, `D23`, `D24`, `D25`, `D26`.
 >
 > ### Step 8 — client-facing flows
 >
-> Call `add_element` three times with `collection="data_flows"`:
+> Call `add_flow` three times:
 > `F1_USER_CDN`, `F2_CDN_ALB`, `F3_ALB_WEB`.
 >
 > ### Step 9 — auth flows
 >
-> Call `add_element` three times with `collection="data_flows"`:
+> Call `add_flow` three times:
 > `F4_WEB_AUTH`, `F5_AUTH_COGNITO`, `F6_AUTH_RDS`.
 >
 > ### Step 10 — REST API backend flows
 >
-> Call `add_element` six times with `collection="data_flows"`:
+> Call `add_flow` six times:
 > `F7_WEB_API`, `F8_API_RDS`, `F9_API_REDIS`, `F10_API_S3`, `F11_API_SQS`, `F12_API_STRIPE`.
 >
 > ### Step 11 — Background Worker flows
 >
-> Call `add_element` two times with `collection="data_flows"`:
+> Call `add_flow` two times:
 > `F13_WORKER_SQS`, `F14_WORKER_SES`.
 >
 > Print `DIAGRAM_ID` as the final line of output.

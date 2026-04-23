@@ -85,20 +85,29 @@ drive the same diagram operations over plain HTTP:
     - `POST /api/agent/diagrams/<id>/display` — broadcast `display`;
       404 if id unknown (pre-check so browser never gets a bad
       envelope).
-    - `POST /api/agent/diagrams/<id>/elements` — body
-      `{collection, element}`; appends + broadcast `diagram-updated`.
-      Returns 201 on success. 409 for duplicate guid, 400 for bad
-      collection/missing guid, 404 for unknown diagram.
-    - `PATCH /api/agent/diagrams/<id>/elements/<guid>` — body is the
-      sparse `fields` dict; sparse-merge + broadcast. 404 if element
-      missing.
-    - `DELETE /api/agent/diagrams/<id>/elements/<guid>` — delete with
-      cascade rules + broadcast. Returns
+    - `POST   /api/agent/diagrams/<id>/<collection>` — append element;
+      body is the element dict. Returns 201 with
+      `{guid, broadcast_delivered}`. `<collection>` ∈ `{nodes, containers,
+      data_flows, data_items}` (URL segments match JSON schema keys
+      verbatim). 409 duplicate-guid, 400 missing-guid / invalid element,
+      404 unknown diagram.
+    - `PATCH  /api/agent/diagrams/<id>/<collection>/<guid>` — sparse-merge
+      update. Body is a fields dict. The typed route passes the URL's
+      collection as `expected_collection=`, so a guid that actually lives
+      in another collection is rejected with HTTP 400 and
+      `{"error", "actual_collection"}` — this lets the agent distinguish
+      "wrong path" from "guid missing".
+    - `DELETE /api/agent/diagrams/<id>/<collection>/<guid>` — delete with
+      cascade rules. Same wrong-collection rejection shape as PATCH. Returns
       `{guid, deleted_collection, cascade_removed, broadcast_delivered}`.
-    - `POST /api/agent/diagrams/<id>/elements/<guid>/reparent` — body
-      `{new_parent_guid}` (nullable); returns
+    - `GET    /api/agent/diagrams/<id>/<collection>` — list summary rows
+      for the collection (same projections as `list_*` MCP tools).
+    - `POST   /api/agent/diagrams/<id>/reparent` — body
+      `{guid, new_parent_guid}` (nullable). Returns
       `{guid, old_parent_guid, new_parent_guid, broadcast_delivered}`.
-      409 on cycle, 404 on unknown target container.
+      409 on cycle, 404 on unknown target container, 404 if the guid is
+      not in `nodes` or `containers` (flows and data items cannot be
+      reparented).
 - **Port** — 5050 (set by `npm run dev:flask` in root `package.json`, NOT in
   `app.py`). Flask's own default of 5000 is not used here.
 - **CORS** — locked to `http://localhost:5173` (the Vite dev server). The
@@ -218,13 +227,13 @@ only; Flask's broadcast endpoint rejects non-loopback callers with 403.
 
 ### MCP tools
 
-Eleven tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP
-transport bound to 127.0.0.1:5051). As of 2026-04-23 each tool calls
-`agent_service.<op>` **in-process** (no more Flask HTTP hop for the
-diagram operation itself). Only broadcasts still cross the process
-boundary — they go via `ws.post_broadcast_envelope` which POSTs to
-`/api/internal/broadcast` (the connected WS clients live in Flask's
+Twenty-four tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP
+transport bound to 127.0.0.1:5051). Each tool calls `agent_service.<op>`
+**in-process** — only broadcasts still cross the process boundary via
+`ws.post_broadcast_envelope` (the connected WS clients live in Flask's
 process).
+
+**Diagram-level** (7):
 
 | Tool | agent_service call | Emits |
 |---|---|---|
@@ -235,10 +244,44 @@ process).
 | `update_diagram` | `update_diagram` | `diagram-updated` |
 | `delete_diagram` | `delete_diagram` | `diagram-deleted` |
 | `display_diagram` | `display_diagram` | `display` |
-| `add_element` | `add_element` | `diagram-updated` |
-| `update_element` | `update_element` | `diagram-updated` |
-| `delete_element` | `delete_element` | `diagram-updated` |
-| `reparent_element` | `reparent_element` | `diagram-updated` |
+
+**Typed element CRUD** (16) — one set per collection:
+
+| Collection | add / update / delete / list tools | agent_service calls |
+|---|---|---|
+| nodes | `add_node` / `update_node` / `delete_node` / `list_nodes` | `add_element("nodes", …)` / `update_element(expected_collection="nodes", …)` / `delete_element(expected_collection="nodes", …)` / `list_summaries("nodes", …)` |
+| containers | `add_container` / `update_container` / `delete_container` / `list_containers` | same, `"containers"` |
+| data_flows | `add_flow` / `update_flow` / `delete_flow` / `list_flows` | same, `"data_flows"` |
+| data_items | `add_data_item` / `update_data_item` / `delete_data_item` / `list_data_items` | same, `"data_items"` |
+
+All add/update/delete tools emit `diagram-updated`. `list_*` tools do not
+emit broadcasts.
+
+Typed `update_*` / `delete_*` tools pass the target collection as
+`expected_collection=` so a guid that lives in a different collection is
+rejected at the service layer with a `WrongCollectionError` (`ValueError`
+subclass with a structured `actual_collection` attribute). This lets the
+agent work against each tool's declared contract without guessing
+collection membership, and wrong-collection mistakes fail loudly rather
+than silently mutating the wrong element.
+
+`list_*` tools project each element to a small summary row so agents can
+enumerate one collection without fetching the whole diagram:
+
+- `list_nodes` / `list_containers` → `{guid, name, type}`
+- `list_flows` → `{guid, name, node1, node2}`
+- `list_data_items` → `{guid, name, classification}`
+
+**Shared** (1):
+
+| Tool | agent_service call | Emits |
+|---|---|---|
+| `reparent` | `reparent_element` | `diagram-updated` |
+
+Accepts a guid in either `nodes` or `containers` (flows and data items
+don't participate in the container hierarchy). `new_parent_guid=null`
+moves the element to the top level. Raises on cycles and unknown target
+containers.
 
 `create_diagram` and `update_diagram` take `diagram: dict` (not
 `diagram: Diagram`) — validation happens inside the service via
