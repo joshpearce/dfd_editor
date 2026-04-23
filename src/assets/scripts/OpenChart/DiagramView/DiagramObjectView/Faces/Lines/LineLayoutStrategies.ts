@@ -296,7 +296,7 @@ export function runVerticalElbowLayout(
  *   - `[0,0, 0,1, 0,0]` is acceptable.
  *   - `[0,0, 0,1, 0,1, 1,1]` should be simplified to `[0,0, 0,1, 1,1]`.
  */
-function runMultiElbowLayout(
+export function runMultiElbowLayout(
     view: LineView,
     face: GenericLineInternalState,
     vertices: number[]

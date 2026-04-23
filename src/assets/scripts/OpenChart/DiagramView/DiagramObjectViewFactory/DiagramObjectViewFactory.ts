@@ -6,7 +6,7 @@ import {
     AnchorPoint, AnchorView, BlockView, BranchBlock,
     CanvasView, DictionaryBlock, DotGridCanvas, DynamicLine,
     GroupFace, GroupView, HandlePoint, HandleView,
-    LatchPoint, LatchView, LineGridCanvas, LineView, TextBlock
+    LatchPoint, LatchView, LineGridCanvas, LineView, PolyLine, TextBlock
 } from "../DiagramObjectView";
 import type { FaceDesign } from "./FaceDesign";
 import type { Constructor } from "@OpenChart/Utilities";
@@ -196,6 +196,7 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                 return object;
 
             case FaceType.DynamicLine:
+            case FaceType.PolyLine:
                 // Assert template
                 this.assertTemplateMatchesFace(template, design.type);
                 // Create object
@@ -270,6 +271,9 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
             case FaceType.DynamicLine:
                 face = new DynamicLine(design.style, grid);
                 return new LineView(template.name, instance, attrs, props, face);
+            case FaceType.PolyLine:
+                face = new PolyLine(design.style, grid);
+                return new LineView(template.name, instance, attrs, props, face);
             case FaceType.Group:
                 face = new GroupFace(design.style);
                 return new GroupView(template.name, instance, attrs, props, face);
@@ -325,6 +329,7 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     return;
                 }
             case FaceType.DynamicLine:
+            case FaceType.PolyLine:
                 if (type === DiagramObjectType.Line) {
                     return;
                 }
@@ -398,6 +403,10 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     break;
                 case FaceType.DynamicLine:
                     face = new DynamicLine(design.style, grid);
+                    object.replaceFace(face);
+                    break;
+                case FaceType.PolyLine:
+                    face = new PolyLine(design.style, grid);
                     object.replaceFace(face);
                     break;
                 case FaceType.Group: {
