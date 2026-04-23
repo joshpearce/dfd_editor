@@ -35,8 +35,10 @@ agent_api = Blueprint("agent_api", __name__, url_prefix="/api/agent")
 
 
 # ---------------------------------------------------------------------------
-# Error helpers (shared with editor_api via duplication — error details are a
-# pydantic/Flask-specific concern, not a core concern).
+# Error helpers
+# Validation-error formatting is intentionally duplicated with editor_api
+# so pydantic error shaping stays a blueprint-local concern (and neither
+# blueprint imports from the other).
 # ---------------------------------------------------------------------------
 
 
@@ -74,6 +76,8 @@ def _map_core_error(e: Exception) -> tuple[Response, int] | None:
     Returns None if the exception is not handled here (caller should re-raise
     or handle itself).
     """
+    if isinstance(e, storage.DiagramNotFoundError):
+        return jsonify({"error": "not found"}), 404
     if isinstance(e, agent_service.WrongCollectionError):
         return (
             jsonify({"error": str(e), "actual_collection": e.actual_collection}),
@@ -122,8 +126,11 @@ def list_diagrams():
 def get_diagram(diagram_id):
     try:
         return jsonify(agent_service.get_diagram(diagram_id))
-    except storage.DiagramNotFoundError:
-        return jsonify({"error": "not found"}), 404
+    except Exception as e:
+        mapped = _map_core_error(e)
+        if mapped is not None:
+            return mapped
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -165,16 +172,22 @@ def update_diagram(diagram_id):
 def delete_diagram(diagram_id):
     try:
         return jsonify(agent_service.delete_diagram(diagram_id, ws.broadcast))
-    except storage.DiagramNotFoundError:
-        return jsonify({"error": "not found"}), 404
+    except Exception as e:
+        mapped = _map_core_error(e)
+        if mapped is not None:
+            return mapped
+        raise
 
 
 @agent_api.post("/diagrams/<diagram_id>/display")
 def display_diagram(diagram_id):
     try:
         return jsonify(agent_service.display_diagram(diagram_id, ws.broadcast))
-    except storage.DiagramNotFoundError:
-        return jsonify({"error": "not found"}), 404
+    except Exception as e:
+        mapped = _map_core_error(e)
+        if mapped is not None:
+            return mapped
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -187,15 +200,15 @@ def display_diagram(diagram_id):
 # independent.
 # ---------------------------------------------------------------------------
 
+_PROPERTIED_SUMMARY_MAP: dict[str, str] = {
+    "guid": "guid",
+    "name": "properties.name",
+    "type": "type",
+}
+
 _COLLECTIONS: list[tuple[str, dict[str, str]]] = [
-    (
-        "nodes",
-        {"guid": "guid", "name": "properties.name", "type": "type"},
-    ),
-    (
-        "containers",
-        {"guid": "guid", "name": "properties.name", "type": "type"},
-    ),
+    ("nodes", _PROPERTIED_SUMMARY_MAP),
+    ("containers", _PROPERTIED_SUMMARY_MAP),
     (
         "data_flows",
         {"guid": "guid", "name": "properties.name", "node1": "node1", "node2": "node2"},
@@ -208,15 +221,19 @@ _COLLECTIONS: list[tuple[str, dict[str, str]]] = [
 
 
 def _register_collection_routes(collection: str, field_map: dict[str, str]) -> None:
-    """Mount POST/PATCH/DELETE/GET handlers for one collection segment."""
+    """Register POST/PATCH/DELETE/GET at /diagrams/<id>/<collection>[/<guid>].
+
+    ``collection`` is the URL segment (also passed to agent_service as
+    ``expected_collection`` on update / delete). ``field_map`` is the GET
+    projection — a mapping of output key → source path (top-level key or
+    ``properties.<key>``), evaluated by agent_service.list_summaries.
+    """
 
     # POST /diagrams/<diagram_id>/<collection>
     def add_handler(diagram_id, _col=collection):
         body, err = _body_or_400()
         if err is not None:
             return err
-        if not storage.diagram_exists(diagram_id):
-            return jsonify({"error": "not found"}), 404
         if not isinstance(body, dict):
             return jsonify({"error": "body must be a JSON object"}), 400
         try:
@@ -235,8 +252,6 @@ def _register_collection_routes(collection: str, field_map: dict[str, str]) -> N
         body, err = _body_or_400()
         if err is not None:
             return err
-        if not storage.diagram_exists(diagram_id):
-            return jsonify({"error": "not found"}), 404
         if not isinstance(body, dict):
             return jsonify({"error": "body must be a JSON object of fields"}), 400
         try:
@@ -254,8 +269,6 @@ def _register_collection_routes(collection: str, field_map: dict[str, str]) -> N
 
     # DELETE /diagrams/<diagram_id>/<collection>/<guid>
     def delete_handler(diagram_id, guid, _col=collection):
-        if not storage.diagram_exists(diagram_id):
-            return jsonify({"error": "not found"}), 404
         try:
             result = agent_service.delete_element(
                 diagram_id, guid, ws.broadcast, expected_collection=_col
@@ -271,43 +284,26 @@ def _register_collection_routes(collection: str, field_map: dict[str, str]) -> N
 
     # GET /diagrams/<diagram_id>/<collection>
     def list_handler(diagram_id, _col=collection, _field_map=field_map):
-        if not storage.diagram_exists(diagram_id):
-            return jsonify({"error": "not found"}), 404
         try:
-            result = agent_service.list_summaries(diagram_id, _col, _field_map)
-        except storage.DiagramNotFoundError:
-            return jsonify({"error": "not found"}), 404
-        except core.InvalidCollectionError as e:
-            return jsonify({"error": str(e)}), 400
-        return jsonify(result)
+            return jsonify(agent_service.list_summaries(diagram_id, _col, _field_map))
+        except Exception as e:
+            mapped = _map_core_error(e)
+            if mapped is not None:
+                return mapped
+            raise
 
     list_handler.__name__ = f"list_{collection}"
 
     # Register all four routes on the blueprint.
-    agent_api.add_url_rule(
-        f"/diagrams/<diagram_id>/{collection}",
-        endpoint=f"add_{collection}",
-        view_func=add_handler,
-        methods=["POST"],
+    base = f"/diagrams/<diagram_id>/{collection}"
+    routes = (
+        ("", ["POST"], f"add_{collection}", add_handler),
+        ("/<guid>", ["PATCH"], f"update_{collection}", update_handler),
+        ("/<guid>", ["DELETE"], f"delete_{collection}", delete_handler),
+        ("", ["GET"], f"list_{collection}", list_handler),
     )
-    agent_api.add_url_rule(
-        f"/diagrams/<diagram_id>/{collection}/<guid>",
-        endpoint=f"update_{collection}",
-        view_func=update_handler,
-        methods=["PATCH"],
-    )
-    agent_api.add_url_rule(
-        f"/diagrams/<diagram_id>/{collection}/<guid>",
-        endpoint=f"delete_{collection}",
-        view_func=delete_handler,
-        methods=["DELETE"],
-    )
-    agent_api.add_url_rule(
-        f"/diagrams/<diagram_id>/{collection}",
-        endpoint=f"list_{collection}",
-        view_func=list_handler,
-        methods=["GET"],
-    )
+    for suffix, methods, endpoint, view in routes:
+        agent_api.add_url_rule(base + suffix, endpoint=endpoint, view_func=view, methods=methods)
 
 
 for _collection, _field_map in _COLLECTIONS:
@@ -324,8 +320,6 @@ def reparent_element(diagram_id):
     body, err = _body_or_400()
     if err is not None:
         return err
-    if not storage.diagram_exists(diagram_id):
-        return jsonify({"error": "not found"}), 404
     if not isinstance(body, dict):
         return jsonify({"error": "body must be a JSON object"}), 400
     if not isinstance(body.get("guid"), str):

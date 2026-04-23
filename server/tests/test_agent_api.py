@@ -390,6 +390,10 @@ class TestNodesEndpoints:
         assert resp.status_code == 200
         assert resp.get_json() == []
 
+    def test_list_missing_diagram_returns_404(self, client):
+        resp = client.get("/api/agent/diagrams/does-not-exist/nodes")
+        assert resp.status_code == 404
+
     def test_delete_node_cascades_flows(self, client):
         diagram_id = _create(client)
         resp = client.delete(f"/api/agent/diagrams/{diagram_id}/nodes/{_PROCESS_GUID}")
@@ -534,7 +538,6 @@ class TestContainersEndpoints:
 
 class TestFlowsEndpoints:
     def test_add_flow(self, client):
-        # Need two nodes and then add a flow between them
         diagram_id = _create(client)
         resp = client.post(
             f"/api/agent/diagrams/{diagram_id}/data_flows",
@@ -548,12 +551,7 @@ class TestFlowsEndpoints:
             ),
             content_type="application/json",
         )
-        # node1 < node2 canonicalization: _PROCESS_GUID "111..." < _STORE_GUID "333..."
-        # But the existing _FLOW_GUID already has the same endpoints — we need different endpoints.
-        # Let's use the container guid as an endpoint (not valid), so use new nodes instead.
-        # Actually: add a new node first, then add flow between it and existing.
-        # Simpler: the test doc already has a flow between PROCESS and STORE; a second one
-        # with a NEW guid between the same pair is perfectly valid.
+        # A second flow with a fresh guid between the same endpoint pair is valid.
         assert resp.status_code == 201
         assert resp.get_json()["guid"] == _NEW_FLOW_GUID
         fetched = client.get(f"/api/agent/diagrams/{diagram_id}").get_json()
@@ -907,6 +905,36 @@ class TestReparent:
             content_type="application/json",
         )
         assert resp.status_code == 404
+
+    def test_reparent_rejects_flow_guid(self, client):
+        diagram_id = _create(client)
+        resp = client.post(
+            f"/api/agent/diagrams/{diagram_id}/reparent",
+            data=json.dumps({"guid": _FLOW_GUID, "new_parent_guid": None}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 404
+        # Exception message names "nodes or containers" per core.reparent_element.
+        assert "nodes or containers" in resp.get_json()["error"]
+
+    def test_reparent_rejects_data_item_guid(self, client):
+        # Need a diagram that has a data_item with a known guid.
+        doc = copy.deepcopy(_MINIMAL_DOC)
+        _EXTRA_DATA_ITEM_GUID = "77777777-0000-0000-0000-000000000007"
+        doc["data_items"] = [{
+            "guid": _EXTRA_DATA_ITEM_GUID,
+            "identifier": "D1",
+            "name": "Item",
+            "classification": "unclassified",
+        }]
+        diagram_id = _create(client, doc)
+        resp = client.post(
+            f"/api/agent/diagrams/{diagram_id}/reparent",
+            data=json.dumps({"guid": _EXTRA_DATA_ITEM_GUID, "new_parent_guid": None}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 404
+        assert "nodes or containers" in resp.get_json()["error"]
 
 
 # ---------------------------------------------------------------------------
