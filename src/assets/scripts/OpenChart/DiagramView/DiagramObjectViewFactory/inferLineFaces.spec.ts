@@ -78,6 +78,35 @@ describe("DiagramObjectViewFactory.inferLineFaces", () => {
         expect(line.face).toBe(polyFace);
     });
 
+    it("restyleDiagramObject keeps a PolyLine as a PolyLine even when the design declares DynamicLine", async () => {
+        // Critical contract for applyTheme / clone: a multi-handle line
+        // upgraded to PolyLine at runtime must NOT be silently demoted
+        // back to DynamicLine when the schema's design says DynamicLine.
+        // Demotion would trigger view.dropHandles(1) on the next layout
+        // tick and erase the user's bends.
+        const { line, factory } = await buildLineWithHandleCount(2);
+        factory.inferLineFaces([line]);
+        expect(line.face).toBeInstanceOf(PolyLine);
+
+        // Apply restyle directly — same path applyTheme uses.
+        factory.restyleDiagramObject([line]);
+
+        expect(line.face).toBeInstanceOf(PolyLine);
+        expect(line.handles.length).toBe(2);
+    });
+
+    it("restyleDiagramObject builds a DynamicLine for single-handle lines", async () => {
+        // Inverse contract: a single-handle line restyles to DynamicLine
+        // even though FaceType.DynamicLine and FaceType.PolyLine share
+        // the same case branch.  Confirms the inferred face is selected
+        // by handle count, not by the order the cases appear.
+        const { line, factory } = await buildLineWithHandleCount(1);
+
+        factory.restyleDiagramObject([line]);
+
+        expect(line.face).toBeInstanceOf(DynamicLine);
+    });
+
     it("traverses lines nested under a group inside a canvas root", async () => {
         // Build a real canvas → group → line subtree so the test
         // exercises the postfix-traversal path that runLayout uses
