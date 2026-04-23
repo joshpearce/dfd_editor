@@ -1033,6 +1033,48 @@ describe("parseTalaSvg — edges", () => {
         expect(edges[0].end).toEqual(edges[0].points[edges[0].points.length - 1]);
     });
 
+    it("filleted bend (L pre-corner S control post-corner L next) → emits S control as the logical bend, not the L pre-corner or post-corner exit", () => {
+        // TALA emits orthogonal bends with a 5-px corner fillet:
+        //   L (10 px before corner) S (corner control) (10 px past corner) L (next pre-corner)
+        // The CONTROL point of the S is the logical bend; the L before and
+        // the post-corner exit are run-up / run-down vertices that — if
+        // emitted as polyline points — would triple the bend count and
+        // multiply downstream handle counts by ~3 (the bug compare_layout
+        // surfaces against the java_web_app fixture).
+        const svg = buildSvgWithConnections([], [
+            { d: "M 1082 1366 L 424 1366 S 414 1366 414 1356 L 414 311 S 414 301 424 301 L 1285 301" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].points).toEqual([
+            { x: 1082, y: 1366 }, // M start
+            { x: 414,  y: 1366 }, // S control (corner 1)
+            { x: 414,  y: 301 },  // S control (corner 2)
+            { x: 1285, y: 301 }   // final L
+        ]);
+        expect(edges[0].start).toEqual({ x: 1082, y: 1366 });
+        expect(edges[0].end).toEqual({ x: 1285, y: 301 });
+    });
+
+    it("filleted three-bend U-route → three S controls + start + end = 5 points", () => {
+        const svg = buildSvgWithConnections([], [
+            { d: "M 1919 1846 L 2060 1846 S 2070 1846 2070 1836 L 2070 10 S 2070 0 2060 0 L 1460 0 S 1450 0 1450 10 L 1450 126" }
+        ]);
+
+        const { edges } = parseTalaSvg(svg);
+
+        expect(edges).toHaveLength(1);
+        expect(edges[0].points).toEqual([
+            { x: 1919, y: 1846 }, // M start
+            { x: 2070, y: 1846 }, // S control (corner 1)
+            { x: 2070, y: 0 },    // S control (corner 2)
+            { x: 1450, y: 0 },    // S control (corner 3)
+            { x: 1450, y: 126 }   // final L
+        ]);
+    });
+
     it("straight two-point polyline → `points` has exactly the two endpoints", () => {
         const svg = buildSvgWithConnections([], [
             { d: "M 10 20 L 100 200" }

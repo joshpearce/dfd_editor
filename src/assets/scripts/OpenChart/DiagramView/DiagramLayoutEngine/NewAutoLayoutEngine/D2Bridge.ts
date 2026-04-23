@@ -531,37 +531,97 @@ export function parseTalaSvg(svg: string): {
         }
         const d = pathEl.getAttribute("d") ?? "";
 
-        // Extract the start point from the leading "M x y" command.
-        const startMatch = /^M\s*([-\d.]+)[,\s]+([-\d.]+)/.exec(d);
-        if (!startMatch) {
+        // Tokenise the `d` attribute with command letters preserved.  TALA
+        // emits filleted bends as `L (pre-corner) S (control) (post-corner)`
+        // triplets where the control point IS the logical polyline corner —
+        // a 5-px fillet that rounds a sharp turn between two straight runs.
+        // A pure straight edge stays `M x0 y0 L x1 y1`.
+        //
+        // The previous "tokenise every number" approach treated each
+        // coordinate pair as its own polyline vertex, which caused every
+        // logical bend to expand into three separate points (pre-corner,
+        // control, post-corner) when the consumer iterated the result.
+        // The downstream PolyLine pass then materialised one handle per
+        // point, multiplying handle counts by ~3 on multi-bend routes.
+        //
+        // Command-aware rule:
+        //  - `M x y`            → start vertex (x, y).
+        //  - `L x y` followed by S → SKIP (pre-corner approach to the next bend).
+        //  - `L x y` not followed by S → emit (x, y) (straight-line vertex
+        //    or final endpoint).
+        //  - `S cx cy x y`      → emit (cx, cy) (the control IS the corner;
+        //    the (x, y) post-corner exit is discarded).
+        //  - `C c1x c1y c2x c2y x y` → emit (x, y) (full Bezier endpoint;
+        //    TALA doesn't emit these today, but this keeps the parser
+        //    robust against future D2 versions).
+        //  - `Z` / `z`          → ignored.
+        //
+        // Coordinate formats handled by tokenisation: space-, comma-, and
+        // implicit-(leading-minus)-separated.
+        type PathCmd = { cmd: string, args: number[] };
+        const cmds: PathCmd[] = [];
+        const re = /([MmLlSsCcQqZz])|([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/g;
+        let current: PathCmd | null = null;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(d)) !== null) {
+            if (m[1]) {
+                current = { cmd: m[1], args: [] };
+                cmds.push(current);
+            } else if (current) {
+                current.args.push(parseFloat(m[2]));
+            }
+        }
+        if (cmds.length === 0 || (cmds[0].cmd !== "M" && cmds[0].cmd !== "m")) {
             continue;
         }
 
-        // Tokenise every numeric coordinate pair in the path and treat them
-        // as polyline vertices.  This is a lossy-but-useful view of the path:
-        // TALA emits straight-line edges as `M x0 y0 L x1 y1 L x2 y2 …` which
-        // is a pure polyline, and curved edges (`C`, `Q`) as `M x0 y0 C cx1
-        // cy1 cx2 cy2 x1 y1 …`.  In the curved case the "vertices" include
-        // control points; downstream callers that care about the visual bend
-        // shape treat control points and vertices interchangeably here (the
-        // geometric spread across the path is what matters for picking a
-        // single handle waypoint, not the exact Bezier semantics).
-        //
-        // Tokenising rather than matching a fixed separator handles all
-        // D2/TALA coordinate formats: space-separated ("L 100 200"),
-        // comma-separated ("L 100,200"), and implicit-separator ("L 100-20"
-        // where the negative sign acts as the separator).
-        const dStripped = d.replace(/[Zz]\s*$/, "");
-        const numTokens = Array.from(dStripped.matchAll(/([-+]?[\d.]+)/g));
-        if (numTokens.length < 2) {
-            continue;
-        }
         const points: Point[] = [];
-        for (let i = 0; i + 1 < numTokens.length; i += 2) {
-            const x = parseFloat(numTokens[i][1]);
-            const y = parseFloat(numTokens[i + 1][1]);
-            if (!isNaN(x) && !isNaN(y)) {
-                points.push({ x, y });
+        for (let i = 0; i < cmds.length; i++) {
+            const c = cmds[i];
+            switch (c.cmd) {
+                case "M":
+                case "m":
+                    if (c.args.length >= 2) {
+                        points.push({ x: c.args[0], y: c.args[1] });
+                    }
+                    break;
+                case "L":
+                case "l": {
+                    if (c.args.length < 2) {
+                        break;
+                    }
+                    // Skip a straight-line vertex that's just the run-up to
+                    // a TALA fillet; the S that follows carries the actual
+                    // corner.  Final L vertices (no following S) are emitted.
+                    const next = cmds[i + 1];
+                    if (next && (next.cmd === "S" || next.cmd === "s")) {
+                        break;
+                    }
+                    points.push({ x: c.args[0], y: c.args[1] });
+                    break;
+                }
+                case "S":
+                case "s":
+                    if (c.args.length >= 4) {
+                        // S control point is the logical corner.
+                        points.push({ x: c.args[0], y: c.args[1] });
+                    }
+                    break;
+                case "C":
+                case "c":
+                    // Full Bezier — emit the endpoint (x, y) at args[4..5].
+                    if (c.args.length >= 6) {
+                        points.push({ x: c.args[4], y: c.args[5] });
+                    }
+                    break;
+                case "Q":
+                case "q":
+                    if (c.args.length >= 4) {
+                        // Quadratic — control IS the corner, mirror S handling.
+                        points.push({ x: c.args[0], y: c.args[1] });
+                    }
+                    break;
+                // Z/z: close path; no vertex contribution.
             }
         }
         if (points.length < 2) {

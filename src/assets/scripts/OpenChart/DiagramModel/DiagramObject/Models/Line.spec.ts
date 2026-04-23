@@ -18,18 +18,15 @@ import {
 } from "@OpenChart/DiagramModel";
 
 function makeLine(): Line {
-    const props = new RootProperty("line", { name: "test_line" });
-    return new Line("test_line", Crypto.randomUUID(), 0, props);
+    return new Line("test_line", Crypto.randomUUID(), 0, new RootProperty());
 }
 
 function makeHandle(): Handle {
-    const props = new RootProperty("handle", { name: "test_handle" });
-    return new Handle("test_handle", Crypto.randomUUID(), 0, props);
+    return new Handle("test_handle", Crypto.randomUUID(), 0, new RootProperty());
 }
 
 function makeLatch(): Latch {
-    const props = new RootProperty("latch", { name: "test_latch" });
-    return new Latch("test_latch", Crypto.randomUUID(), 0, props);
+    return new Latch("test_latch", Crypto.randomUUID(), 0, new RootProperty());
 }
 
 describe("Line", () => {
