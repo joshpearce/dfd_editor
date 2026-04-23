@@ -145,10 +145,16 @@ only; Flask's broadcast endpoint rejects non-loopback callers with 403.
   uninstalls `RectangleSelectPlugin` / `PowerEditPlugin`); `"off"` restores
   interactive editing.
 
-### MCP tools (Step 2)
+### MCP tools
 
-Eleven tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP transport
-bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
+Tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP transport
+bound to 127.0.0.1:5051). The surface is two-tier: seven diagram-level
+tools plus typed per-collection CRUD+list tools for nodes, containers,
+data flows, and data items, plus a shared `reparent` that covers nodes +
+containers (flows and data items don't participate in the container
+hierarchy). Each tool calls Flask over loopback.
+
+**Diagram-level:**
 
 | Tool | Flask call | Emits |
 |---|---|---|
@@ -159,10 +165,30 @@ bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
 | `update_diagram` | `PUT /api/diagrams/<id>/import` | `diagram-updated` |
 | `delete_diagram` | `DELETE /api/diagrams/<id>` | `diagram-deleted` |
 | `display_diagram` | `POST /api/internal/broadcast` with `type: "display"` | `display` |
-| `add_element` | fetch → append → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
-| `update_element` | fetch → mutate → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
-| `delete_element` | fetch → cascade-delete → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
-| `reparent_element` | fetch → move between containers → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+
+**Typed element CRUD** (shape per collection, four collections):
+
+| Tool | Flask call | Emits |
+|---|---|---|
+| `add_{node,container,flow,data_item}` | fetch → append → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+| `update_{node,container,flow,data_item}` | fetch → mutate → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+| `delete_{node,container,flow,data_item}` | fetch → cascade-delete → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+| `list_{nodes,containers,flows,data_items}` | `GET /api/diagrams/<id>/export` | — |
+
+**Shared:**
+
+| Tool | Flask call | Emits |
+|---|---|---|
+| `reparent` | fetch → move between containers → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+
+The typed `update_*` / `delete_*` tools reject a guid that resolves to a
+different collection (e.g. `update_node(guid=<flow_guid>)` raises
+`ValueError`) — the single-collection contract is what makes each tool's
+schema and docstring specific enough for agents to consume without calling
+`get_diagram_schema` first. `list_*` tools project to summary rows:
+nodes/containers return `{guid, name, type}`; flows return
+`{guid, name, node1, node2}`; data items return
+`{guid, name, classification}`. Use `get_diagram` for full fields.
 
 `create_diagram` and `update_diagram` take `diagram: dict` (not
 `diagram: Diagram`) — validation happens inside the tool body via

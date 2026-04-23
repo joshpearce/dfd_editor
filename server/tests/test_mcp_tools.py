@@ -54,17 +54,30 @@ from mcp_server import (
     _mark_active,
     _sweep_once,
     _stamp,
-    add_element,
+    add_container,
+    add_data_item,
+    add_flow,
+    add_node,
     create_diagram,
+    delete_container,
+    delete_data_item,
     delete_diagram,
-    delete_element,
+    delete_flow,
+    delete_node,
     display_diagram,
     get_diagram,
+    list_containers,
+    list_data_items,
     list_diagrams,
+    list_flows,
+    list_nodes,
     mcp,
-    reparent_element,
+    reparent,
+    update_container,
+    update_data_item,
     update_diagram,
-    update_element,
+    update_flow,
+    update_node,
 )
 
 # ---------------------------------------------------------------------------
@@ -301,6 +314,7 @@ class TestToolsEnumeration:
         tools = mcp._tool_manager.list_tools()
         names = {t.name for t in tools}
         assert names == {
+            # Diagram-level
             "list_diagrams",
             "get_diagram",
             "get_diagram_schema",
@@ -308,10 +322,28 @@ class TestToolsEnumeration:
             "update_diagram",
             "delete_diagram",
             "display_diagram",
-            "add_element",
-            "update_element",
-            "delete_element",
-            "reparent_element",
+            # Nodes
+            "add_node",
+            "update_node",
+            "delete_node",
+            "list_nodes",
+            # Containers
+            "add_container",
+            "update_container",
+            "delete_container",
+            "list_containers",
+            # Flows
+            "add_flow",
+            "update_flow",
+            "delete_flow",
+            "list_flows",
+            # Data items
+            "add_data_item",
+            "update_data_item",
+            "delete_data_item",
+            "list_data_items",
+            # Shared
+            "reparent",
         }
 
 
@@ -837,15 +869,16 @@ class TestSadPaths:
 
 
 # ---------------------------------------------------------------------------
-# add_element — granular element CRUD: append to a diagram collection
+# Typed add_* tools — append to a specific collection
 # ---------------------------------------------------------------------------
 
 _NEW_NODE_GUID = "aaaaaaaa-0000-0000-0000-000000000001"
 _NEW_CONTAINER_GUID = "bbbbbbbb-0000-0000-0000-000000000001"
 _NEW_DATA_ITEM_GUID = "cccccccc-0000-0000-0000-000000000001"
+_NEW_FLOW_GUID = "ffffffff-0000-0000-0000-000000000001"
 
 
-class TestAddElement:
+class TestAdd:
     def test_add_node_appends_and_broadcasts(self, live_server):
         tmp_path, port = live_server
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
@@ -858,12 +891,7 @@ class TestAddElement:
             "guid": _NEW_NODE_GUID,
             "properties": {"name": "New EE"},
         }
-        result = add_element(
-            diagram_id=diagram_id,
-            collection="nodes",
-            element=new_node,
-            ctx=_ctx(),
-        )
+        result = add_node(diagram_id=diagram_id, node=new_node, ctx=_ctx())
 
         assert result["guid"] == _NEW_NODE_GUID
         assert result["broadcast_delivered"] is True
@@ -891,11 +919,8 @@ class TestAddElement:
             "properties": {"name": "VPC"},
             "children": [],
         }
-        result = add_element(
-            diagram_id=diagram_id,
-            collection="containers",
-            element=new_container,
-            ctx=_ctx(),
+        result = add_container(
+            diagram_id=diagram_id, container=new_container, ctx=_ctx()
         )
 
         assert result["guid"] == _NEW_CONTAINER_GUID
@@ -915,11 +940,8 @@ class TestAddElement:
             "name": "Customer PII",
             "classification": "pii",
         }
-        result = add_element(
-            diagram_id=diagram_id,
-            collection="data_items",
-            element=new_item,
-            ctx=_ctx(),
+        result = add_data_item(
+            diagram_id=diagram_id, data_item=new_item, ctx=_ctx()
         )
 
         assert result["guid"] == _NEW_DATA_ITEM_GUID
@@ -927,19 +949,33 @@ class TestAddElement:
         item_guids = {di["guid"] for di in fetched.get("data_items", [])}
         assert _NEW_DATA_ITEM_GUID in item_guids
 
-    def test_invalid_collection_raises_value_error(self, live_server):
+    def test_add_flow_appends(self, live_server):
+        """add_flow: seed a node-pair first, then append a new flow between them."""
         _tmp_path, _port = live_server
         mcp_server._was_active = True
-        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        # _MINIMAL_DOC already has a flow between _PROCESS_GUID and _DATA_STORE_GUID.
+        # Seed a third node so we can add a second flow without duplicating the pair.
+        doc = copy.deepcopy(_MINIMAL_DOC)
+        third_node_guid = "77777777-0000-0000-0000-000000000007"
+        doc["nodes"].append(
+            {"type": "external_entity", "guid": third_node_guid,
+             "properties": {"name": "EE"}}
+        )
+        create_result = create_diagram(diagram=doc, ctx=_ctx())
         diagram_id = create_result["id"]
 
-        with pytest.raises(ValueError, match="invalid collection"):
-            add_element(
-                diagram_id=diagram_id,
-                collection="edges",
-                element={"guid": "00000000-0000-0000-0000-000000000099"},
-                ctx=_ctx(),
-            )
+        new_flow = {
+            "guid": _NEW_FLOW_GUID,
+            "node1": _PROCESS_GUID,
+            "node2": third_node_guid,
+            "properties": {"name": "F2"},
+        }
+        result = add_flow(diagram_id=diagram_id, flow=new_flow, ctx=_ctx())
+
+        assert result["guid"] == _NEW_FLOW_GUID
+        fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
+        flow_guids = {f["guid"] for f in fetched["data_flows"]}
+        assert _NEW_FLOW_GUID in flow_guids
 
     def test_missing_guid_raises_value_error(self, live_server):
         _tmp_path, _port = live_server
@@ -948,10 +984,9 @@ class TestAddElement:
         diagram_id = create_result["id"]
 
         with pytest.raises(ValueError, match="guid"):
-            add_element(
+            add_node(
                 diagram_id=diagram_id,
-                collection="nodes",
-                element={"type": "process", "properties": {"name": "No GUID"}},
+                node={"type": "process", "properties": {"name": "No GUID"}},
                 ctx=_ctx(),
             )
 
@@ -966,15 +1001,14 @@ class TestAddElement:
         )
 
         with pytest.raises(Exception):
-            add_element(
+            add_node(
                 diagram_id="does-not-exist",
-                collection="nodes",
-                element={"guid": _NEW_NODE_GUID, "type": "process", "properties": {"name": "X"}},
+                node={"guid": _NEW_NODE_GUID, "type": "process", "properties": {"name": "X"}},
                 ctx=_ctx(),
             )
 
         assert [c["type"] for c in calls if c.get("type") == "diagram-updated"] == [], (
-            f"add_element on missing diagram must not broadcast; got: {calls}"
+            f"add_node on missing diagram must not broadcast; got: {calls}"
         )
 
     def test_schema_invalid_element_raises_validation_error(self, live_server):
@@ -991,12 +1025,7 @@ class TestAddElement:
             "properties": {"name": "Bad"},
         }
         with pytest.raises(Exception):
-            add_element(
-                diagram_id=diagram_id,
-                collection="nodes",
-                element=bad_node,
-                ctx=_ctx(),
-            )
+            add_node(diagram_id=diagram_id, node=bad_node, ctx=_ctx())
 
         # Original diagram must be unchanged (no partial write)
         fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
@@ -1004,7 +1033,12 @@ class TestAddElement:
         assert _NEW_NODE_GUID not in guids
 
     def test_duplicate_guid_raises_value_error(self, live_server):
-        """add_element must reject an element whose guid already exists in the diagram."""
+        """add_node must reject an element whose guid already exists in the diagram.
+
+        GUID uniqueness is diagram-global (the pydantic schema treats all four
+        collections as sharing one GUID namespace), so the duplicate rejection
+        is checked at the add site regardless of which typed tool is called.
+        """
         _tmp_path, _port = live_server
         mcp_server._was_active = True
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
@@ -1017,39 +1051,21 @@ class TestAddElement:
             "properties": {"name": "Duplicate"},
         }
         with pytest.raises(ValueError, match="already exists"):
-            add_element(
-                diagram_id=diagram_id,
-                collection="nodes",
-                element=duplicate_node,
-                ctx=_ctx(),
-            )
+            add_node(diagram_id=diagram_id, node=duplicate_node, ctx=_ctx())
 
         # Diagram should be unchanged
         fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
         assert sum(1 for n in fetched["nodes"] if n["guid"] == _PROCESS_GUID) == 1
 
-    def test_add_element_schema_has_collection_enum(self):
-        """FastMCP must advertise the collection parameter as an enum."""
-        tools = {t.name: t for t in mcp._tool_manager.list_tools()}
-        add_tool = tools["add_element"]
-        schema = add_tool.parameters
-        collection_schema = schema.get("properties", {}).get("collection", {})
-        assert "enum" in collection_schema, (
-            f"collection parameter schema missing 'enum'; got: {collection_schema}"
-        )
-        assert set(collection_schema["enum"]) == {
-            "nodes", "containers", "data_flows", "data_items"
-        }
-
 
 # ---------------------------------------------------------------------------
-# update_element — granular element CRUD: sparse-merge fields into an element
+# Typed update_* tools — sparse-merge fields into an element
 # ---------------------------------------------------------------------------
 
 _UPDATE_DATA_ITEM_GUID = "dddddddd-0000-0000-0000-000000000001"
 
 
-class TestUpdateElement:
+class TestUpdate:
     def test_update_node_name_and_broadcasts(self, live_server):
         tmp_path, port = live_server
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
@@ -1057,7 +1073,7 @@ class TestUpdateElement:
 
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
-        result = update_element(
+        result = update_node(
             diagram_id=diagram_id,
             guid=_PROCESS_GUID,
             fields={"name": "Updated Process"},
@@ -1077,13 +1093,13 @@ class TestUpdateElement:
 
         ws.close()
 
-    def test_update_data_flow_name(self, live_server):
+    def test_update_flow_name(self, live_server):
         _tmp_path, _port = live_server
         mcp_server._was_active = True
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        result = update_element(
+        result = update_flow(
             diagram_id=diagram_id,
             guid=_FLOW_GUID,
             fields={"name": "Renamed Flow", "authenticated": True},
@@ -1102,10 +1118,9 @@ class TestUpdateElement:
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        add_element(
+        add_data_item(
             diagram_id=diagram_id,
-            collection="data_items",
-            element={
+            data_item={
                 "guid": _UPDATE_DATA_ITEM_GUID,
                 "identifier": "D1",
                 "name": "Original Name",
@@ -1114,7 +1129,7 @@ class TestUpdateElement:
             ctx=_ctx(),
         )
 
-        result = update_element(
+        result = update_data_item(
             diagram_id=diagram_id,
             guid=_UPDATE_DATA_ITEM_GUID,
             fields={"name": "Renamed Item", "classification": "pii"},
@@ -1133,7 +1148,7 @@ class TestUpdateElement:
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        update_element(
+        update_node(
             diagram_id=diagram_id,
             guid=_PROCESS_GUID,
             fields={"guid": "should-be-ignored", "type": "data_store", "name": "OK"},
@@ -1146,13 +1161,13 @@ class TestUpdateElement:
         assert node["type"] == "process"
         assert node["properties"]["name"] == "OK"
 
-    def test_readonly_keys_silently_skipped_for_data_flows(self, live_server):
+    def test_readonly_keys_silently_skipped_for_flows(self, live_server):
         _tmp_path, _port = live_server
         mcp_server._was_active = True
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        update_element(
+        update_flow(
             diagram_id=diagram_id,
             guid=_FLOW_GUID,
             fields={
@@ -1177,10 +1192,9 @@ class TestUpdateElement:
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        add_element(
+        add_data_item(
             diagram_id=diagram_id,
-            collection="data_items",
-            element={
+            data_item={
                 "guid": _UPDATE_DATA_ITEM_GUID,
                 "identifier": "D1",
                 "name": "Item",
@@ -1189,7 +1203,7 @@ class TestUpdateElement:
             ctx=_ctx(),
         )
 
-        update_element(
+        update_data_item(
             diagram_id=diagram_id,
             guid=_UPDATE_DATA_ITEM_GUID,
             fields={"guid": "should-be-ignored", "name": "Item Renamed"},
@@ -1208,9 +1222,25 @@ class TestUpdateElement:
         diagram_id = create_result["id"]
 
         with pytest.raises(ValueError, match="not found"):
-            update_element(
+            update_node(
                 diagram_id=diagram_id,
                 guid="00000000-ffff-ffff-ffff-000000000000",
+                fields={"name": "X"},
+                ctx=_ctx(),
+            )
+
+    def test_wrong_collection_raises_value_error(self, live_server):
+        """update_node must reject a guid that resolves to a different collection."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        # _FLOW_GUID exists, but lives in data_flows — update_node must reject it.
+        with pytest.raises(ValueError, match="data_flows.*nodes|nodes.*data_flows"):
+            update_node(
+                diagram_id=diagram_id,
+                guid=_FLOW_GUID,
                 fields={"name": "X"},
                 ctx=_ctx(),
             )
@@ -1220,7 +1250,7 @@ class TestUpdateElement:
         mcp_server._was_active = True
 
         with pytest.raises(Exception):
-            update_element(
+            update_node(
                 diagram_id="does-not-exist",
                 guid=_PROCESS_GUID,
                 fields={"name": "X"},
@@ -1235,7 +1265,7 @@ class TestUpdateElement:
         diagram_id = create_result["id"]
 
         with pytest.raises(Exception):
-            update_element(
+            update_node(
                 diagram_id=diagram_id,
                 guid=_DATA_STORE_GUID,
                 fields={"contains_pii": "yes_please"},
@@ -1249,7 +1279,7 @@ class TestUpdateElement:
 
 
 # ---------------------------------------------------------------------------
-# delete_element — granular element CRUD: remove with cascade
+# Typed delete_* tools — remove with cascade
 # ---------------------------------------------------------------------------
 
 _DEL_PROCESS_GUID = "eeeeeeee-0000-0000-0000-000000000001"
@@ -1263,7 +1293,7 @@ _DEL_DATA_ITEM_GUID = "eeeeeeee-0000-0000-0000-000000000006"
 def _make_doc_for_delete() -> dict:
     """Build a diagram document with all cascade-relevant cross-references."""
     return {
-        "meta": {"name": "delete_element test"},
+        "meta": {"name": "delete test"},
         "nodes": [
             {"type": "process", "guid": _DEL_PROCESS_GUID, "properties": {"name": "P"}},
             {"type": "data_store", "guid": _DEL_STORE_GUID, "properties": {"name": "DS"}},
@@ -1306,15 +1336,15 @@ def _make_doc_for_delete() -> dict:
     }
 
 
-class TestDeleteElement:
-    def test_delete_data_flow_no_cascade(self, live_server):
+class TestDelete:
+    def test_delete_flow_no_cascade(self, live_server):
         """Deleting a data_flow removes only that flow; no cascade_removed."""
         _tmp_path, _port = live_server
         mcp_server._was_active = True
         create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        result = delete_element(diagram_id=diagram_id, guid=_DEL_FLOW_GUID, ctx=_ctx())
+        result = delete_flow(diagram_id=diagram_id, guid=_DEL_FLOW_GUID, ctx=_ctx())
 
         assert result["guid"] == _DEL_FLOW_GUID
         assert result["deleted_collection"] == "data_flows"
@@ -1337,7 +1367,7 @@ class TestDeleteElement:
         create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        result = delete_element(diagram_id=diagram_id, guid=_DEL_PROCESS_GUID, ctx=_ctx())
+        result = delete_node(diagram_id=diagram_id, guid=_DEL_PROCESS_GUID, ctx=_ctx())
 
         assert result["guid"] == _DEL_PROCESS_GUID
         assert result["deleted_collection"] == "nodes"
@@ -1381,7 +1411,7 @@ class TestDeleteElement:
         create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        result = delete_element(diagram_id=diagram_id, guid=_PROCESS_GUID, ctx=_ctx())
+        result = delete_node(diagram_id=diagram_id, guid=_PROCESS_GUID, ctx=_ctx())
 
         assert result["deleted_collection"] == "nodes"
         assert _FLOW_GUID in result["cascade_removed"]
@@ -1397,7 +1427,7 @@ class TestDeleteElement:
         create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        result = delete_element(
+        result = delete_container(
             diagram_id=diagram_id, guid=_DEL_NESTED_CONTAINER_GUID, ctx=_ctx()
         )
 
@@ -1425,7 +1455,7 @@ class TestDeleteElement:
         create_result = create_diagram(diagram=_make_doc_for_delete(), ctx=_ctx())
         diagram_id = create_result["id"]
 
-        result = delete_element(
+        result = delete_data_item(
             diagram_id=diagram_id, guid=_DEL_DATA_ITEM_GUID, ctx=_ctx()
         )
 
@@ -1450,18 +1480,28 @@ class TestDeleteElement:
         diagram_id = create_result["id"]
 
         with pytest.raises(ValueError, match="not found"):
-            delete_element(
+            delete_node(
                 diagram_id=diagram_id,
                 guid="00000000-ffff-ffff-ffff-000000000000",
                 ctx=_ctx(),
             )
+
+    def test_wrong_collection_raises_value_error(self, live_server):
+        """delete_flow must reject a guid that resolves to a node."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        with pytest.raises(ValueError, match="nodes.*data_flows|data_flows.*nodes"):
+            delete_flow(diagram_id=diagram_id, guid=_PROCESS_GUID, ctx=_ctx())
 
     def test_nonexistent_diagram_raises(self, live_server):
         _tmp_path, _port = live_server
         mcp_server._was_active = True
 
         with pytest.raises(Exception):
-            delete_element(
+            delete_node(
                 diagram_id="does-not-exist",
                 guid=_PROCESS_GUID,
                 ctx=_ctx(),
@@ -1474,7 +1514,7 @@ class TestDeleteElement:
 
         ws, messages, reader_errors = _open_ws_and_drain(port)
 
-        delete_element(diagram_id=diagram_id, guid=_DATA_STORE_GUID, ctx=_ctx())
+        delete_node(diagram_id=diagram_id, guid=_DATA_STORE_GUID, ctx=_ctx())
 
         matching = _wait_for_broadcast(messages, "diagram-updated", reader_errors=reader_errors)
         assert len(matching) == 1
@@ -1490,7 +1530,7 @@ class TestDeleteElement:
         diagram_id = create_result["id"]
 
         # _DEL_STORE_GUID is node2 in _DEL_FLOW; deleting it must cascade the flow.
-        result = delete_element(diagram_id=diagram_id, guid=_DEL_STORE_GUID, ctx=_ctx())
+        result = delete_node(diagram_id=diagram_id, guid=_DEL_STORE_GUID, ctx=_ctx())
 
         assert result["deleted_collection"] == "nodes"
         assert _DEL_FLOW_GUID in result["cascade_removed"]
@@ -1512,7 +1552,7 @@ class TestDeleteElement:
         create_result = create_diagram(diagram=doc, ctx=_ctx())
         diagram_id = create_result["id"]
 
-        delete_element(diagram_id=diagram_id, guid=_DEL_DATA_ITEM_GUID, ctx=_ctx())
+        delete_data_item(diagram_id=diagram_id, guid=_DEL_DATA_ITEM_GUID, ctx=_ctx())
 
         fetched = get_diagram(diagram_id=diagram_id, ctx=_ctx())
         flow = next(f for f in fetched["data_flows"] if f["guid"] == _DEL_FLOW_GUID)
@@ -1526,7 +1566,7 @@ class TestDeleteElement:
         diagram_id = create_result["id"]
 
         # _DEL_CONTAINER_GUID is a top-level container — no parent holds it in children.
-        result = delete_element(
+        result = delete_container(
             diagram_id=diagram_id, guid=_DEL_CONTAINER_GUID, ctx=_ctx()
         )
 
@@ -1542,7 +1582,7 @@ class TestDeleteElement:
 
 
 # ---------------------------------------------------------------------------
-# reparent_element — move element into a different container or to top-level
+# reparent — move a node or container into a different container or to top-level
 # ---------------------------------------------------------------------------
 
 _RP_NODE_GUID = "aaaa0000-0000-0000-0000-000000000001"
@@ -1591,7 +1631,7 @@ def _make_reparent_diagram() -> dict:
     }
 
 
-class TestReparentElement:
+class TestReparent:
     def _seed(self, live_server) -> str:
         """Seed the reparent fixture into the live server and return diagram_id."""
         _tmp_path, _port = live_server
@@ -1602,7 +1642,7 @@ class TestReparentElement:
     def test_move_node_between_containers(self, live_server):
         """Move a node from container A into container B."""
         diagram_id = self._seed(live_server)
-        result = reparent_element(
+        result = reparent(
             diagram_id=diagram_id,
             guid=_RP_NODE_GUID,
             new_parent_guid=_RP_CONTAINER_B_GUID,
@@ -1622,7 +1662,7 @@ class TestReparentElement:
     def test_move_node_to_top_level(self, live_server):
         """Move a node out of its container (new_parent_guid=None)."""
         diagram_id = self._seed(live_server)
-        result = reparent_element(
+        result = reparent(
             diagram_id=diagram_id,
             guid=_RP_NODE_GUID,
             new_parent_guid=None,
@@ -1640,13 +1680,13 @@ class TestReparentElement:
         """Moving a node that is already top-level (old_parent=None) works."""
         # First move the node to top-level so it has no parent.
         diagram_id = self._seed(live_server)
-        reparent_element(
+        reparent(
             diagram_id=diagram_id,
             guid=_RP_NODE_GUID,
             new_parent_guid=None,
             ctx=_ctx(),
         )
-        result = reparent_element(
+        result = reparent(
             diagram_id=diagram_id,
             guid=_RP_NODE_GUID,
             new_parent_guid=_RP_CONTAINER_B_GUID,
@@ -1663,7 +1703,7 @@ class TestReparentElement:
     def test_move_container_into_sibling(self, live_server):
         """Move container C (child of A) into container B."""
         diagram_id = self._seed(live_server)
-        result = reparent_element(
+        result = reparent(
             diagram_id=diagram_id,
             guid=_RP_CONTAINER_C_GUID,
             new_parent_guid=_RP_CONTAINER_B_GUID,
@@ -1682,7 +1722,7 @@ class TestReparentElement:
         """Moving container A into its own descendant C raises ValueError."""
         diagram_id = self._seed(live_server)
         with pytest.raises(ValueError, match="cycle"):
-            reparent_element(
+            reparent(
                 diagram_id=diagram_id,
                 guid=_RP_CONTAINER_A_GUID,
                 new_parent_guid=_RP_CONTAINER_C_GUID,
@@ -1693,7 +1733,7 @@ class TestReparentElement:
         """Moving a container into itself raises ValueError."""
         diagram_id = self._seed(live_server)
         with pytest.raises(ValueError, match="cycle"):
-            reparent_element(
+            reparent(
                 diagram_id=diagram_id,
                 guid=_RP_CONTAINER_A_GUID,
                 new_parent_guid=_RP_CONTAINER_A_GUID,
@@ -1704,7 +1744,7 @@ class TestReparentElement:
         """An unknown element guid raises ValueError."""
         diagram_id = self._seed(live_server)
         with pytest.raises(ValueError, match="not found in nodes or containers"):
-            reparent_element(
+            reparent(
                 diagram_id=diagram_id,
                 guid="00000000-dead-dead-dead-000000000000",
                 new_parent_guid=None,
@@ -1715,7 +1755,7 @@ class TestReparentElement:
         """An unknown new_parent_guid raises ValueError."""
         diagram_id = self._seed(live_server)
         with pytest.raises(ValueError, match="not found in containers"):
-            reparent_element(
+            reparent(
                 diagram_id=diagram_id,
                 guid=_RP_NODE_GUID,
                 new_parent_guid="00000000-dead-dead-dead-000000000000",
@@ -1723,13 +1763,13 @@ class TestReparentElement:
             )
 
     def test_broadcast_emitted(self, live_server):
-        """reparent_element emits a diagram-updated broadcast."""
+        """reparent emits a diagram-updated broadcast."""
         tmp_path, port = live_server
         diagram_id = self._seed(live_server)
 
         ws = simple_websocket.Client(f"ws://127.0.0.1:{port}/ws")
         try:
-            reparent_element(
+            reparent(
                 diagram_id=diagram_id,
                 guid=_RP_NODE_GUID,
                 new_parent_guid=None,
@@ -1740,3 +1780,108 @@ class TestReparentElement:
             assert msg["payload"]["id"] == diagram_id
         finally:
             ws.close()
+
+
+# ---------------------------------------------------------------------------
+# Typed list_* tools — summary rows per collection
+# ---------------------------------------------------------------------------
+
+
+class TestList:
+    def _seed(self, live_server) -> str:
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        # Build a diagram that populates every collection so each list_* has
+        # both an element to match and fields to project.
+        data_item_guid = "cccc0000-0000-0000-0000-000000000001"
+        container_guid = "bbbb0000-0000-0000-0000-000000000001"
+        doc = {
+            "meta": {"name": "list test"},
+            "nodes": [
+                {"type": "process", "guid": _PROCESS_GUID,
+                 "properties": {"name": "The Process"}},
+                {"type": "data_store", "guid": _DATA_STORE_GUID,
+                 "properties": {"name": "The Store"}},
+            ],
+            "containers": [
+                {"type": "trust_boundary", "guid": container_guid,
+                 "properties": {"name": "VPC"}, "children": [_PROCESS_GUID]},
+            ],
+            "data_flows": [
+                {"guid": _FLOW_GUID, "node1": _PROCESS_GUID,
+                 "node2": _DATA_STORE_GUID,
+                 "properties": {"name": "The Flow"}},
+            ],
+            "data_items": [
+                {"guid": data_item_guid, "identifier": "D1",
+                 "name": "Customer PII", "classification": "pii",
+                 "parent": _PROCESS_GUID},
+            ],
+        }
+        result = create_diagram(diagram=doc, ctx=_ctx())
+        return result["id"]
+
+    def test_list_nodes_returns_guid_name_type(self, live_server):
+        diagram_id = self._seed(live_server)
+        rows = list_nodes(diagram_id=diagram_id, ctx=_ctx())
+
+        assert isinstance(rows, list)
+        assert len(rows) == 2
+        for row in rows:
+            assert set(row.keys()) == {"guid", "name", "type"}
+        by_guid = {r["guid"]: r for r in rows}
+        assert by_guid[_PROCESS_GUID]["name"] == "The Process"
+        assert by_guid[_PROCESS_GUID]["type"] == "process"
+        assert by_guid[_DATA_STORE_GUID]["type"] == "data_store"
+
+    def test_list_containers_returns_guid_name_type(self, live_server):
+        diagram_id = self._seed(live_server)
+        rows = list_containers(diagram_id=diagram_id, ctx=_ctx())
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert set(row.keys()) == {"guid", "name", "type"}
+        assert row["name"] == "VPC"
+        assert row["type"] == "trust_boundary"
+
+    def test_list_flows_returns_guid_name_and_endpoints(self, live_server):
+        diagram_id = self._seed(live_server)
+        rows = list_flows(diagram_id=diagram_id, ctx=_ctx())
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert set(row.keys()) == {"guid", "name", "node1", "node2"}
+        assert row["guid"] == _FLOW_GUID
+        assert row["name"] == "The Flow"
+        # Endpoints are canonicalized (str(node1) < str(node2)); both node
+        # guids must be present on the row regardless of which side they
+        # ended up on.
+        assert {row["node1"], row["node2"]} == {_PROCESS_GUID, _DATA_STORE_GUID}
+
+    def test_list_data_items_returns_guid_name_classification(self, live_server):
+        diagram_id = self._seed(live_server)
+        rows = list_data_items(diagram_id=diagram_id, ctx=_ctx())
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert set(row.keys()) == {"guid", "name", "classification"}
+        assert row["name"] == "Customer PII"
+        assert row["classification"] == "pii"
+
+    def test_list_returns_empty_for_collection_with_no_elements(self, live_server):
+        """A freshly-created diagram with no containers returns [] from list_containers."""
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+        # _MINIMAL_DOC has no containers or data_items.
+        create_result = create_diagram(diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
+        diagram_id = create_result["id"]
+
+        assert list_containers(diagram_id=diagram_id, ctx=_ctx()) == []
+        assert list_data_items(diagram_id=diagram_id, ctx=_ctx()) == []
+
+    def test_list_nonexistent_diagram_raises(self, live_server):
+        _tmp_path, _port = live_server
+        mcp_server._was_active = True
+
+        with pytest.raises(Exception):
+            list_nodes(diagram_id="does-not-exist", ctx=_ctx())
