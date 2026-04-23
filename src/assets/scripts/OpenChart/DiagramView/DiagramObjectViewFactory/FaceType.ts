@@ -6,6 +6,7 @@ export enum FaceType {
     TextBlock       = "block_text",
     BranchBlock     = "block_branch",
     DynamicLine     = "line_dynamic",
+    PolyLine        = "line_polyline",
     Group           = "group",
     LineGridCanvas  = "canvas_line_grid",
     DotGridCanvas   = "canvas_dot_grid"
