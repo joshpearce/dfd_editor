@@ -16,8 +16,9 @@ import type { CommandExecutor } from "../CommandExecutor";
  * move freely on an H span would produce a diagonal corner and invert the
  * rendered curve.
  *
- * Each drag tick emits a single `moveObjectsBy` over `[handleA, handleB]`;
- * the surrounding command stream collapses every tick into one undo step.
+ * Each drag tick emits at most one `moveObjectsBy` over `[handleA, handleB]`
+ * (parallel-only cursor motion is dropped); the surrounding command stream
+ * collapses every tick into one undo step.
  */
 export class PolyLineSpanMover extends ObjectMover {
 
