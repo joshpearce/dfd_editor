@@ -203,7 +203,6 @@ def update_element(
     If ``expected_collection`` is given, raises ``WrongCollectionError`` when
     the guid resolves to a different collection, and ``core.ElementNotFoundError``
     when the guid is absent.
-    Raises ``WrongCollectionError`` when ``expected_collection`` is set and the guid is in a different collection.
     """
     diagram = storage.load_minimal(diagram_id)
     if expected_collection is not None:
@@ -226,7 +225,6 @@ def delete_element(
     If ``expected_collection`` is given, raises ``WrongCollectionError`` when
     the guid resolves to a different collection, and ``core.ElementNotFoundError``
     when the guid is absent.
-    Raises ``WrongCollectionError`` when ``expected_collection`` is set and the guid is in a different collection.
     """
     diagram = storage.load_minimal(diagram_id)
     if expected_collection is not None:
