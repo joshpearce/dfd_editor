@@ -258,6 +258,10 @@ export class DiagramInterface extends EventEmitter<DiagramInterfaceEvents> {
         const s = this.settings.update(this.transform);
         // Render page surface
         this.root.renderSurfaceTo(this.context, this.viewport);
+        // Recalculate layout before rendering so cross-object state changes
+        // (e.g. canvas data_items parent assignments) are reflected even when
+        // a block's own property subscription hasn't fired.
+        this.root.calculateLayout();
         // Render root
         this.root.renderTo(this.context, this.viewport, this.settings);
         // Render markup
