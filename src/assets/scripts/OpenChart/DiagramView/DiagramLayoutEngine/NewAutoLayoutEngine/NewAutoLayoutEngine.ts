@@ -110,7 +110,10 @@ interface RebindableLatchWithAnchor extends RebindableLatch {
  */
 interface RebindableHandleSurface {
     userSetPosition: number;
-    readonly face: { moveTo(x: number, y: number): void };
+    readonly face: {
+        moveTo(x: number, y: number): void;
+        readonly boundingBox: { x: number, y: number };
+    };
     clone(): RebindableHandleSurface;
 }
 
@@ -718,6 +721,44 @@ function significantInteriorVertices(points: readonly Point[]): Point[] {
  * carries a reference handle, so the second case only fires for
  * malformed input.
  */
+/**
+ * Snaps an end handle's free axis so the segment between it and the latch
+ * (`latchX`, `latchY`) is axis-aligned.
+ *
+ * `endHandle` is a polyline endpoint handle (handles[0] or handles[N-1]);
+ * `neighbor` is the adjacent interior handle.  `endHandle` shares an axis
+ * with `neighbor` (TALA's interior corners are axis-aligned to each other);
+ * we snap the OTHER axis of `endHandle` to the latch's coordinate so the
+ * latch→endHandle segment is orthogonal.
+ *
+ * If neither axis is shared (defensive — TALA shouldn't produce that), no
+ * adjustment is made.  If the endHandle is already axis-aligned with the
+ * latch, the moveTo is still issued but is a no-op.
+ *
+ * Reads the endHandle's current position via `face.boundingBox` rather than
+ * carrying the position through the call site — keeps the structural
+ * surface tight.
+ */
+function alignEndHandle(
+    endHandle: RebindableHandleSurface,
+    neighbor: RebindableHandleSurface,
+    latchX: number,
+    latchY: number
+): void {
+    const ex = endHandle.face.boundingBox.x;
+    const ey = endHandle.face.boundingBox.y;
+    const nx = neighbor.face.boundingBox.x;
+    const ny = neighbor.face.boundingBox.y;
+    if (ex === nx) {
+        // endHandle / neighbor segment is vertical; snap endHandle.y to
+        // the latch row so the latch→endHandle segment is horizontal.
+        endHandle.face.moveTo(ex, latchY);
+    } else if (ey === ny) {
+        // endHandle / neighbor segment is horizontal; snap endHandle.x.
+        endHandle.face.moveTo(latchX, ey);
+    }
+}
+
 function ensureHandleCount(line: RebindableLineSurface, n: number): void {
     if (n < 1) {
         throw new Error(
@@ -871,6 +912,35 @@ function rebindLinesTala(
                 // re-derive position when userSetPosition is cleared.
                 line.handles[i].userSetPosition = POSITION_SET_BY_USER_TRUE;
                 line.handles[i].face.moveTo(interior[i].x, interior[i].y);
+            }
+
+            // Snap the first / last interior handles so the segments to the
+            // latches stay orthogonal.  TALA's polyline interior vertices
+            // are axis-aligned to TALA's own start/end (which lie on the
+            // block perimeter).  When `pickNearestAnchor` rebinds a latch
+            // to a quarter-anchor a few px off TALA's exit, the latch ends
+            // up on a different row/column from the first interior handle
+            // and the segment between them renders as a diagonal.
+            //
+            // Fix: the first handle shares one axis with the second (TALA
+            // makes the inter-corner segment axis-aligned).  Snap the
+            // first handle's OTHER axis to the latch's coordinate on that
+            // axis, so the segment from the latch is axis-aligned too.
+            // Mirror for the last handle / target latch.
+            //
+            // Single-bend (`handles.length === 1`) lines are still rendered
+            // by `DynamicLine` (the L/Z layout strategies own the
+            // orthogonality there); skip alignment in that case.
+            if (line.handles.length >= 2 && newSrcAnchor && newTgtAnchor) {
+                alignEndHandle(
+                    line.handles[0], line.handles[1],
+                    newSrcAnchor.x, newSrcAnchor.y
+                );
+                const lastIdx = line.handles.length - 1;
+                alignEndHandle(
+                    line.handles[lastIdx], line.handles[lastIdx - 1],
+                    newTgtAnchor.x, newTgtAnchor.y
+                );
             }
         } else {
             // Fallback: geometric center-to-center rebind for this line.

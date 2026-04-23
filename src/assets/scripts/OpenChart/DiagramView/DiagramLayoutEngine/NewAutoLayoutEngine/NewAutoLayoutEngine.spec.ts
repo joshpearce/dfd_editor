@@ -249,16 +249,30 @@ describe("NewAutoLayoutEngine", () => {
      */
     interface HandleStub {
         userSetPosition: number;
-        face: { moveTo: ReturnType<typeof vi.fn> };
+        face: {
+            moveTo: ReturnType<typeof vi.fn>;
+            boundingBox: { x: number, y: number };
+        };
         clone: () => HandleStub;
     }
 
     function makeHandleStub(): HandleStub {
         const stub: HandleStub = {
             userSetPosition: 0,
-            face: { moveTo: vi.fn() },
+            face: {
+                boundingBox: { x: 0, y: 0 },
+                moveTo: vi.fn(function(this: { boundingBox: { x: number, y: number } }, x: number, y: number) {
+                    this.boundingBox.x = x;
+                    this.boundingBox.y = y;
+                })
+            },
             clone: () => makeHandleStub()
         };
+        // Bind moveTo to its face so `this.boundingBox` resolves correctly.
+        stub.face.moveTo = vi.fn((x: number, y: number) => {
+            stub.face.boundingBox.x = x;
+            stub.face.boundingBox.y = y;
+        });
         return stub;
     }
 
@@ -1342,6 +1356,87 @@ describe("NewAutoLayoutEngine", () => {
             expect(line.handles[0].face.moveTo).toHaveBeenCalledWith(250, 200);
             expect(line.handles[1].face.moveTo).toHaveBeenCalledWith(400, 300);
             expect(line.handles[2].face.moveTo).toHaveBeenCalledWith(550, 200);
+        });
+
+        it("tala: end handles snap to share an axis with their latches so the segments stay orthogonal", async () => {
+            // Endpoints sit on TALA's exit row (y=100).  TALA's interior
+            // corners share x (column at x=250) and are far enough off the
+            // straight chord to survive the collinear filter — (250, 50)
+            // is 50 px above, (250, 150) is 50 px below.  After the engine
+            // populates the two interior handles at those positions, the
+            // alignment pass should snap handle[0].y to the source latch
+            // row (100) and handle[1].y to the target latch row (100),
+            // keeping the latch→handle segments horizontal.
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D180)!);
+            const handle0 = makeHandleStub();
+            const handle1 = makeHandleStub();
+
+            const line   = makeLineStub(srcLatch, tgtLatch, [handle0, handle1]);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 150 100 L 250 50 L 250 150 L 350 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            expect(line.handles).toHaveLength(2);
+            // Both end handles snap to the latch row (y=100) while keeping
+            // the shared interior x (250) — the latch→handle segments are
+            // now horizontal at y=100, matching the latches.
+            expect(line.handles[0].face.boundingBox).toEqual({ x: 250, y: 100 });
+            expect(line.handles[1].face.boundingBox).toEqual({ x: 250, y: 100 });
+        });
+
+        it("tala: alignment is a no-op when latch and end handle already share an axis", async () => {
+            // Source latch at right midpoint of src block: (150, 100).
+            // First TALA interior corner at (250, 100).  Latch and corner
+            // already share y → first segment is horizontal already, no
+            // alignment needed.  Verify handle[0] stays at (250, 100).
+            const srcBlock = makeBlockWithAnchors("src-block", 100, 100, 100, 50);
+            const tgtBlock = makeBlockWithAnchors("tgt-block", 400, 100, 100, 50);
+
+            const srcLatch = makeLatchStub(srcBlock.anchors.get(AnchorPosition.D0)!);
+            const tgtLatch = makeLatchStub(tgtBlock.anchors.get(AnchorPosition.D180)!);
+            const handle0 = makeHandleStub();
+            const handle1 = makeHandleStub();
+
+            const line   = makeLineStub(srcLatch, tgtLatch, [handle0, handle1]);
+            const canvas = makeGeometricCanvas([srcBlock, tgtBlock], [], [line]);
+
+            // Both endpoints on the y=100 row, both interior corners off
+            // it, both interior corners share x=250 → handle[0] aligns
+            // with src latch already (both at y=100), handle[1] aligns
+            // with tgt latch already (both at y=100).
+            const svg = makeTalaSvgWithConnections(
+                [
+                    { id: "src-block", x: 50,  y: 75, width: 100, height: 50 },
+                    { id: "tgt-block", x: 350, y: 75, width: 100, height: 50 }
+                ],
+                [{ d: "M 150 100 L 250 100 L 250 200 L 350 100" }]
+            );
+            const layoutSource: LayoutSource = vi.fn().mockResolvedValue(svg);
+
+            await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
+
+            // (250, 100) is the FIRST L vertex; under the new parser it's
+            // emitted because it's not followed by an S.  After the
+            // collinear filter (it sits on the src→tgt chord at y=100),
+            // it's discarded — leaving (250, 200) as the sole significant
+            // interior vertex.  The line ends up with 1 handle, which the
+            // alignment skip path leaves untouched.
+            expect(line.handles).toHaveLength(1);
+            // handle[0] is the surviving interior vertex.
+            expect(line.handles[0].face.boundingBox).toEqual({ x: 250, y: 200 });
         });
 
         it("tala: re-layout shrinks an over-populated handle list to match the new TALA route", async () => {
