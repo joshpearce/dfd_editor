@@ -1,36 +1,28 @@
 """Tests for MCP server tools in mcp_server.py.
 
 Architecture:
-  - A real Flask app runs on an ephemeral port in a daemon thread (same
-    pattern as test_crud_extras.py live_server fixture).
-  - mcp_server._http is patched to point at that port so tool functions
-    exercise the real HTTP stack without a separately-running Flask process.
-  - Broadcast emissions are verified by draining a real WebSocket connection,
-    exercising the full Flask WS → simple_websocket path.
-  - The sweeper lifecycle test uses approach (a): _sweep_once() is driven
-    synchronously after stamping / not-stamping sessions, avoiding any sleep.
+  - A real Flask app runs on an ephemeral port in a daemon thread so the
+    WS endpoint and broadcast fanout are exercised end-to-end.
+  - ``ws._loopback_http`` is swapped to target the ephemeral port so the
+    MCP broadcast path (``ws.post_broadcast_envelope``) hits the test
+    Flask rather than a separately-running process.
+  - ``storage.DATA_DIR`` is monkeypatched to a per-test tmp_path; both
+    the Flask app and ``agent_service`` (called in-process by MCP tools)
+    read from the same directory.
+  - Sweeper lifecycle is driven synchronously via ``_sweep_once()`` —
+    no sleeps, no daemon thread.
 
 Tool function access:
-  @mcp.tool() registers functions by reference without wrapping them, so
-  list_diagrams / get_diagram / etc. imported from mcp_server are directly
-  callable as plain Python functions.  (Verified via dir() inspection.)
-
-Tool enumeration:
-  mcp._tool_manager._tools is a dict[str, Tool]; Tool.fn is the raw callable.
-  mcp._tool_manager.list_tools() is a synchronous method returning list[Tool].
+  ``@mcp.tool()`` registers functions by reference without wrapping, so
+  the named imports below are directly callable as plain Python.
 
 FastMCP dispatch test:
-  `create_diagram` and `update_diagram` accept `diagram: dict` and call
-  `Diagram.model_validate(diagram)` inside the tool body. To exercise the
-  full FastMCP dispatch path (arg routing + tool invocation), we locate the
-  tool via mcp._tool_manager.list_tools() and call
-  tool.fn_metadata.call_fn_with_arg_validation() with a raw dict — the same
-  shape an agent would send over the wire.
-
-Daemon thread guard (M3+M4):
-  mcp_server.start_daemon() is now only called from __main__, so importing the
-  module in tests does NOT start the sweeper thread.  Each test that drives
-  lifecycle does so via direct _sweep_once() calls.
+  ``create_diagram`` / ``update_diagram`` accept ``diagram: dict`` and
+  validate via ``Diagram.model_validate`` inside the tool body. To
+  exercise the full FastMCP dispatch path we locate the tool via
+  ``mcp._tool_manager.list_tools()`` and call
+  ``tool.fn_metadata.call_fn_with_arg_validation()`` with a raw dict —
+  the same shape an agent sends over the wire.
 """
 
 from __future__ import annotations
@@ -47,8 +39,9 @@ import pytest
 import simple_websocket
 from werkzeug.serving import make_server
 
-import app as app_module
 import mcp_server
+import storage
+import ws as ws_module
 from app import app
 from mcp_server import (
     _mark_active,
@@ -142,25 +135,26 @@ def _seed_file(tmp_path: Any, diagram_id: str, content: dict) -> None:
 
 @pytest.fixture
 def live_server(tmp_path, monkeypatch):
-    """Spin up Flask on an ephemeral port, redirect mcp_server._http to it."""
-    monkeypatch.setattr(app_module, "DATA_DIR", tmp_path)
+    """Spin up Flask on an ephemeral port, redirect the MCP broadcast loopback to it."""
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     app.config["TESTING"] = True
     srv = make_server("127.0.0.1", 0, app, threaded=True)
     port = srv.server_port
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
 
-    # Save the original _http client so we can restore it in teardown.
-    original_http = mcp_server._http
-    # I6: use context-manager pattern to ensure the test client is closed.
+    # Swap the loopback HTTP client so MCP broadcasts hit the ephemeral
+    # port. post_broadcast_envelope reads ws._loopback_http at call time,
+    # so module-level rebinding is sufficient.
+    original_http = ws_module._loopback_http
     test_client = httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=5.0)
-    mcp_server._http = test_client
+    ws_module._loopback_http = test_client
 
     try:
         yield tmp_path, port
     finally:
-        test_client.close()  # I6: explicit close before restoring original
-        mcp_server._http = original_http
+        test_client.close()
+        ws_module._loopback_http = original_http
         srv.shutdown()
 
 
@@ -172,8 +166,7 @@ def live_server(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _drain_ws_clients():
     yield
-    with app_module._ws_lock:
-        app_module._ws_clients.clear()
+    ws_module.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -790,7 +783,7 @@ class TestSadPaths:
         mcp_server._was_active = True
         calls = self._spy(monkeypatch)
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(storage.DiagramNotFoundError):
             get_diagram(diagram_id="does-not-exist", ctx=_ctx())
 
         assert self._operation_types(calls) == [], (
@@ -802,7 +795,7 @@ class TestSadPaths:
         mcp_server._was_active = True
         calls = self._spy(monkeypatch)
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(storage.DiagramNotFoundError):
             update_diagram(diagram_id="does-not-exist", diagram=copy.deepcopy(_MINIMAL_DOC), ctx=_ctx())
 
         assert [c["type"] for c in calls if c.get("type") == "diagram-updated"] == [], (
@@ -814,7 +807,7 @@ class TestSadPaths:
         mcp_server._was_active = True
         calls = self._spy(monkeypatch)
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(storage.DiagramNotFoundError):
             delete_diagram(diagram_id="does-not-exist", ctx=_ctx())
 
         assert [c["type"] for c in calls if c.get("type") == "diagram-deleted"] == [], (
@@ -828,7 +821,7 @@ class TestSadPaths:
         mcp_server._was_active = True
         calls = self._spy(monkeypatch)
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(storage.DiagramNotFoundError):
             display_diagram(diagram_id="does-not-exist", ctx=_ctx())
 
         assert [c["type"] for c in calls if c.get("type") == "display"] == [], (

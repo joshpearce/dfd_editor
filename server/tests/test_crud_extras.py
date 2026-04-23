@@ -13,8 +13,10 @@ import pytest
 import simple_websocket
 from werkzeug.serving import make_server
 
-import app as app_module
-from app import app, broadcast
+import storage
+import ws as ws_module
+from app import app
+from ws import broadcast
 
 # ---------------------------------------------------------------------------
 # Minimal valid document (no layout key) for seeding and import tests
@@ -57,7 +59,7 @@ _MINIMAL_DOC = {
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(app_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     app.config["TESTING"] = True
     with app.test_client() as c:
         yield c
@@ -70,7 +72,7 @@ def client(tmp_path, monkeypatch):
 
 @pytest.fixture
 def live_server(tmp_path, monkeypatch):
-    monkeypatch.setattr(app_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     app.config["TESTING"] = True
     # threaded=True is required so the WS handler and subsequent HTTP calls
     # can be served concurrently — without it the server blocks on the WS loop
@@ -94,8 +96,7 @@ def live_server(tmp_path, monkeypatch):
 def _drain_ws_clients():
     """Drain the module-level WS client set after each test regardless of outcome."""
     yield
-    with app_module._ws_lock:
-        app_module._ws_clients.clear()
+    ws_module.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -303,12 +304,11 @@ class TestBroadcastDeadSocketPruning:
                 raise RuntimeError("boom")
 
         stub = _FailingSocket()
-        with app_module._ws_lock:
-            app_module._ws_clients.add(stub)
+        ws_module.register(stub)
 
         broadcast({"type": "x"})
 
-        assert stub not in app_module._ws_clients
+        assert stub not in ws_module._ws_clients
 
 
 # ---------------------------------------------------------------------------

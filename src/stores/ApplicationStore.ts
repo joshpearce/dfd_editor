@@ -54,7 +54,7 @@ export const useApplicationStore = defineStore("applicationStore", {
         serverFileId: null as string | null,
         pendingNameFocus: 0,
         lastRemoteActivityTs: null as number | null,
-        remoteActivityUndoDepth: null as number | null,
+        remoteActivityUndoDepth: null as number | null
     }),
     getters: {
 
@@ -285,7 +285,7 @@ export const useApplicationStore = defineStore("applicationStore", {
         },
 
         markRemoteActivity(): void {
-            if (_remoteActivityTimer !== null) clearTimeout(_remoteActivityTimer);
+            if (_remoteActivityTimer !== null) { clearTimeout(_remoteActivityTimer); }
             this.lastRemoteActivityTs = Date.now();
             this.remoteActivityUndoDepth = this.activeEditor.undoDepth;
             _remoteActivityTimer = setTimeout(() => this.clearRemoteActivity(), 60_000);

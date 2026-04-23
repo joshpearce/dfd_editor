@@ -1,284 +1,40 @@
-import json
-import subprocess
-import threading
-import uuid
-from pathlib import Path
+"""Flask app wiring.
 
-from flask import Flask, Response, jsonify, request
+Two blueprints mount here:
+
+- ``editor_api`` — URLs the browser editor already consumes
+  (``/api/diagrams[/<id>]``, ``/api/diagrams/import``,
+  ``/api/diagrams/<id>/export``, ``/api/layout``, ``/api/health``,
+  ``/ws``, ``/api/internal/broadcast``). Unchanged URLs.
+- ``agent_api`` — the parallel REST surface under ``/api/agent/*`` for
+  non-MCP external clients.
+
+The MCP server (``mcp_server.py``) runs in a separate process and
+imports ``agent_service`` directly; it does not go through this app
+except for the loopback ``/api/internal/broadcast`` POST used to fan WS
+envelopes out to connected browsers.
+"""
+
+from __future__ import annotations
+
+from flask import Flask
 from flask_cors import CORS
 from flask_sock import Sock
-from pydantic import ValidationError
-from simple_websocket import ConnectionClosed, Server as WsServer
 
-from transform import DuplicateParentError, InvalidNativeError, to_minimal, to_native
+import storage  # noqa: F401 — imported so DATA_DIR directory is created at startup
+from agent_api import agent_api
+from editor_api import editor_api, register_ws
+import ws  # noqa: F401 — imported so the loopback HTTP client is initialised
+
 
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173"])
 sock = Sock(app)
 
-_ws_clients: set[WsServer] = set()
-_ws_lock = threading.Lock()
+app.register_blueprint(editor_api)
+app.register_blueprint(agent_api)
 
-# Tests override this via monkeypatch.setattr("app.DATA_DIR", ...).
-# Any refactor that reads DATA_DIR from a different module must preserve
-# this overridable seam.
-DATA_DIR = Path(__file__).parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
-
-
-def _safe_ctx(ctx: dict) -> dict:
-    """Preserve JSON-serializable context fields and stringify the rest.
-
-    Pydantic ValidationError.ctx can contain non-JSON-serializable objects
-    (e.g. type objects). This helper keeps the serializable entries and
-    converts the rest to strings so error responses can be JSON-encoded.
-
-    Note: this is the shared "clean a pydantic ValidationError for JSON
-    output" helper for this module. Route handlers that build 400 responses
-    from a pydantic v2 ValidationError should funnel through
-    ``_to_native_or_error`` (below) rather than duplicating the pattern.
-    """
-    result = {}
-    for k, v in ctx.items():
-        try:
-            json.dumps(v)
-            result[k] = v
-        except TypeError:
-            result[k] = str(v)
-    return result
-
-
-def _to_native_or_error(body):
-    """Parse and validate a minimal-format body, returning (native, None) or (None, error_response).
-
-    Returns:
-        (native_dict, None) on success.
-        (None, (Response, status_code)) on body=None, ValidationError, or DuplicateParentError.
-    """
-    if body is None:
-        return None, (jsonify({"error": "request body must be valid JSON"}), 400)
-    try:
-        native = to_native(body)
-    except ValidationError as e:
-        errors = e.errors(include_url=False)
-        cleaned_errors = [
-            {**err, "ctx": _safe_ctx(err["ctx"])} if "ctx" in err else err
-            for err in errors
-        ]
-        return None, (jsonify({"error": "validation failed", "details": cleaned_errors}), 400)
-    except DuplicateParentError as e:
-        return None, (jsonify({"error": "duplicate parent", "detail": str(e)}), 400)
-    return native, None
-
-
-@app.route("/api/health")
-def health():
-    return jsonify({"status": "ok"})
-
-
-def _diagram_display_name(data: dict) -> str | None:
-    """Find a human name in a stored diagram, tolerating either the
-    frontend's top-level `name` convention or the native dfd_v1 shape
-    where name lives under the canvas object's properties."""
-    name = data.get("name")
-    if name:
-        return name
-    for obj in data.get("objects", []):
-        if obj.get("id") == "dfd":
-            for entry in obj.get("properties", []):
-                if isinstance(entry, list) and len(entry) == 2 and entry[0] == "name":
-                    return entry[1] or None
-            break
-    return None
-
-
-@app.route("/api/diagrams", methods=["GET"])
-def list_diagrams():
-    summaries = []
-    for path in sorted(DATA_DIR.glob("*.json")):
-        try:
-            data = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
-            continue
-        summaries.append({
-            "id": path.stem,
-            "name": _diagram_display_name(data) or path.stem,
-            "modified": path.stat().st_mtime,
-        })
-    return jsonify(summaries)
-
-
-@app.route("/api/diagrams", methods=["POST"])
-def create_diagram():
-    diagram_id = str(uuid.uuid4())
-    scaffold = {"schema": "dfd_v1"}
-    (DATA_DIR / f"{diagram_id}.json").write_text(json.dumps(scaffold, indent=4))
-    return jsonify({"id": diagram_id}), 201
-
-
-@app.route("/api/diagrams/<diagram_id>", methods=["GET"])
-def get_diagram(diagram_id):
-    path = DATA_DIR / f"{diagram_id}.json"
-    if not path.exists():
-        return jsonify({"error": "not found"}), 404
-    return Response(path.read_text(), mimetype="application/json")
-
-
-@app.route("/api/diagrams/<diagram_id>", methods=["PUT"])
-def update_diagram(diagram_id):
-    path = DATA_DIR / f"{diagram_id}.json"
-    if not path.exists():
-        return jsonify({"error": "not found"}), 404
-    path.write_text(json.dumps(request.get_json(), indent=4))
-    return "", 204
-
-
-@app.route("/api/diagrams/import", methods=["POST"])
-def import_diagram():
-    native, err = _to_native_or_error(request.get_json(silent=True))
-    if err is not None:
-        return err
-    diagram_id = str(uuid.uuid4())
-    (DATA_DIR / f"{diagram_id}.json").write_text(json.dumps(native, indent=4))
-    return jsonify({"id": diagram_id}), 201
-
-
-@app.route("/api/diagrams/import-and-display", methods=["POST"])
-def import_and_display():
-    """Import a minimal-format doc, persist it, then broadcast a display event.
-
-    Combines ``POST /api/diagrams/import`` + ``POST /api/internal/broadcast``
-    in one round-trip so scripted callers (e.g. scripts/compare_layout.py)
-    don't have to manage two sequential requests.
-
-    Returns ``{id, broadcast_delivered}`` with HTTP 201 on success.
-    Validation failures return the same 400 shapes as ``import_diagram``.
-    """
-    native, err = _to_native_or_error(request.get_json(silent=True))
-    if err is not None:
-        return err
-    diagram_id = str(uuid.uuid4())
-    (DATA_DIR / f"{diagram_id}.json").write_text(json.dumps(native, indent=4))
-    broadcast({"type": "display", "payload": {"id": diagram_id}})
-    return jsonify({"id": diagram_id, "broadcast_delivered": True}), 201
-
-
-@app.route("/api/diagrams/<diagram_id>/export", methods=["GET"])
-def export_diagram(diagram_id):
-    path = DATA_DIR / f"{diagram_id}.json"
-    if not path.exists():
-        return jsonify({"error": "not found"}), 404
-    native = json.loads(path.read_text())
-    try:
-        minimal = to_minimal(native)
-    except InvalidNativeError as e:
-        return jsonify({"error": "stored diagram is not a valid dfd_v1 document", "detail": str(e)}), 500
-    except ValidationError as e:
-        return jsonify({"error": "stored diagram is not a valid dfd_v1 document", "detail": str(e)}), 500
-    return jsonify(minimal)
-
-
-@app.route("/api/diagrams/<diagram_id>", methods=["DELETE"])
-def delete_diagram(diagram_id):
-    path = DATA_DIR / f"{diagram_id}.json"
-    if not path.exists():
-        return jsonify({"error": "not found"}), 404
-    path.unlink()
-    return "", 204
-
-
-@app.route("/api/diagrams/<diagram_id>/import", methods=["PUT"])
-def import_diagram_update(diagram_id):
-    path = DATA_DIR / f"{diagram_id}.json"
-    if not path.exists():
-        return jsonify({"error": "not found"}), 404
-    native, err = _to_native_or_error(request.get_json(silent=True))
-    if err is not None:
-        return err
-    path.write_text(json.dumps(native, indent=4))
-    return "", 204
-
-
-def broadcast(envelope: dict) -> None:
-    with _ws_lock:
-        snapshot = set(_ws_clients)
-    dead = set()
-    for ws in snapshot:
-        try:
-            ws.send(json.dumps(envelope))
-        except Exception:
-            app.logger.exception("broadcast: failed to send to ws client")
-            dead.add(ws)
-    if dead:
-        with _ws_lock:
-            _ws_clients.difference_update(dead)
-
-
-@app.route("/api/internal/broadcast", methods=["POST"])
-def internal_broadcast():
-    if request.remote_addr != "127.0.0.1":
-        return jsonify({"error": "forbidden"}), 403
-    body = request.get_json(silent=True)
-    if body is None:
-        return jsonify({"error": "request body must be valid JSON"}), 400
-    msg_type = body.get("type")
-    if not isinstance(msg_type, str) or not msg_type:
-        return jsonify({"error": "type must be a non-empty string"}), 400
-    payload = body.get("payload")
-    if payload is not None and not isinstance(payload, dict):
-        return jsonify({"error": "payload must be an object"}), 400
-    broadcast(body)
-    return jsonify({"ok": True})
-
-
-@sock.route("/ws")
-def ws_handler(ws):
-    with _ws_lock:
-        _ws_clients.add(ws)
-    try:
-        while True:
-            msg = ws.receive()
-            if msg is None:
-                break
-    except ConnectionClosed:
-        pass
-    finally:
-        with _ws_lock:
-            _ws_clients.discard(ws)
-
-
-@app.route("/api/layout", methods=["POST"])
-def layout():
-    body = request.get_json(silent=True)
-    if body is None:
-        return jsonify({"error": "request body must be valid JSON"}), 400
-    source = body.get("source")
-    if source is None:
-        return jsonify({"error": "missing required field: source"}), 400
-    if not isinstance(source, str):
-        return jsonify({"error": "source must be a string"}), 400
-    try:
-        # Engine is selected via the $D2_LAYOUT env var (D2's own convention).
-        # package.json's `dev:flask` sets D2_LAYOUT=tala; override from the
-        # shell to sweep engines (`D2_LAYOUT=dagre npm run dev:flask`) or
-        # seeds without editing this file.
-        result = subprocess.run(
-            ["d2", "-", "-"],
-            input=source,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "layout timed out after 30s"}), 502
-    except FileNotFoundError:
-        return jsonify({"error": "d2 binary not found on PATH"}), 502
-    if result.returncode == 0:
-        # Dump the raw TALA SVG and D2 source next to the saved diagrams so
-        # they can be inspected / opened directly.  Overwrites on each call;
-        # diagnostic artifact, not persisted per-diagram.
-        (DATA_DIR / "latest-layout.svg").write_text(result.stdout)
-        (DATA_DIR / "latest-layout.d2").write_text(source)
-        return jsonify({"svg": result.stdout})
-    error_msg = result.stderr.strip() or "d2 exited with non-zero status"
-    return jsonify({"error": error_msg}), 502
+# The /ws route uses flask-sock, which requires the Sock object; blueprints
+# can't register @sock.route decorators, so the WS handler is wired here via
+# a helper in editor_api that knows how to install it on the given Sock.
+register_ws(sock)

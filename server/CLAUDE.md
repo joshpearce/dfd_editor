@@ -1,6 +1,6 @@
 # Flask Backend
 
-Last verified: 2026-04-21
+Last verified: 2026-04-23
 
 ## Purpose
 Hosts DFD diagram files for the browser editor: "API creates diagram,
@@ -9,8 +9,44 @@ server. (Note: an upstream `?src=<url>` query-param path is not wired up
 in this fork — this server's HTTP endpoints are the working persistence
 surface.)
 
+## Module layout
+
+Three-tier split introduced 2026-04-23 so non-MCP agentic clients can
+drive the same diagram operations over plain HTTP:
+
+- `core.py` — pure diagram-mutation logic (cascade rules, cycle check,
+  guid collision, read-only-field filtering). No I/O, no Flask, no WS.
+  Raises typed exceptions (`ElementNotFoundError`, `DuplicateGuidError`,
+  `ContainerCycleError`, etc.).
+- `storage.py` — single source of truth for `DATA_DIR` and file I/O
+  (`load_minimal`, `save_minimal`, `list_summaries`, `create_scaffold`,
+  `delete`, `create_from_minimal`). Tests monkeypatch `storage.DATA_DIR`.
+- `ws.py` — WebSocket client registry + two broadcast strategies.
+  `broadcast(envelope)` fans out in-process to connected clients;
+  `post_broadcast_envelope(envelope)` POSTs to
+  `/api/internal/broadcast` (used by the out-of-process MCP server).
+- `agent_service.py` — use-case layer. Each function:
+  `storage.load_minimal → core.<op> → Diagram.model_validate →
+  storage.save_minimal → broadcast`. Broadcast is injected as a callable
+  so Flask (`ws.broadcast`) and MCP (`ws.post_broadcast_envelope`) each
+  plug in their own delivery strategy.
+- `editor_api.py` — Flask blueprint for the **editor-facing** HTTP
+  surface. URLs unchanged from pre-split (`/api/health`,
+  `/api/diagrams[/<id>]`, `/api/diagrams/import`,
+  `/api/diagrams/<id>/export`, `/api/diagrams/<id>/import`,
+  `/api/internal/broadcast`, `/api/layout`, `/ws`). Consumed by
+  `DfdApiClient.ts` and the FileManagement commands.
+- `agent_api.py` — Flask blueprint mounted at `/api/agent/*` for
+  **external agentic clients** (scripts, tests, non-MCP agents). Thin
+  translator over `agent_service`; MCP is one special case of this
+  client class.
+- `app.py` — wiring only (CORS, Sock, blueprint registration). Tiny.
+- `mcp_server.py` — FastMCP tool wrappers. Each tool stamps the
+  heartbeat and calls `agent_service.<op>` directly (in-process), passing
+  `ws.post_broadcast_envelope` as the broadcast strategy.
+
 ## Contracts
-- **Exposes** — HTTP endpoints defined in `app.py`:
+- **Exposes** — HTTP endpoints defined in `editor_api.py` and `agent_api.py`:
   - `GET  /api/health` — `{"status": "ok"}`
   - `GET  /api/diagrams` — array of `{id, name, modified}` summaries
     (`id` = filename stem; `name` falls back to stem; `modified` = mtime)
@@ -35,6 +71,34 @@ surface.)
     sets `D2_LAYOUT=tala`. Override from the shell
     (`D2_LAYOUT=dagre npm run dev:flask`) to sweep engines without editing
     code.
+  - **Agent API** at `/api/agent/*` (parallel surface for external
+    non-MCP clients; see `agent_api.py`):
+    - `GET  /api/agent/schema` — `Diagram.model_json_schema()`.
+    - `GET  /api/agent/diagrams` — same summary list as the editor API.
+    - `GET  /api/agent/diagrams/<id>` — minimal export; 404 if missing.
+    - `POST /api/agent/diagrams` — validated create from minimal doc;
+      returns `{id, diagram}` with 201. No broadcast.
+    - `PUT  /api/agent/diagrams/<id>` — validated replace + broadcast
+      `diagram-updated`; returns `{id, diagram, broadcast_delivered}`.
+    - `DELETE /api/agent/diagrams/<id>` — delete + broadcast
+      `diagram-deleted`.
+    - `POST /api/agent/diagrams/<id>/display` — broadcast `display`;
+      404 if id unknown (pre-check so browser never gets a bad
+      envelope).
+    - `POST /api/agent/diagrams/<id>/elements` — body
+      `{collection, element}`; appends + broadcast `diagram-updated`.
+      Returns 201 on success. 409 for duplicate guid, 400 for bad
+      collection/missing guid, 404 for unknown diagram.
+    - `PATCH /api/agent/diagrams/<id>/elements/<guid>` — body is the
+      sparse `fields` dict; sparse-merge + broadcast. 404 if element
+      missing.
+    - `DELETE /api/agent/diagrams/<id>/elements/<guid>` — delete with
+      cascade rules + broadcast. Returns
+      `{guid, deleted_collection, cascade_removed, broadcast_delivered}`.
+    - `POST /api/agent/diagrams/<id>/elements/<guid>/reparent` — body
+      `{new_parent_guid}` (nullable); returns
+      `{guid, old_parent_guid, new_parent_guid, broadcast_delivered}`.
+      409 on cycle, 404 on unknown target container.
 - **Port** — 5050 (set by `npm run dev:flask` in root `package.json`, NOT in
   `app.py`). Flask's own default of 5000 is not used here.
 - **CORS** — locked to `http://localhost:5173` (the Vite dev server). The
@@ -98,11 +162,18 @@ surface.)
   those files in the same change.
 
 ## Key Files
-- `app.py` — the HTTP surface (8 routes, ~145 lines)
-- `schema.py` — pydantic v2 models for the minimal DFD format; includes `DataItem`, `DataFlowProps.node1_src_data_item_refs`, `DataFlowProps.node2_src_data_item_refs`, and `Diagram.data_items`
-- `transform.py` — native `dfd_v1` ↔ minimal format converter; `_build_canvas_props` now accepts `data_items`; `_data_item_to_pairs` serializes items; `_extract_canvas_data_items` reads them back
-- `tests/` — pytest suites covering endpoints, schema, import/export, and enum-drift vs. `DfdObjects.ts`; `tests/test_data_items.py` covers data-item round-trip end-to-end
-- `requirements.txt` — pinned floor versions of flask / flask-cors (plus `pydantic` for schema validation)
+- `app.py` — Flask app wiring only (CORS, Sock, blueprint registration).
+- `editor_api.py` — editor-facing blueprint: unchanged `/api/*` URLs the Vue editor consumes.
+- `agent_api.py` — external-client blueprint mounted at `/api/agent/*`.
+- `agent_service.py` — use-case layer shared by `agent_api` and `mcp_server`; broadcast callback is injected.
+- `core.py` — pure diagram-mutation functions (cascade, cycle, guid collision, read-only filtering). No I/O.
+- `storage.py` — `DATA_DIR` + file I/O (load/save/list/delete). Tests patch `storage.DATA_DIR`.
+- `ws.py` — WS client registry, in-process `broadcast`, and `post_broadcast_envelope` (HTTP loopback variant for MCP).
+- `mcp_server.py` — FastMCP tool wrappers over `agent_service`.
+- `schema.py` — pydantic v2 models for the minimal DFD format.
+- `transform.py` — native `dfd_v1` ↔ minimal format converter.
+- `tests/` — pytest suites: endpoints / schema / import-export / drift / data-items (existing) plus `test_core.py`, `test_agent_service.py`, `test_agent_api.py` (new, added with the 2026-04-23 split).
+- `requirements.txt` — pinned floor versions of flask / flask-cors / pydantic / flask-sock.
 - `data/` — persistence directory; auto-created on startup. Contents are
   local-only and should not be committed.
 - `.venv/` — expected virtual-env location; `npm run dev:flask` invokes
@@ -145,32 +216,37 @@ only; Flask's broadcast endpoint rejects non-loopback callers with 403.
   uninstalls `RectangleSelectPlugin` / `PowerEditPlugin`); `"off"` restores
   interactive editing.
 
-### MCP tools (Step 2)
+### MCP tools
 
-Eleven tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP transport
-bound to 127.0.0.1:5051). Each tool calls Flask over loopback:
+Eleven tools exposed at `mcp_server.py` on port 5051 (streamable-HTTP
+transport bound to 127.0.0.1:5051). As of 2026-04-23 each tool calls
+`agent_service.<op>` **in-process** (no more Flask HTTP hop for the
+diagram operation itself). Only broadcasts still cross the process
+boundary — they go via `ws.post_broadcast_envelope` which POSTs to
+`/api/internal/broadcast` (the connected WS clients live in Flask's
+process).
 
-| Tool | Flask call | Emits |
+| Tool | agent_service call | Emits |
 |---|---|---|
-| `list_diagrams` | `GET /api/diagrams` | — |
-| `create_diagram` | `POST /api/diagrams/import` | — |
-| `get_diagram` | `GET /api/diagrams/<id>/export` | — |
-| `get_diagram_schema` | — (returns `Diagram.model_json_schema()`) | — |
-| `update_diagram` | `PUT /api/diagrams/<id>/import` | `diagram-updated` |
-| `delete_diagram` | `DELETE /api/diagrams/<id>` | `diagram-deleted` |
-| `display_diagram` | `POST /api/internal/broadcast` with `type: "display"` | `display` |
-| `add_element` | fetch → append → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
-| `update_element` | fetch → mutate → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
-| `delete_element` | fetch → cascade-delete → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
-| `reparent_element` | fetch → move between containers → `PUT /api/diagrams/<id>/import` | `diagram-updated` |
+| `list_diagrams` | `list_diagrams` | — |
+| `create_diagram` | `create_diagram` | — |
+| `get_diagram` | `get_diagram` | — |
+| `get_diagram_schema` | `get_schema` | — |
+| `update_diagram` | `update_diagram` | `diagram-updated` |
+| `delete_diagram` | `delete_diagram` | `diagram-deleted` |
+| `display_diagram` | `display_diagram` | `display` |
+| `add_element` | `add_element` | `diagram-updated` |
+| `update_element` | `update_element` | `diagram-updated` |
+| `delete_element` | `delete_element` | `diagram-updated` |
+| `reparent_element` | `reparent_element` | `diagram-updated` |
 
 `create_diagram` and `update_diagram` take `diagram: dict` (not
-`diagram: Diagram`) — validation happens inside the tool body via
-`Diagram.model_validate(diagram)`. This keeps the advertised `inputSchema`
-compact (no inlined pydantic `$defs`), which matters for MCP clients that
-choke on large schemas. Agents that want the formal contract call
-`get_diagram_schema`; agents that just need a working example round-trip the
-output of `get_diagram` or follow the docstring example.
+`diagram: Diagram`) — validation happens inside the service via
+`Diagram.model_validate`. This keeps the advertised `inputSchema`
+compact (no inlined pydantic `$defs`), which matters for MCP clients
+that choke on large schemas. Agents that want the formal contract call
+`get_diagram_schema`; agents that just need a working example round-trip
+the output of `get_diagram` or follow the docstring example.
 
 Tools that emit broadcasts (`update_diagram`, `delete_diagram`,
 `display_diagram`) return a ``broadcast_delivered: bool`` flag so the agent
@@ -227,3 +303,9 @@ so object-address reuse after GC cannot collide with a live session.
   `while True: ws.receive()`). Fine for single-user localhost; never front
   this with a reverse proxy that rewrites `REMOTE_ADDR` — the broadcast
   endpoint trusts `request.remote_addr == "127.0.0.1"` for access control.
+- **MCP now writes files directly.** Since the 2026-04-23 refactor the
+  MCP process imports `agent_service` / `storage` in-process rather than
+  PUTting to Flask. Both processes now contend for
+  `server/data/<id>.json` as last-write-wins. Practical usage is
+  single-user localhost so this is acceptable; if it ever matters the
+  fix is a file lock inside `storage.save_minimal`.

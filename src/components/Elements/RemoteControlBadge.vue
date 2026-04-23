@@ -1,5 +1,8 @@
 <template>
-  <div class="remote-control-badge" v-if="application.isRemotelyActive">
+  <div
+    class="remote-control-badge"
+    v-if="application.isRemotelyActive"
+  >
     <span class="dot">●</span>
     <span class="label">Editor is controlled remotely</span>
   </div>

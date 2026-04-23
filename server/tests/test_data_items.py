@@ -20,7 +20,7 @@ import json
 
 import pytest
 
-import app as app_module
+import storage
 from app import app
 from schema import DataItem
 from transform import InvalidNativeError, _extract_canvas_data_items, to_minimal, to_native
@@ -43,7 +43,7 @@ _DATA_ITEM_3_GUID = "bbbbbbbb-0000-0000-0000-000000000003"
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(app_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     app.config["TESTING"] = True
     with app.test_client() as c:
         yield c

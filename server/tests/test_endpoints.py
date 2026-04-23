@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-import app as app_module
+import storage
 from app import app
 
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ _MINIMAL_DOC: dict = {
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(app_module, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     app.config["TESTING"] = True
     with app.test_client() as c:
         yield c
