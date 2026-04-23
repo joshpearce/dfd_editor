@@ -1,5 +1,4 @@
-import type { HandleView } from "../../Views";
-import type { LineView } from "../../Views";
+import type { HandleView, LineView } from "../../Views";
 
 /**
  * Represents one axis-aligned segment between two flanking interior handles on
@@ -41,7 +40,7 @@ export class PolyLineSpanView {
      * A copy of the hitbox polygon for this segment, taken from
      * {@link PolyLine}'s `hitboxes` cache at layout time.
      */
-    public readonly hitbox: number[];
+    public hitbox: number[];
 
     /**
      * Creates a new {@link PolyLineSpanView}.

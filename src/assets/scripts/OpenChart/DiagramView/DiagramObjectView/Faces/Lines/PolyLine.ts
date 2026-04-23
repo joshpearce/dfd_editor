@@ -1,3 +1,7 @@
+// Handle positions originate from TALA's `parseFloat`'d SVG vertices; snap
+// equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
+const AXIS_EPSILON = 1e-6;
+
 import { LineFace } from "../Bases";
 import { findUnlinkedObjectAt } from "../../ViewLocators";
 import {
@@ -112,15 +116,16 @@ export class PolyLine extends LineFace {
         runMultiElbowLayout(this.view, this as unknown as GenericLineInternalState, vertices);
 
         // Rebuild spans: one per axis-aligned interior segment (handles[i] → handles[i+1]).
-        // hitboxes[i+1] is the segment between points[i+1] and points[i+2], i.e. handles[i] and handles[i+1].
+        // points = [src, ...handles, trg], so hitboxes[i+1] is the segment
+        // between points[i+1] (= handles[i]) and points[i+2] (= handles[i+1]).
         this.spans = [];
         for (let i = 0; i < handles.length - 1; i++) {
             const a = handles[i];
             const b = handles[i + 1];
             let axis: "H" | "V";
-            if (a.y === b.y) {
+            if (Math.abs(a.y - b.y) < AXIS_EPSILON) {
                 axis = "H";
-            } else if (a.x === b.x) {
+            } else if (Math.abs(a.x - b.x) < AXIS_EPSILON) {
                 axis = "V";
             } else {
                 continue;

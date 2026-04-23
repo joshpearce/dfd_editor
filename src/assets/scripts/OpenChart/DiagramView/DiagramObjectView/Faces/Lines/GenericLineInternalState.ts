@@ -1,6 +1,5 @@
 import type { LineStyle } from "../Styles";
 import type { DiagramObjectView } from "../../Views";
-import type { PolyLineSpanView } from "./PolyLineSpanView";
 
 export interface GenericLineInternalState {
 
@@ -38,13 +37,5 @@ export interface GenericLineInternalState {
      * The line's hitboxes.
      */
     hitboxes: number[][];
-
-    /**
-     * Axis-aligned interior spans built by {@link PolyLine.calculateLayout}.
-     * Only populated on `PolyLine` instances — `DynamicLine` leaves this
-     * undefined.  Tests access it via the `as unknown as GenericLineInternalState`
-     * cast pattern to avoid duplicating the cast on a per-test basis.
-     */
-    spans?: PolyLineSpanView[];
 
 }
