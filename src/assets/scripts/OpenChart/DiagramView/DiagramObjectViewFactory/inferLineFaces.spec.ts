@@ -8,7 +8,9 @@
 
 import { describe, it, expect } from "vitest";
 import {
+    CanvasView,
     DynamicLine,
+    GroupView,
     HandleView,
     LineView,
     PolyLine
@@ -21,15 +23,13 @@ async function buildLineWithHandleCount(n: number): Promise<{
     line: LineView;
     factory: Awaited<ReturnType<typeof createLinesTestingFactory>>;
 }> {
+    if (n < 1) {
+        throw new Error("buildLineWithHandleCount requires n >= 1 (a line always has a reference handle).");
+    }
     const factory = await createLinesTestingFactory();
     const line = factory.createNewDiagramObject("data_flow", LineView);
-    // Factory hands back a line with one reference handle.  Add (n-1)
-    // extras to reach the requested count.
     for (let i = 1; i < n; i++) {
         line.addHandle(factory.createNewDiagramObject("generic_handle", HandleView));
-    }
-    if (n === 0) {
-        line.dropHandles(0);
     }
     return { line, factory };
 }
@@ -57,12 +57,10 @@ describe("DiagramObjectViewFactory.inferLineFaces", () => {
     });
 
     it("downgrades PolyLine → DynamicLine when handle count falls below 2", async () => {
-        // First grow to 2 handles + upgrade
         const { line, factory } = await buildLineWithHandleCount(2);
         factory.inferLineFaces([line]);
         expect(line.face).toBeInstanceOf(PolyLine);
 
-        // Now drop back to 1 handle and re-infer
         line.dropHandles(1);
         factory.inferLineFaces([line]);
 
@@ -77,21 +75,34 @@ describe("DiagramObjectViewFactory.inferLineFaces", () => {
 
         factory.inferLineFaces([line]);
 
-        // Same instance — no replacement happened on the second call.
         expect(line.face).toBe(polyFace);
     });
 
-    it("traverses nested lines under a canvas root", async () => {
-        // Build two independent multi-handle lines so we can verify the
-        // pass walks the subtree, not just the supplied root.
-        const { line: line1, factory } = await buildLineWithHandleCount(2);
-        const line2 = factory.createNewDiagramObject("data_flow", LineView);
-        line2.addHandle(factory.createNewDiagramObject("generic_handle", HandleView));
+    it("traverses lines nested under a group inside a canvas root", async () => {
+        // Build a real canvas → group → line subtree so the test
+        // exercises the postfix-traversal path that runLayout uses
+        // via [this.canvas].  A flat siblings-of-roots test would not
+        // catch a bug where the traversal stops at the root level.
+        const factory = await createLinesTestingFactory();
+        const canvas = factory.createNewDiagramObject(factory.canvas.name, CanvasView);
 
-        factory.inferLineFaces([line1, line2]);
+        // Create a group from any template whose face is FaceType.Group.
+        // The shared theme registers `trust_boundary` as a Group; use it
+        // (or any equivalent) since the inferLineFaces pass is concerned
+        // only with traversal and Line membership, not the group's style.
+        const group = factory.createNewDiagramObject("trust_boundary", GroupView);
+        canvas.addObject(group);
 
-        expect(line1.face).toBeInstanceOf(PolyLine);
-        expect(line2.face).toBeInstanceOf(PolyLine);
+        // Build the multi-handle line and put it inside the group.
+        const line = factory.createNewDiagramObject("data_flow", LineView);
+        line.addHandle(factory.createNewDiagramObject("generic_handle", HandleView));
+        group.addObject(line);
+
+        expect(line.face).toBeInstanceOf(DynamicLine);
+
+        factory.inferLineFaces([canvas]);
+
+        expect(line.face).toBeInstanceOf(PolyLine);
     });
 
 });

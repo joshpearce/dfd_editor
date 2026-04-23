@@ -240,22 +240,23 @@ describe("NewAutoLayoutEngine", () => {
     }
 
     /**
-     * Minimal handle stub: a `moveTo` spy, a writable `userSetPosition` so
-     * the rebind pass can mark the handle as intentionally placed, and a
-     * `clone` factory so the engine can grow the handle list when TALA
-     * routes a multi-bend polyline.  Each clone is itself a fresh
-     * HandleStub with its own spies.
+     * Minimal handle stub: a `face.moveTo` spy (the engine writes positions
+     * directly to the face to bypass the parent-update cascade), a writable
+     * `userSetPosition` so the rebind pass can mark the handle as
+     * intentionally placed, and a `clone` factory so the engine can grow
+     * the handle list when TALA routes a multi-bend polyline.  Each clone
+     * is itself a fresh HandleStub with its own spies.
      */
     interface HandleStub {
         userSetPosition: number;
-        moveTo: ReturnType<typeof vi.fn>;
+        face: { moveTo: ReturnType<typeof vi.fn> };
         clone: () => HandleStub;
     }
 
     function makeHandleStub(): HandleStub {
         const stub: HandleStub = {
             userSetPosition: 0,
-            moveTo: vi.fn(),
+            face: { moveTo: vi.fn() },
             clone: () => makeHandleStub()
         };
         return stub;
@@ -1228,7 +1229,7 @@ describe("NewAutoLayoutEngine", () => {
 
             // (250, 200) is the vertex farthest from the straight line between
             // start (150, 100) and end (350, 100).
-            expect(handle.moveTo).toHaveBeenCalledWith(250, 200);
+            expect(handle.face.moveTo).toHaveBeenCalledWith(250, 200);
         });
 
         it("tala: 4-point polyline with two significant bends grows the handle list to 2 and populates both", async () => {
@@ -1263,9 +1264,9 @@ describe("NewAutoLayoutEngine", () => {
             expect(line.handles.length).toBe(2);
 
             // First handle (the original) routed to (250, 100).
-            expect(line.handles[0].moveTo).toHaveBeenCalledWith(250, 100);
+            expect(line.handles[0].face.moveTo).toHaveBeenCalledWith(250, 100);
             // Second handle (cloned) routed to (250, 300).
-            expect(line.handles[1].moveTo).toHaveBeenCalledWith(250, 300);
+            expect(line.handles[1].face.moveTo).toHaveBeenCalledWith(250, 300);
 
             // Both handles flagged user-set so the next DynamicLine layout
             // tick (running before inferLineFaces swaps the face) doesn't
@@ -1304,7 +1305,7 @@ describe("NewAutoLayoutEngine", () => {
             await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
 
             expect(line.handles.length).toBe(1);
-            expect(handle.moveTo).not.toHaveBeenCalled();
+            expect(handle.face.moveTo).not.toHaveBeenCalled();
         });
 
         it("tala: 5-point polyline with three bends grows the handle list to 3", async () => {
@@ -1338,9 +1339,9 @@ describe("NewAutoLayoutEngine", () => {
             await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
 
             expect(line.handles.length).toBe(3);
-            expect(line.handles[0].moveTo).toHaveBeenCalledWith(250, 200);
-            expect(line.handles[1].moveTo).toHaveBeenCalledWith(400, 300);
-            expect(line.handles[2].moveTo).toHaveBeenCalledWith(550, 200);
+            expect(line.handles[0].face.moveTo).toHaveBeenCalledWith(250, 200);
+            expect(line.handles[1].face.moveTo).toHaveBeenCalledWith(400, 300);
+            expect(line.handles[2].face.moveTo).toHaveBeenCalledWith(550, 200);
         });
 
         it("tala: re-layout shrinks an over-populated handle list to match the new TALA route", async () => {
@@ -1374,7 +1375,7 @@ describe("NewAutoLayoutEngine", () => {
             // After the collinear filter (250,100) is dropped, only (250,200)
             // remains — line should end up with a single handle pointed there.
             expect(line.handles.length).toBe(1);
-            expect(line.handles[0].moveTo).toHaveBeenCalledWith(250, 200);
+            expect(line.handles[0].face.moveTo).toHaveBeenCalledWith(250, 200);
         });
 
         it("tala: straight polyline leaves handles[0] untouched", async () => {
@@ -1402,7 +1403,7 @@ describe("NewAutoLayoutEngine", () => {
 
             await new NewAutoLayoutEngine(layoutSource, "tala").run(makeObjects(canvas));
 
-            expect(handle.moveTo).not.toHaveBeenCalled();
+            expect(handle.face.moveTo).not.toHaveBeenCalled();
         });
 
         it("tala connection far from blocks (distance > threshold) → falls back to geometric", async () => {

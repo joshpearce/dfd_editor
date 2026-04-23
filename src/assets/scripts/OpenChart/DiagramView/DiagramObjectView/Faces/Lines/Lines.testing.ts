@@ -49,6 +49,24 @@ export const linesTestTheme: DiagramThemeConfiguration = {
             attributes: Alignment.Grid,
             style: DarkStyle.DictionaryBlock()
         },
+        external_entity: {
+            type: FaceType.DictionaryBlock,
+            attributes: Alignment.Grid,
+            style: DarkStyle.DictionaryBlock()
+        },
+        data_store: {
+            type: FaceType.DictionaryBlock,
+            attributes: Alignment.Grid,
+            style: DarkStyle.DictionaryBlock()
+        },
+        trust_boundary: {
+            type: FaceType.Group,
+            attributes: Alignment.Grid
+        },
+        container: {
+            type: FaceType.Group,
+            attributes: Alignment.Grid
+        },
         data_flow: {
             type: FaceType.DynamicLine,
             attributes: Alignment.Grid,

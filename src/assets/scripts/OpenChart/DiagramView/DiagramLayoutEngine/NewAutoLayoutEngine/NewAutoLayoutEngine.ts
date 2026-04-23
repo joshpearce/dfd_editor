@@ -90,25 +90,27 @@ interface RebindableLatchWithAnchor extends RebindableLatch {
 }
 
 /**
- * The source and target latches of a line, each typed as
- * {@link RebindableLatchWithAnchor} so the rebind pass can resolve both
- * endpoint blocks and rebind both ends in one sweep.
+ * A minimal handle surface used by the engine's polyline-handle pass.
  *
- * Getters on a real `LineView` throw when the underlying latch has no
- * attached endpoint; the runtime guard {@link asRebindableLine} catches
- * that and returns `null` so malformed lines are skipped silently.
- */
-/**
- * A minimal handle surface — `moveTo` to steer a line's elbow toward TALA's
- * polyline bend, `userSetPosition` to mark that position as intentional so
- * the downstream `DynamicLine.calculateLayout` doesn't snap the handle back
- * to the source/target midpoint on the very next tick, and `clone` so the
- * engine can manufacture additional handles for multi-bend TALA routes by
- * cloning the line's existing reference handle.
+ * - `userSetPosition`: marks the position as intentional so a later
+ *   `DynamicLine.calculateLayout` doesn't snap the handle back to the
+ *   source/target midpoint.
+ * - `face.moveTo`: writes the handle's new coordinate WITHOUT triggering
+ *   the parent-update cascade.  We avoid the high-level `HandleView.moveTo`
+ *   here because it bubbles to `LineView.handleUpdate` →
+ *   `face.calculateLayout`; for a multi-handle line whose face is still
+ *   `DynamicLine` (the face swap is post-engine), that cascade would call
+ *   `view.dropHandles(1)` mid-loop and discard every handle past index 0.
+ *   Writing the position directly to the face leaves the handle in place
+ *   and defers the layout pass to `canvas.calculateLayout()` in
+ *   `DiagramViewFile.runLayout` — by which point `inferLineFaces` has
+ *   already swapped the face to `PolyLine`.
+ * - `clone`: lets the engine grow the handle list by cloning the line's
+ *   existing reference handle as a template for new entries.
  */
 interface RebindableHandleSurface {
     userSetPosition: number;
-    moveTo(x: number, y: number): void;
+    readonly face: { moveTo(x: number, y: number): void };
     clone(): RebindableHandleSurface;
 }
 
@@ -656,22 +658,14 @@ function pointToBoxDistance(
 }
 
 /**
- * Rebinds every line's latches using TALA's own edge-endpoint data.
- *
- * For each line:
- * 1. Resolve source-block and target-block (same `latch.anchor.parent` walk
- *    as the geometric pass).
- * 2. Scan `edges` to find the one whose `start` is nearest the source-block
- *    perimeter AND `end` nearest the target-block perimeter (minimum combined
- *    distance).
- * 3. If the best match has `start` within one source half-dimension of the
- *    source perimeter AND `end` within one target half-dimension of the target
- *    perimeter, call `pickCardinalAnchor` with those TALA points and rebind.
- * 4. Otherwise fall back to geometric: rebind using the center-to-center
- *    direction (same logic as {@link rebindLinesGeometric}).
- *
- * Lines with unresolved endpoints are skipped silently.
+ * Tolerance for "collinear" interior vertices.  TALA straight-edges
+ * sometimes carry tiny arrowhead-approach vertices; without this guard a
+ * sub-pixel jitter would snap the handle away from the strategy-chosen
+ * elbow position.  Half a pixel is well below the visible threshold and
+ * matches the previous one-handle elbow filter.
  */
+const COLLINEAR_EPSILON = 0.5;
+
 /**
  * Returns the interior vertices of a TALA polyline, with near-collinear
  * points discarded so a sub-pixel jitter on a visually-straight edge stays
@@ -716,22 +710,20 @@ function significantInteriorVertices(points: readonly Point[]): Point[] {
 }
 
 /**
- * Tolerance for "collinear" interior vertices.  TALA straight-edges
- * sometimes carry tiny arrowhead-approach vertices; without this guard a
- * sub-pixel jitter would snap the handle away from the strategy-chosen
- * elbow position.  Half a pixel is well below the visible threshold and
- * matches the previous one-handle elbow filter.
- */
-const COLLINEAR_EPSILON = 0.5;
-
-/**
  * Resizes `line.handles` to exactly `n` entries.  Excess handles are
  * dropped; missing handles are added by cloning the line's existing
- * reference handle.  Throws when `n >= 1` is requested but the line has
- * no handle to clone — every line built by the view factory carries a
- * reference handle, so this only fires for malformed input.
+ * reference handle.  Throws when `n < 1` (the line model and both line
+ * faces require a reference handle) or when `n >= 1` is requested but the
+ * line has no handle to clone — every line built by the view factory
+ * carries a reference handle, so the second case only fires for
+ * malformed input.
  */
 function ensureHandleCount(line: RebindableLineSurface, n: number): void {
+    if (n < 1) {
+        throw new Error(
+            `NewAutoLayoutEngine: ensureHandleCount requires n >= 1; got ${n}.`
+        );
+    }
     if (line.handles.length === n) {
         return;
     }
@@ -750,6 +742,26 @@ function ensureHandleCount(line: RebindableLineSurface, n: number): void {
     }
 }
 
+/**
+ * Rebinds every line's latches using TALA's own edge-endpoint data, and
+ * projects the chosen edge's interior polyline vertices onto the line's
+ * handle list (growing or shrinking via {@link ensureHandleCount}).
+ *
+ * For each line:
+ * 1. Resolve source-block and target-block (same `latch.anchor.parent`
+ *    walk as the geometric pass).
+ * 2. Scan `edges` to find the one whose `start` is nearest the
+ *    source-block perimeter AND `end` nearest the target-block
+ *    perimeter (minimum combined distance).
+ * 3. If the best match has `start` within one source half-dimension and
+ *    `end` within one target half-dimension, call `pickNearestAnchor`
+ *    with those TALA points and rebind, then populate handles for every
+ *    significant interior vertex (see {@link significantInteriorVertices}).
+ * 4. Otherwise fall back to geometric: rebind using the center-to-center
+ *    direction (same logic as {@link rebindLinesGeometric}).
+ *
+ * Lines with unresolved endpoints are skipped silently.
+ */
 function rebindLinesTala(
     lines: ReadonlyArray<RebindableLineSurface>,
     edges: TalaEdge[]
@@ -826,10 +838,14 @@ function rebindLinesTala(
             // handle list, growing or shrinking the list to match.  The
             // line's existing reference handle (always present after
             // template construction) is used as the clone source when more
-            // handles are needed.  When two or more handles end up
-            // populated, the post-layout `inferLineFace` pass swaps the
-            // face from `DynamicLine` to `PolyLine` so the multi-bend
-            // route is rendered verbatim.
+            // handles are needed.  After the engine returns,
+            // `DiagramViewFile.runLayout` invokes `inferLineFaces`, which
+            // upgrades a multi-handle line to PolyLine and downgrades a
+            // single-handle line back to DynamicLine — that's why the loop
+            // here is allowed to operate on a line whose face is still
+            // DynamicLine without DynamicLine's `dropHandles(1)` clobbering
+            // the freshly-cloned handles (the moveTo bypass on the face
+            // skips the layout cascade entirely; see RebindableHandleSurface).
             //
             // Lines without any handle (malformed input) are skipped — the
             // engine has nothing to clone and nothing to mutate.
@@ -838,24 +854,23 @@ function rebindLinesTala(
             }
             const interior = significantInteriorVertices(bestEdge.points);
             if (interior.length === 0) {
-                // Straight edge — leave the existing handle and let
-                // DynamicLine's strategy place it.  Don't shrink the
-                // handle list either; an existing PolyLine being
-                // re-laid-out keeps its prior handle count if TALA
-                // re-routed it as straight.
+                // Straight edge — collapse to a single reference handle so
+                // the post-engine inferLineFaces pass downgrades any prior
+                // PolyLine back to DynamicLine.  Clearing userSetPosition
+                // hands placement back to DynamicLine's strategy, which
+                // re-derives the elbow position on the next layout tick.
+                ensureHandleCount(line, 1);
+                line.handles[0].userSetPosition = 0;
                 continue;
             }
             ensureHandleCount(line, interior.length);
             for (let i = 0; i < interior.length; i++) {
-                // Mark user-set BEFORE moving: moveTo triggers
-                // DynamicLine.calculateLayout, which would otherwise reset
-                // the handle position unless PositionSetByUser is set.
-                // PolyLine reads handles directly so this assignment is
-                // redundant for it, but the face swap happens after this
-                // pass, so the handle still has to survive a DynamicLine
-                // layout tick in between.
+                // Mark user-set so the eventual canvas.calculateLayout pass
+                // (DynamicLine for a single bend, PolyLine for multi-bend)
+                // respects the placement — DynamicLine's strategies
+                // re-derive position when userSetPosition is cleared.
                 line.handles[i].userSetPosition = POSITION_SET_BY_USER_TRUE;
-                line.handles[i].moveTo(interior[i].x, interior[i].y);
+                line.handles[i].face.moveTo(interior[i].x, interior[i].y);
             }
         } else {
             // Fallback: geometric center-to-center rebind for this line.
