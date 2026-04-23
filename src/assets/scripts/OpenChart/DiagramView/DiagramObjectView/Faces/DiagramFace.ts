@@ -3,7 +3,7 @@ import { BoundingBox } from "./BoundingBox";
 import { drawBoundingRegion } from "@OpenChart/Utilities";
 import type { ViewportRegion } from "../ViewportRegion";
 import type { RenderSettings } from "../RenderSettings";
-import type { DiagramObjectView } from "../Views";
+import type { DiagramObjectView, HitTarget } from "../Views";
 
 export abstract class DiagramFace {
 
@@ -157,9 +157,11 @@ export abstract class DiagramFace {
      * @param y
      *  The y coordinate.
      * @returns
-     *  The topmost view, undefined if there isn't one.
+     *  The topmost view, undefined if there isn't one.  Concrete line faces
+     *  may return a {@link PolyLineSpanView} for interior segments; all other
+     *  face types return a {@link DiagramObjectView}.  See {@link HitTarget}.
      */
-    public abstract getObjectAt(x: number, y: number): DiagramObjectView | undefined;
+    public abstract getObjectAt(x: number, y: number): HitTarget | undefined;
 
 
     ///////////////////////////////////////////////////////////////////////////

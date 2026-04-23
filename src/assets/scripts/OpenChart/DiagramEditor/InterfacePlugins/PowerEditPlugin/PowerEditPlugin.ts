@@ -1,14 +1,14 @@
 import * as EditorCommands from "../../Commands";
 import { Crypto, wasHotkeyActive } from "@OpenChart/Utilities";
 import { findImplicitSelection, traverse } from "@OpenChart/DiagramModel";
-import { BlockMover, GenericMover, GroupMover, GroupResizeMover, LatchMover } from "./ObjectMovers";
+import { BlockMover, GenericMover, GroupMover, GroupResizeMover, LatchMover, PolyLineSpanMover } from "./ObjectMovers";
 import { Cursor, DiagramInterfacePlugin, SubjectTrack } from "@OpenChart/DiagramInterface";
-import { AnchorView, BlockView, CanvasView, GroupView, HandleView, LatchView, LineView, Orientation, ResizeEdge } from "@OpenChart/DiagramView";
+import { AnchorView, BlockView, CanvasView, GroupView, HandleView, LatchView, LineView, Orientation, PolyLineSpanView, ResizeEdge } from "@OpenChart/DiagramView";
 import type { CursorMap } from "./CursorMap";
 import type { ObjectMover } from "./ObjectMovers";
 import type { CommandExecutor } from "./CommandExecutor";
 import type { DiagramViewEditor } from "../../DiagramViewEditor";
-import type { DiagramObjectView } from "@OpenChart/DiagramView";
+import type { DiagramObjectView, HitTarget } from "@OpenChart/DiagramView";
 import type { PowerEditPluginSettings } from "./PowerEditPluginSettings";
 
 export class PowerEditPlugin extends DiagramInterfacePlugin {
@@ -41,7 +41,7 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
         [LatchView.name]  : () => Cursor.Pointer,
         [AnchorView.name] : () => Cursor.Default,
         [HandleView.name] : (o) => {
-            switch (o.orientation) {
+            switch ((o as HandleView).orientation) {
                 case Orientation.D0:
                     return Cursor.EW_Resize;
                 case Orientation.D90:
@@ -49,6 +49,11 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
                 default:
                     return Cursor.Move;
             }
+        },
+        // An H (horizontal) span drags vertically → NS_Resize.
+        // A V (vertical) span drags horizontally → EW_Resize.
+        [PolyLineSpanView.name] : (o) => {
+            return (o as PolyLineSpanView).axis === "H" ? Cursor.NS_Resize : Cursor.EW_Resize;
         }
     };
 
@@ -64,8 +69,12 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
 
     /**
      * The plugin's selection.
+     *
+     * Widened to {@link HitTarget} so that `instanceof PolyLineSpanView`
+     * checks in {@link handleSelectStart} and {@link handleHoverStart}
+     * typecheck cleanly.
      */
-    private selection: DiagramObjectView | undefined;
+    private selection: HitTarget | undefined;
 
     /**
      * The plugin's active mover.
@@ -126,7 +135,7 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
         if (this.selection === s && !(s instanceof GroupView)) {
             return undefined;
         }
-        let hoverTarget = s;
+        let hoverTarget: HitTarget | undefined = s;
         if (s instanceof AnchorView) {
             hoverTarget = s.latches.find(o => o.parent?.focused) ?? s;
         }
@@ -145,10 +154,10 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      * @returns
      *  The topmost object.
      */
-    protected smartHover(x: number, y: number, _event: MouseEvent): DiagramObjectView | undefined {
+    protected smartHover(x: number, y: number, _event: MouseEvent): HitTarget | undefined {
         const canvas = this.editor.file.canvas;
         const { lines, blocks } = canvas;
-        let object: DiagramObjectView | undefined;
+        let object: HitTarget | undefined;
         // Collect every descendant group in deepest-first, topmost-z order so
         // a nested boundary's halo can win over its container's halo and any
         // stale `hoveredEdge` state on deeper groups gets cleared each tick.
@@ -266,6 +275,8 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
             this.mover = this.handleGroup(execute, this.selection, event);
         } else if (this.selection instanceof HandleView) {
             this.mover = this.handleHandle(execute, this.selection, event);
+        } else if (this.selection instanceof PolyLineSpanView) {
+            this.mover = this.handleSpan(execute, this.selection, event);
         } else if (this.selection instanceof LatchView) {
             this.mover = this.handleLatch(execute, this.selection, event);
         } else if (this.selection instanceof LineView) {
@@ -375,6 +386,33 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
         }
         // Return mover
         return new GenericMover(this, execute, [handle]);
+    }
+
+    /**
+     * Handles an interior-segment (span) selection on a {@link PolyLine}.
+     * @param execute
+     *  The current command executor.
+     * @param span
+     *  The selected span.
+     * @param event
+     *  The select event.
+     * @returns
+     *  The span's mover.
+     *
+     * @remarks
+     *  Mirrors {@link handleHandle}: if the owning line isn't already focused
+     *  we select it first so the line stays selected while dragging the span.
+     *  The resulting {@link PolyLineSpanMover} constrains motion to the axis
+     *  perpendicular to the span's own direction.
+     */
+    private handleSpan(
+        execute: CommandExecutor, span: PolyLineSpanView, event: MouseEvent
+    ): ObjectMover {
+        // Keep the parent line selected while the span is being dragged.
+        if (!span.parent.focused) {
+            this.select(execute, span.parent, event);
+        }
+        return new PolyLineSpanMover(this, execute, span);
     }
 
     /**
@@ -524,20 +562,30 @@ export class PowerEditPlugin extends DiagramInterfacePlugin {
      *  The current command executor.
      * @param obj
      *  The object being hovered.
+     *
+     * @remarks
+     *  Spans ({@link PolyLineSpanView}) are pure data carriers — they have no
+     *  corresponding diagram model object, so `hoverObject` is skipped for
+     *  them.  The cursor is still updated via `CursorMap` so the resize arrow
+     *  appears.  For all other {@link DiagramObjectView} targets the existing
+     *  behavior (clearHover → hoverObject → cursor) is preserved.
      */
     protected hover(
-        execute: CommandExecutor, obj: DiagramObjectView | undefined
+        execute: CommandExecutor, obj: HitTarget | undefined
     ) {
         execute(EditorCommands.clearHover(this.editor.file.canvas));
-        if (obj) {
-            // Hover object
-            execute(EditorCommands.hoverObject(obj, true));
-            // Set cursor
+        if (!obj) {
+            this.setCursor(Cursor.Default);
+        } else if (obj instanceof PolyLineSpanView) {
+            // Spans are not diagram model objects — skip hoverObject.
+            // Still apply the resize cursor so the user sees the affordance.
             const cursor = PowerEditPlugin.CursorMap[obj.constructor.name];
             this.setCursor(cursor ? cursor(obj) : Cursor.NotAllowed);
         } else {
-            // Set cursor
-            this.setCursor(Cursor.Default);
+            // Standard DiagramObjectView: hover + cursor.
+            execute(EditorCommands.hoverObject(obj, true));
+            const cursor = PowerEditPlugin.CursorMap[obj.constructor.name];
+            this.setCursor(cursor ? cursor(obj) : Cursor.NotAllowed);
         }
     }
 

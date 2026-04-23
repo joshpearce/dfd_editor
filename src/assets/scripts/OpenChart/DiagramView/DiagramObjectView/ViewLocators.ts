@@ -20,7 +20,10 @@ export function findObjectAt(views: DiagramObjectView[], x: number, y: number): 
     for (let i = views.length - 1; 0 <= i; i--) {
         const view = views[i];
         // If no object, skip
-        if (!(object = view.getObjectAt(x, y))) {
+        // Cast: callers never pass LineView instances whose PolyLine face
+        // could return a PolyLineSpanView — inputs are latches, anchors,
+        // blocks, and groups.  The narrow assertion is safe by invariant.
+        if (!(object = view.getObjectAt(x, y) as DiagramObjectView | undefined)) {
             continue;
         }
         // Update selection
@@ -55,7 +58,10 @@ export function findUnlinkedObjectAt(views: DiagramObjectView[], x: number, y: n
             continue;
         }
         // If no object, skip
-        if (!(object = view.getObjectAt(x, y))) {
+        // Cast: callers never pass LineView instances whose PolyLine face
+        // could return a PolyLineSpanView — inputs are latches, anchors,
+        // blocks, and groups.  The narrow assertion is safe by invariant.
+        if (!(object = view.getObjectAt(x, y) as DiagramObjectView | undefined)) {
             continue;
         }
         // Update selection

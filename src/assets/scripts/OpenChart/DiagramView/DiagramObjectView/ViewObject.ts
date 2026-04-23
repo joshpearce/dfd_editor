@@ -1,6 +1,6 @@
 import type { ViewportRegion } from "./ViewportRegion";
 import type { RenderSettings } from "./RenderSettings";
-import type { DiagramObjectView } from "./Views";
+import type { DiagramObjectView, HitTarget } from "./Views";
 import type { DiagramFace, BoundingBox } from "./Faces";
 
 export interface ViewObject {
@@ -116,9 +116,11 @@ export interface ViewObject {
      * @param y
      *  The y coordinate.
      * @returns
-     *  The object, if there is one.
+     *  The object, if there is one.  For most views this is a
+     *  {@link DiagramObjectView}; for a {@link PolyLine} interior segment it
+     *  may be a {@link PolyLineSpanView}.  See {@link HitTarget}.
      */
-    getObjectAt(x: number, y: number): DiagramObjectView | undefined;
+    getObjectAt(x: number, y: number): HitTarget | undefined;
 
 
     ///////////////////////////////////////////////////////////////////////////

@@ -262,7 +262,8 @@ export class LatchView extends Latch implements ViewObject {
      *  The topmost view, undefined if there isn't one.
      */
     public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
-        return this.face.getObjectAt(x, y);
+        // LatchFace always returns DiagramObjectView | undefined; cast is safe.
+        return this.face.getObjectAt(x, y) as DiagramObjectView | undefined;
     }
 
 

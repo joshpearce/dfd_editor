@@ -13,7 +13,7 @@ import type { LineStyle } from "../Styles";
 import type { BoundingBox } from "../BoundingBox";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
-import type { DiagramObjectView } from "../../Views";
+import type { DiagramObjectView, HitTarget } from "../../Views";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
 
 // Handle positions originate from TALA's `parseFloat`'d SVG vertices; snap
@@ -66,14 +66,33 @@ export class PolyLine extends LineFace {
     /**
      * Returns the topmost view at the specified coordinate.
      *
-     * Mirrors {@link DynamicLine.getObjectAt}: interior segments resolve to
-     * the handle that anchors them (`hitboxes[i]` → `view.handles[i - 1]`),
-     * end segments resolve to the line itself.  The mapping holds because
-     * `points` is laid out as `[src, handles[0]…handles[N], trg]` and
-     * `hitboxes` carries one entry per segment between consecutive points.
+     * Behavior changes from the original `DynamicLine`-mirroring logic:
+     *
+     * 1. Point hit-testing only considers the two end latches (`node1`,
+     *    `node2`).  Interior handle dots still render when the line is focused
+     *    (they're in `this.points` for `renderTo`), but they are excluded from
+     *    hit-testing because point-drag is disabled for PolyLine.  Interior
+     *    handles are positional anchors driven by span-drag, not independent
+     *    drag targets — letting them be grabbed would allow free 2-D movement
+     *    that breaks the H/V alternation invariant.
+     *
+     * 2. Interior hitboxes (`0 < i < hitboxes.length - 1`) return the matching
+     *    {@link PolyLineSpanView} rather than the raw handle.  The span is
+     *    looked up by searching `this.spans` for the entry whose flanking
+     *    handles match `handles[i-1]` and `handles[i]` — a defensive O(k)
+     *    scan that stays correct even if a diagonal segment was skipped during
+     *    span classification (which TALA never produces, but the classifier
+     *    guards against it).  If no matching span exists, the line view itself
+     *    is returned as a safe fallback.
+     *
+     * 3. End hitboxes (`i === 0` or `i === hitboxes.length - 1`) still return
+     *    `this.view` (the line) — matching `DynamicLine` and preserving the
+     *    "dragging an end segment selects the whole line" UX.
      */
-    public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
-        const obj = findUnlinkedObjectAt(this.points, x, y);
+    public getObjectAt(x: number, y: number): HitTarget | undefined {
+        // Only test the two end latches — interior handle dots are rendered but
+        // are not drag targets (point-drag is disabled for PolyLine).
+        const obj = findUnlinkedObjectAt([this.view.node1, this.view.node2], x, y);
         if (obj) {
             return obj;
         }
@@ -83,7 +102,18 @@ export class PolyLine extends LineFace {
                     continue;
                 }
                 if (0 < i && i < this.hitboxes.length - 1) {
-                    return this.view.handles[i - 1];
+                    // Interior hitbox: resolve to the span for this segment.
+                    // Defensive lookup: find the span whose flanking handles
+                    // match handles[i-1] and handles[i].  This stays correct
+                    // even when a diagonal segment was skipped in span
+                    // classification (no span for that gap), in which case we
+                    // fall through to the line view as a safe fallback.
+                    const handleA = this.view.handles[i - 1];
+                    const handleB = this.view.handles[i];
+                    const span = this.spans.find(
+                        s => s.handleA === handleA && s.handleB === handleB
+                    );
+                    return span ?? this.view;
                 } else {
                     return this.view;
                 }

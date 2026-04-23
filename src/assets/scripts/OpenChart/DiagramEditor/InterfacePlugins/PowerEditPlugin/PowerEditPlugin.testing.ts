@@ -24,7 +24,7 @@ import { SubjectTrack } from "@OpenChart/DiagramInterface";
 import { BlockMover, GenericMover, GroupMover, LatchMover } from "./ObjectMovers";
 import { makeEmptyCanvas } from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
-import type { DiagramObjectView } from "@OpenChart/DiagramView";
+import type { DiagramObjectView, HitTarget } from "@OpenChart/DiagramView";
 import type { ObjectMover } from "./ObjectMovers";
 import type { CommandExecutor } from "./CommandExecutor";
 import type { SynchronousEditorCommand } from "../../Commands";
@@ -164,7 +164,7 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
      * @param x - Canvas x coordinate to query.
      * @param y - Canvas y coordinate to query.
      */
-    public hoverAt(x: number, y: number): DiagramObjectView | undefined {
+    public hoverAt(x: number, y: number): HitTarget | undefined {
         return this.smartHover(x, y, {} as MouseEvent);
     }
 
