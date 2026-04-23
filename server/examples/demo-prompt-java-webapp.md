@@ -2,7 +2,8 @@
 
 Paste the **Prompt** section into a Claude Code session with the `dfd-editor`
 MCP server available. The agent builds a DFD of a modern Java web app on
-AWS from an empty canvas, one layer at a time.
+AWS from an empty canvas, one element at a time, using the granular
+`add_element` tool so each addition is immediately visible in the browser.
 
 The target diagram is richer than a plain topology: every node gets
 **data items** attached, and every request/response flow carries **both**
@@ -28,76 +29,87 @@ MCP tool calls instead of having to invent payloads.
 > - Generate a fresh 6-digit random integer `N` in `100000..999999`.
 >   Use a different `N` every run so demo runs do not collide.
 > - Set `DIAGRAM_NAME = "Java Web App on AWS #" + N`.
-> - Keep the diagram state in a variable called `doc`. Start with:
->
->   ```json
->   {
->     "meta": {
->       "name": "<DIAGRAM_NAME>",
->       "author": "dfd-editor demo",
->       "description": "Modern Java (Spring Boot on ECS Fargate) web app on AWS — built live via MCP demo."
->     },
->     "nodes": [],
->     "containers": [],
->     "data_flows": [],
->     "data_items": []
->   }
->   ```
 >
 > ### Tools you will call
 >
-> - `mcp__dfd-editor__create_diagram({"diagram": <doc>})` — returns `{"id": "...", ...}`. Call **once** in Step 1; save the returned id as `DIAGRAM_ID`.
+> - `mcp__dfd-editor__create_diagram({"diagram": <minimal-doc>})` — returns `{"id": "...", ...}`. Call **once** in Step 1; save the returned id as `DIAGRAM_ID`.
 > - `mcp__dfd-editor__display_diagram({"diagram_id": DIAGRAM_ID})` — broadcasts to the browser. Call **once** in Step 1.
-> - `mcp__dfd-editor__update_diagram({"diagram_id": DIAGRAM_ID, "diagram": <doc>})` — replaces the stored doc with `<doc>`. Call **once per step** in Steps 2–11.
+> - `mcp__dfd-editor__add_element({"diagram_id": DIAGRAM_ID, "collection": <collection>, "element": <element>})` — appends one element to the named collection and persists. Call once **per element** in Steps 2–11.
 >
-> `update_diagram` **replaces** the full document; do **not** expect it to
-> merge. Always send the full accumulated `doc`.
+> `add_element` fetches the current diagram, appends your element, validates, and
+> persists — you do **not** need to track or resend the full document. Valid
+> `collection` values: `"nodes"`, `"containers"`, `"data_flows"`, `"data_items"`.
 >
 > ### Step 1 — create empty diagram and display it
 >
-> 1. Call `create_diagram` with `diagram = doc` (empty arrays).
+> 1. Call `create_diagram` with:
+>    ```json
+>    {
+>      "meta": {
+>        "name": "<DIAGRAM_NAME>",
+>        "author": "dfd-editor demo",
+>        "description": "Modern Java (Spring Boot on ECS Fargate) web app on AWS — built live via MCP demo."
+>      },
+>      "nodes": [],
+>      "containers": [],
+>      "data_flows": [],
+>      "data_items": []
+>    }
+>    ```
 > 2. Save returned `id` → `DIAGRAM_ID`.
 > 3. Call `display_diagram` with `DIAGRAM_ID`.
 >
 > ### Step 2 — external entities
 >
-> `doc.nodes = [EE_USER, EE_STRIPE, EE_SES]`; call `update_diagram(doc)`.
+> Call `add_element` three times with `collection="nodes"`:
+> `EE_USER`, `EE_STRIPE`, `EE_SES`.
 >
 > ### Step 3 — edge processes + Cognito
 >
-> `doc.nodes += [P_CDN, P_ALB, P_COGNITO]`; `update_diagram(doc)`.
+> Call `add_element` three times with `collection="nodes"`:
+> `P_CDN`, `P_ALB`, `P_COGNITO`.
 >
 > ### Step 4 — four Spring Boot ECS Fargate services
 >
-> `doc.nodes += [P_WEB, P_API, P_AUTH, P_WORKER]`; `update_diagram(doc)`.
+> Call `add_element` four times with `collection="nodes"`:
+> `P_WEB`, `P_API`, `P_AUTH`, `P_WORKER`.
 >
 > ### Step 5 — data stores
 >
-> `doc.nodes += [DS_REDIS, DS_RDS, DS_S3, DS_SQS]`; `update_diagram(doc)`.
+> Call `add_element` four times with `collection="nodes"`:
+> `DS_REDIS`, `DS_RDS`, `DS_S3`, `DS_SQS`.
 >
 > ### Step 6 — trust boundaries + ECS Cluster container
 >
-> `doc.containers = [TB_INTERNET, TB_PUBLIC_SUBNET, TB_PRIVATE_SUBNET, TB_DATA_TIER, TB_MANAGED_SERVICES, CT_ECS]`; `update_diagram(doc)`.
+> Call `add_element` six times with `collection="containers"`:
+> `TB_INTERNET`, `TB_PUBLIC_SUBNET`, `TB_PRIVATE_SUBNET`, `TB_DATA_TIER`, `TB_MANAGED_SERVICES`, `CT_ECS`.
 >
 > ### Step 7 — data items
 >
-> `doc.data_items = [D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26]`; `update_diagram(doc)`.
+> Call `add_element` twenty-six times with `collection="data_items"`:
+> `D1`, `D2`, `D3`, `D4`, `D5`, `D6`, `D7`, `D8`, `D9`, `D10`, `D11`,
+> `D12`, `D13`, `D14`, `D15`, `D16`, `D17`, `D18`, `D19`, `D20`,
+> `D21`, `D22`, `D23`, `D24`, `D25`, `D26`.
 >
 > ### Step 8 — client-facing flows
 >
-> `doc.data_flows = [F1_USER_CDN, F2_CDN_ALB, F3_ALB_WEB]`; `update_diagram(doc)`.
+> Call `add_element` three times with `collection="data_flows"`:
+> `F1_USER_CDN`, `F2_CDN_ALB`, `F3_ALB_WEB`.
 >
 > ### Step 9 — auth flows
 >
-> `doc.data_flows += [F4_WEB_AUTH, F5_AUTH_COGNITO, F6_AUTH_RDS]`; `update_diagram(doc)`.
+> Call `add_element` three times with `collection="data_flows"`:
+> `F4_WEB_AUTH`, `F5_AUTH_COGNITO`, `F6_AUTH_RDS`.
 >
 > ### Step 10 — REST API backend flows
 >
-> `doc.data_flows += [F7_WEB_API, F8_API_RDS, F9_API_REDIS, F10_API_S3, F11_API_SQS, F12_API_STRIPE]`; `update_diagram(doc)`.
+> Call `add_element` six times with `collection="data_flows"`:
+> `F7_WEB_API`, `F8_API_RDS`, `F9_API_REDIS`, `F10_API_S3`, `F11_API_SQS`, `F12_API_STRIPE`.
 >
 > ### Step 11 — Background Worker flows
 >
-> `doc.data_flows += [F13_WORKER_SQS, F14_WORKER_SES]`; `update_diagram(doc)`.
+> Call `add_element` two times with `collection="data_flows"`:
+> `F13_WORKER_SQS`, `F14_WORKER_SES`.
 >
 > Print `DIAGRAM_ID` as the final line of output.
 
