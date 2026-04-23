@@ -8,8 +8,12 @@ against the TALA SVG on four independent dimensions:
   1. Block centers   — SVG rect center vs. saved `layout[guid]` (cx, cy).
   2. Container bounds — SVG container rect vs. saved `groupBounds[guid]`
                          (xMin, yMin, xMax, yMax).
-  3. Edge endpoints  — each flow latch's saved (cx, cy) vs. the TALA
-                         polyline's start/end vertex.
+  3. Edge endpoints  — each flow's SVG polyline start/end vertex vs.
+                         the parent block's rect perimeter (using the
+                         same `pointToBoxDistance` check the engine's
+                         rebind pass uses).  Expect a 2–6 px consistent
+                         offset from TALA's arrow-tip clearance; use
+                         `--tolerance 6` for a clean PASS.
   4. Bend points     — each flow's handle positions vs. the TALA
                          polyline's interior vertices.
 
@@ -281,6 +285,270 @@ def parse_svg_container_bounds(
 
 
 # ---------------------------------------------------------------------------
+# SVG edge parsing (mirrors D2Bridge.parseTalaSvg edge logic)
+# ---------------------------------------------------------------------------
+
+# UUID with optional "[N]" index suffix, used to read `(src -> tgt)[N]`.
+_INDEX_RE = __import__("re").compile(r"\[(\d+)\]\s*$")
+_GUID_ONLY_RE = __import__("re").compile(_GUID_SEG)
+# Path command letter + coordinate pair tokenizer (see extract_polyline_bends).
+_PATH_TOKEN_RE = __import__("re").compile(
+    r"([MmLlHhVvCcSsQqTtAaZz])|([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)"
+)
+
+
+def _parse_edge_spec(decoded: str) -> dict[str, Any] | None:
+    """Extract src/tgt leaf GUIDs and trailing `[N]` index from a decoded
+    D2 edge class.
+
+    D2 edge classes take several shapes depending on the edge's enclosing
+    scope: `(SRC -> TGT)[N]`, `scope.(SRC -> TGT)[N]`, or a bare
+    `SRC -> TGT[N]`.  In every form `SRC` and `TGT` are one or more
+    dot-separated UUID segments.  The *leaf* GUID (last segment) is what
+    the flow's latch parent block resolves to, so those are what we
+    return.
+    """
+    s = decoded.replace("&gt;", ">").replace("&lt;", "<")
+    arrow = s.rfind("->")
+    if arrow == -1:
+        return None
+    left  = s[:arrow]
+    right = s[arrow + 2:]
+
+    m = _INDEX_RE.search(right)
+    index = int(m.group(1)) if m else 0
+    if m:
+        right = right[:m.start()]
+
+    left_guids  = _GUID_ONLY_RE.findall(left)
+    right_guids = _GUID_ONLY_RE.findall(right)
+    if not left_guids or not right_guids:
+        return None
+    return {
+        "src_leaf": left_guids[-1],
+        "tgt_leaf": right_guids[-1],
+        "index":    index,
+    }
+
+
+def _tokenize_path_points(d_attr: str) -> list[tuple[float, float]]:
+    """Tokenize every numeric coordinate pair in an SVG `d` string and
+    return them as `(x, y)` points in source order.
+
+    Matches the engine's D2Bridge.parseTalaSvg behaviour (see
+    `parseTalaSvg` — it extracts every numeric pair and treats them as
+    polyline vertices, including Bézier control points).  Used here only
+    to locate the edge's start/end.
+    """
+    d_stripped = __import__("re").sub(r"[Zz]\s*$", "", d_attr)
+    nums = __import__("re").findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", d_stripped)
+    pts: list[tuple[float, float]] = []
+    for i in range(0, len(nums) - 1, 2):
+        try:
+            pts.append((float(nums[i]), float(nums[i + 1])))
+        except ValueError:
+            continue
+    return pts
+
+
+def parse_svg_edges(svg_text: str) -> list[dict[str, Any]]:
+    """Parse every TALA edge out of the SVG.
+
+    Each returned record carries:
+
+      - `src_guid` / `tgt_guid`: leaf GUIDs of the edge endpoints (as
+        written in the D2 source — *not* canonicalised by `<`-ordering,
+        see plan Step 2).
+      - `index`: the `[N]` suffix so parallel edges between the same
+        pair can be disambiguated.
+      - `start_xy` / `end_xy`: first and last `(x, y)` in the path's `d`.
+      - `points`: the full numeric-pair list from `d`, carried forward
+        for Step 3's bend comparison.
+      - `d`: raw `d` attribute so downstream code can re-parse with
+        command letters preserved.
+    """
+    svg_clean = _CDATA_RE.sub("<!-- cdata removed -->", svg_text)
+    try:
+        root = ET.fromstring(svg_clean)
+    except ET.ParseError as exc:
+        raise ValueError(f"Failed to parse SVG: {exc}") from exc
+
+    # Build parent map so we can find the <path class="connection"> inside
+    # each base64-classed <g>.  ElementTree doesn't expose parents
+    # natively; scanning every <g> whose decoded class contains "->" is
+    # cheaper than walking up from each connection path.
+    edges: list[dict[str, Any]] = []
+
+    for g in root.iter():
+        if _local_tag(g) != "g":
+            continue
+        cls = g.get("class", "")
+        if not cls or not _B64_RE.match(cls):
+            continue
+        try:
+            decoded = base64.b64decode(cls).decode("utf-8")
+        except Exception:
+            continue
+        normalised = decoded.replace("&gt;", ">")
+        if "->" not in normalised:
+            continue
+        spec = _parse_edge_spec(decoded)
+        if spec is None:
+            continue
+
+        # Find the first descendant <path> whose class list carries
+        # `connection` but not `fill-…` (arrowhead markers).
+        path_elem: ET.Element | None = None
+        for desc in g.iter():
+            if _local_tag(desc) != "path":
+                continue
+            path_cls = desc.get("class", "")
+            tokens = path_cls.split()
+            if "connection" not in tokens:
+                continue
+            if any(t.startswith("fill-") for t in tokens):
+                continue
+            path_elem = desc
+            break
+        if path_elem is None:
+            continue
+        d = path_elem.get("d", "")
+        pts = _tokenize_path_points(d)
+        if len(pts) < 2:
+            continue
+
+        edges.append({
+            "src_guid": spec["src_leaf"],
+            "tgt_guid": spec["tgt_leaf"],
+            "index":    spec["index"],
+            "start_xy": pts[0],
+            "end_xy":   pts[-1],
+            "points":   pts,
+            "d":        d,
+        })
+    return edges
+
+
+# ---------------------------------------------------------------------------
+# Diagram-side flow resolution
+# ---------------------------------------------------------------------------
+
+def load_diagram_native(data_dir: Path, diagram_id: str) -> dict | None:
+    """Return the parsed native diagram JSON, or None if absent."""
+    path = data_dir / f"{diagram_id}.json"
+    try:
+        return json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def collect_flow_edges(diagram: dict) -> list[dict[str, Any]]:
+    """Walk the native `objects` array and return one record per data flow.
+
+    The native schema stores a flow's endpoints as latch GUIDs (node1 /
+    node2).  Matching a flow to a TALA SVG edge needs the *block* GUIDs,
+    since D2 connections are written between block paths.  Each latch
+    belongs to an anchor (via the anchor's `latches` list), and each
+    anchor is owned by a block (via the block's `anchors` map, keyed by
+    the anchor's angle in degrees — `"0"` = east, `"90"` = south, ...).
+    The angle is captured alongside the block GUID so the edge-endpoint
+    check can derive the latch's expected perimeter position.
+    """
+    anchor_to_block: dict[str, tuple[str, int]] = {}  # anchor → (block, angle_deg)
+    latch_to_anchor: dict[str, str] = {}
+    flows: list[dict[str, Any]] = []
+
+    for o in diagram.get("objects", []):
+        obj_id = o.get("id", "")
+        # Block-side: maps anchor instance → (block instance, angle).
+        anchors = o.get("anchors")
+        if isinstance(anchors, dict):
+            block_instance = o.get("instance")
+            if isinstance(block_instance, str):
+                for angle_str, anchor_inst in anchors.items():
+                    if isinstance(anchor_inst, str):
+                        try:
+                            angle = int(angle_str)
+                        except (TypeError, ValueError):
+                            continue
+                        anchor_to_block[anchor_inst] = (block_instance, angle)
+        # Anchor-side: maps every latch instance → its parent anchor.
+        if "anchor" in obj_id:
+            anchor_instance = o.get("instance")
+            if isinstance(anchor_instance, str):
+                for latch_inst in o.get("latches", []) or []:
+                    if isinstance(latch_inst, str):
+                        latch_to_anchor[latch_inst] = anchor_instance
+        # Collect flow records; resolve to block GUIDs after the walk.
+        if obj_id == "data_flow":
+            flows.append({
+                "flow_guid":        o.get("instance"),
+                "node1_latch_guid": o.get("node1"),
+                "node2_latch_guid": o.get("node2"),
+                "handles":          list(o.get("handles", []) or []),
+            })
+
+    for f in flows:
+        for side in ("node1", "node2"):
+            latch = f[f"{side}_latch_guid"]
+            a = latch_to_anchor.get(latch) if latch else None
+            block, angle = anchor_to_block.get(a, (None, None)) if a else (None, None)
+            f[f"{side}_block_guid"]    = block
+            f[f"{side}_anchor_angle"]  = angle
+    return flows
+
+
+def _point_to_box(
+    p:    tuple[float, float],
+    rect: tuple[float, float, float, float],  # (xMin, yMin, xMax, yMax)
+) -> tuple[float, float, tuple[float, float]]:
+    """Return `(dx_out, dy_out, nearest_point)` for a point vs. a rect.
+
+    `dx_out` / `dy_out` are 0 on the axis that is already inside the
+    rectangle's extent, and the outward gap otherwise — a decomposition
+    that surfaces per-axis drift in the report.  `nearest_point` is the
+    closest point on the rectangle (equal to `p` when it lies inside).
+
+    Mirrors `NewAutoLayoutEngine.pointToBoxDistance` (the engine's own
+    edge-to-block scoring helper) so the check agrees with the
+    rebind pass's definition of "on the block".
+    """
+    x_min, y_min, x_max, y_max = rect
+    nx = min(max(p[0], x_min), x_max)
+    ny = min(max(p[1], y_min), y_max)
+    return (abs(p[0] - nx), abs(p[1] - ny), (nx, ny))
+
+
+def match_flow_to_edge(
+    flow:  dict[str, Any],
+    edges: list[dict[str, Any]],
+    used:  set[int],
+) -> int | None:
+    """Pick the SVG-edge index that best matches this flow.
+
+    Matches on the unordered `{src_guid, tgt_guid}` pair so TALA's
+    declared-direction ordering doesn't matter.  When multiple candidates
+    match (parallel flows between the same node pair), prefers the
+    lowest `[N]` index that hasn't been claimed yet.
+    """
+    b1 = flow.get("node1_block_guid")
+    b2 = flow.get("node2_block_guid")
+    if not b1 or not b2:
+        return None
+    pair = frozenset({b1, b2})
+    candidates: list[tuple[int, int]] = []  # (svg_index, edges-list-position)
+    for i, e in enumerate(edges):
+        if i in used:
+            continue
+        if frozenset({e["src_guid"], e["tgt_guid"]}) == pair:
+            candidates.append((e["index"], i))
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[0][1]
+
+
+# ---------------------------------------------------------------------------
 # Wait for layout completion
 # ---------------------------------------------------------------------------
 
@@ -481,6 +749,137 @@ def compare_container_bounds(
     }
 
 
+def compare_edge_endpoints(
+    flows:         list[dict[str, Any]],
+    svg_edges:     list[dict[str, Any]],
+    svg_positions: dict[str, dict[str, Any]],
+    tolerance:     float = 2.0,
+) -> dict[str, Any]:
+    """Compare each flow's SVG edge endpoint against the parent block's
+    rectangular perimeter (see `_point_to_box` — mirrors the engine's
+    `pointToBoxDistance` rebind-scoring helper).
+
+    Latches aren't stored in the saved `layout` dict unless the user
+    explicitly dragged them (see `LatchView.userSetPosition` +
+    `ManualLayoutEngine.generatePositionMap`).  The native anchor angle
+    can also drift relative to a freshly regenerated SVG — TALA is free
+    to route edges through a different face, and the browser's rebind
+    doesn't persist until the next save.  So rather than compare to a
+    stored or angle-derived latch point, the check asks the structural
+    question: does each SVG edge endpoint land on (or within tolerance
+    of) the parent block's perimeter?  That's exactly what
+    `pickNearestAnchor` uses to score the edge's alignment.
+
+    TALA terminates edges a few pixels short of the target block so the
+    arrowhead marker has clearance, so expect a consistent 2–6 px delta
+    on every row; `--tolerance 6` gives a clean PASS.  The per-axis Δ
+    is emitted unmodified so both the arrow-clearance offset and any
+    real drift are visible in the report.
+
+    Returned shape:
+      - `match` / `mismatch`: per-latch rows with Δ.
+      - `flow_only`: flows that had no matching SVG edge.
+      - `edge_only`: SVG edges with no corresponding flow.
+      - `summary`: row counts, plus flow-level counts in
+                   `flow_only` / `edge_only`.
+    """
+    match:     list[dict] = []
+    mismatch:  list[dict] = []
+    flow_only: list[dict] = []
+
+    used: set[int] = set()
+    for flow in flows:
+        edge_idx = match_flow_to_edge(flow, svg_edges, used)
+        if edge_idx is None:
+            flow_only.append({
+                "flow_guid":  flow["flow_guid"],
+                "node1_latch": flow["node1_latch_guid"],
+                "node2_latch": flow["node2_latch_guid"],
+                "node1_block": flow["node1_block_guid"],
+                "node2_block": flow["node2_block_guid"],
+            })
+            continue
+        used.add(edge_idx)
+        edge = svg_edges[edge_idx]
+        start = edge["start_xy"]
+        end   = edge["end_xy"]
+
+        for side in ("node1", "node2"):
+            block_guid = flow[f"{side}_block_guid"]
+            angle      = flow[f"{side}_anchor_angle"]
+            block_pos  = svg_positions.get(block_guid) if block_guid else None
+            if block_pos is None:
+                mismatch.append({
+                    "flow_guid": flow["flow_guid"],
+                    "side":      side,
+                    "latch":     flow[f"{side}_latch_guid"],
+                    "reason":    "parent block not in SVG",
+                })
+                continue
+
+            block_rect = (
+                block_pos["x"], block_pos["y"],
+                block_pos["x"] + block_pos["w"], block_pos["y"] + block_pos["h"],
+            )
+            # Pick whichever SVG endpoint is nearer to this block's rect.
+            dx_s, dy_s, near_start = _point_to_box(start, block_rect)
+            dx_e, dy_e, near_end   = _point_to_box(end,   block_rect)
+            use_start = math.hypot(dx_s, dy_s) <= math.hypot(dx_e, dy_e)
+            if use_start:
+                endpoint, nearest, dx, dy = start, near_start, dx_s, dy_s
+                endpoint_label = "start"
+            else:
+                endpoint, nearest, dx, dy = end, near_end, dx_e, dy_e
+                endpoint_label = "end"
+            max_delta = max(dx, dy)
+            entry = {
+                "flow_guid":    flow["flow_guid"],
+                "side":         side,
+                "latch":        flow[f"{side}_latch_guid"],
+                "block":        block_guid,
+                "anchor_angle": angle,
+                "svg":          [round(endpoint[0], 1), round(endpoint[1], 1)],
+                "nearest":      [round(nearest[0], 1), round(nearest[1], 1)],
+                "delta":        [round(dx, 1), round(dy, 1)],
+                "max_delta":    round(max_delta, 1),
+                "svg_endpoint": endpoint_label,
+            }
+            (match if max_delta <= tolerance else mismatch).append(entry)
+
+    # Edges the SVG has but no flow claimed — typically either a parse
+    # bug or a flow added to the canvas after the last layout.  Report
+    # with their src/tgt leaf GUIDs so the caller can investigate.
+    edge_only: list[dict] = []
+    for i, edge in enumerate(svg_edges):
+        if i in used:
+            continue
+        edge_only.append({
+            "src_guid": edge["src_guid"],
+            "tgt_guid": edge["tgt_guid"],
+            "index":    edge["index"],
+            "start":    [round(edge["start_xy"][0], 1), round(edge["start_xy"][1], 1)],
+            "end":      [round(edge["end_xy"][0],   1), round(edge["end_xy"][1],   1)],
+        })
+
+    passed = not mismatch and not flow_only and not edge_only
+    return {
+        "pass":       passed,
+        "tolerance":  tolerance,
+        "match":      match,
+        "mismatch":   mismatch,
+        "flow_only":  flow_only,
+        "edge_only":  edge_only,
+        "summary": {
+            "flows":     len(flows),
+            "edges":     len(svg_edges),
+            "match":     len(match),
+            "mismatch":  len(mismatch),
+            "flow_only": len(flow_only),
+            "edge_only": len(edge_only),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Report output
 # ---------------------------------------------------------------------------
@@ -576,6 +975,61 @@ def _print_container_bounds(result: dict[str, Any], verbose: bool) -> None:
     print()
 
 
+def _print_edge_endpoints(result: dict[str, Any], verbose: bool) -> None:
+    summ = result["summary"]
+    tol  = result["tolerance"]
+    print("  Edge endpoints")
+    print("  " + "─" * 40)
+
+    rows = result["match"] + result["mismatch"]
+    if verbose and rows:
+        w_flow = 38
+        w_side = 5
+        w_coord = 18
+        print(
+            f"    {'Flow GUID':<{w_flow}}  {'Side':<{w_side}}  "
+            f"{'SVG endpoint':<{w_coord}}  {'Nearest on block':<{w_coord}}  Max Δ"
+        )
+        for entry in sorted(rows, key=lambda e: (e["flow_guid"], e["side"])):
+            if "max_delta" not in entry:
+                # Rows with a textual reason (e.g. missing latch) fall here.
+                print(
+                    f"    ✗ {entry['flow_guid']:<{w_flow - 2}}  "
+                    f"{entry['side']:<{w_side}}  "
+                    f"{entry.get('reason', '?')}"
+                )
+                continue
+            ok_mark = "✓" if entry["max_delta"] <= tol else "✗"
+            print(
+                f"    {ok_mark} {entry['flow_guid']:<{w_flow - 2}}  "
+                f"{entry['side']:<{w_side}}  "
+                f"{_fmt_pair(entry['svg']):<{w_coord}}  "
+                f"{_fmt_pair(entry['nearest']):<{w_coord}}  "
+                f"{entry['max_delta']:.1f}"
+            )
+        if result["flow_only"]:
+            print("    Flows with no SVG edge:")
+            for e in result["flow_only"]:
+                print(f"      {e['flow_guid']}  "
+                      f"({e['node1_block']} ↔ {e['node2_block']})")
+        if result["edge_only"]:
+            print("    SVG edges with no matching flow:")
+            for e in result["edge_only"]:
+                print(
+                    f"      [{e['index']}] {e['src_guid']} → {e['tgt_guid']}  "
+                    f"start={_fmt_pair(e['start'])} end={_fmt_pair(e['end'])}"
+                )
+
+    print(
+        f"    Summary: {summ['flows']} flows, {summ['edges']} svg-edges — "
+        f"{summ['match']} match, {summ['mismatch']} mismatch, "
+        f"{summ['flow_only']} flow-only, {summ['edge_only']} edge-only"
+    )
+    verdict = "✓  PASS" if result["pass"] else "✗  FAIL"
+    print(f"    Verdict: {verdict}  (tolerance {tol} px)")
+    print()
+
+
 def print_report(
     results:      dict[str, Any],
     diagram_id:   str,
@@ -600,6 +1054,8 @@ def print_report(
         _print_block_centers(results["block_centers"], verbose)
     if "container_bounds" in results:
         _print_container_bounds(results["container_bounds"], verbose)
+    if "edge_endpoints" in results:
+        _print_edge_endpoints(results["edge_endpoints"], verbose)
 
     any_fail = any(not r["pass"] for r in results.values())
     if any_fail:
@@ -663,10 +1119,16 @@ def run_all_checks(
     layout        = load_diagram_layout(data_dir, diagram_id) or {}
     group_bounds  = load_group_bounds(data_dir, diagram_id) or {}
     svg_bounds    = parse_svg_container_bounds(svg_text)
+    svg_edges     = parse_svg_edges(svg_text)
+    native        = load_diagram_native(data_dir, diagram_id) or {}
+    flows         = collect_flow_edges(native)
 
     results: dict[str, Any] = {}
     results["block_centers"]    = compare_layouts(svg_positions, layout, tolerance)
     results["container_bounds"] = compare_container_bounds(svg_bounds, group_bounds, tolerance)
+    results["edge_endpoints"]   = compare_edge_endpoints(
+        flows, svg_edges, svg_positions, tolerance,
+    )
     return results
 
 
