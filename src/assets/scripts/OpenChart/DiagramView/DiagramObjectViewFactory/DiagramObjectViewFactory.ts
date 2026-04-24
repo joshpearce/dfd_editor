@@ -371,7 +371,7 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
         for (const object of traversePostfix(objects)) {
             // Resolve design
             const design = this.resolveDesign(object.id);
-            // Cache relative position
+            // Cache relative position from the old face before the swap.
             const x = object.x;
             const y = object.y;
             // Set face
@@ -442,6 +442,19 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
                     object.replaceFace(face);
                     break;
             }
+            // Seed the new face's bounding box at the cached origin so
+            // `calculateLayout` derives xMin/xMax/yMin/yMax around the
+            // correct point.  Without this, linked latches collapse to
+            // (0, 0) across a theme swap: their new LatchPoint face starts
+            // at bb=(0,0), `userSetPosition` is False (set by `Latch.link`),
+            // so the moveTo path below never runs, and nothing else reseeds
+            // the bb.  Direct assignment avoids the moveBy cascade path,
+            // which would re-move already-moved linked latches through the
+            // anchor chain.  Block / Group / Canvas / Line faces overwrite
+            // these fields during `calculateLayout`, so this only matters
+            // for point-type faces — harmless for the rest.
+            face.boundingBox.x = x;
+            face.boundingBox.y = y;
             // Calculate layout
             object.calculateLayout();
             // Apply position
