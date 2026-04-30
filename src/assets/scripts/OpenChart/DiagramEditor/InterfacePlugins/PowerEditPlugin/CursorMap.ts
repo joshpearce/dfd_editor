@@ -1,6 +1,6 @@
 import type { Cursor } from "@OpenChart/DiagramInterface";
-import type { DiagramObjectView } from "@OpenChart/DiagramView";
+import type { HitTarget } from "@OpenChart/DiagramView";
 
 export type CursorMap = {
-    [key: string]: (o: DiagramObjectView) => Cursor;
+    [key: string]: (o: HitTarget) => Cursor;
 };

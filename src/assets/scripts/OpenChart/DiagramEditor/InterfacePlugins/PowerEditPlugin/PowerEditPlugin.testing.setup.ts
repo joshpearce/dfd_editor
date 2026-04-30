@@ -28,12 +28,20 @@ import { vi } from "vitest";
 vi.mock("@OpenChart/DiagramInterface", async (importOriginal) => {
     const original = await importOriginal<typeof import("@OpenChart/DiagramInterface")>();
     class DiagramInterfaceStub {
+        // Truthful animation state: runAnimation/stopAnimation flip the flag so
+        // isAnimationRunning() reflects actual calls rather than always returning
+        // false.  No callers currently depend on this in tests, but the stub is
+        // a more accurate model of the real DiagramInterface.
+        private _running = false;
         on() { return this; }
         off() { return this; }
         emit() { return this; }
         render() { /* no-op */ }
         registerPlugin() { /* no-op */ }
         deregisterPlugin() { /* no-op */ }
+        isAnimationRunning() { return this._running; }
+        runAnimation() { this._running = true; }
+        stopAnimation() { this._running = false; }
     }
     return { ...original, DiagramInterface: DiagramInterfaceStub };
 });
@@ -65,12 +73,16 @@ vi.stubGlobal("window", {
 export async function diagramInterfaceMockFactory() {
     const original = await import("@OpenChart/DiagramInterface");
     class DiagramInterfaceStub {
+        private _running = false;
         on() { return this; }
         off() { return this; }
         emit() { return this; }
         render() { /* no-op */ }
         registerPlugin() { /* no-op */ }
         deregisterPlugin() { /* no-op */ }
+        isAnimationRunning() { return this._running; }
+        runAnimation() { this._running = true; }
+        stopAnimation() { this._running = false; }
     }
     return { ...original, DiagramInterface: DiagramInterfaceStub };
 }

@@ -17,14 +17,14 @@
 // Environment shims (vi.stubGlobal window; see file for rationale on vi.mock).
 import "./PowerEditPlugin.testing.setup";
 
-import { DiagramViewFile, BlockView, CanvasView, GroupView, LatchView, LineView } from "@OpenChart/DiagramView";
+import { DiagramViewFile, BlockView, CanvasView, GroupView, LatchView, LineView, PolyLineSpanView } from "@OpenChart/DiagramView";
 import { DiagramViewEditor } from "../../DiagramViewEditor";
 import { PowerEditPlugin } from "./PowerEditPlugin";
 import { SubjectTrack } from "@OpenChart/DiagramInterface";
-import { BlockMover, GenericMover, GroupMover, LatchMover } from "./ObjectMovers";
+import { BlockMover, GenericMover, GroupMover, LatchMover, PolyLineSpanMover } from "./ObjectMovers";
 import { makeEmptyCanvas } from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
-import type { DiagramObjectView } from "@OpenChart/DiagramView";
+import type { DiagramObjectView, HitTarget } from "@OpenChart/DiagramView";
 import type { ObjectMover } from "./ObjectMovers";
 import type { CommandExecutor } from "./CommandExecutor";
 import type { SynchronousEditorCommand } from "../../Commands";
@@ -164,7 +164,7 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
      * @param x - Canvas x coordinate to query.
      * @param y - Canvas y coordinate to query.
      */
-    public hoverAt(x: number, y: number): DiagramObjectView | undefined {
+    public hoverAt(x: number, y: number): HitTarget | undefined {
         return this.smartHover(x, y, {} as MouseEvent);
     }
 
@@ -224,6 +224,35 @@ export class TestablePowerEditPlugin extends PowerEditPlugin {
         return (execute) => this.dispatchHandle(execute, obj, event);
     }
 
+    /**
+     * Constructs a {@link PolyLineSpanMover} for `span` using the same logic
+     * as production `handleSpan` (which is `private` and not directly
+     * accessible here).  Inlines the production logic so the test stays
+     * symmetric with the established {@link dispatchHandle} / {@link moverFactoryFor}
+     * pattern — none of those reach private methods either.
+     *
+     * `this.select` is `protected` and therefore accessible here.  Selecting
+     * the parent line before returning the mover matches the production path,
+     * so cursor and selection state are correct even in tests that inspect them.
+     *
+     * @param execute - The command executor for this drag session.
+     * @param span    - The span to dispatch.
+     * @param event   - Mouse event stub (passed through to `this.select`).
+     * @returns The constructed {@link PolyLineSpanMover}.
+     */
+    public dispatchSpan(
+        execute: CommandExecutor,
+        span: PolyLineSpanView,
+        event: MouseEvent = { ctrlKey: false, altKey: false, shiftKey: false, metaKey: false } as MouseEvent
+    ): PolyLineSpanMover {
+        // Mirror production handleSpan: select the parent line if not already
+        // focused, then return the span mover.
+        if (!span.parent.focused) {
+            this.select(execute, span.parent, event);
+        }
+        return new PolyLineSpanMover(this, execute, span);
+    }
+
 }
 
 
@@ -264,7 +293,7 @@ export function createTestableEditor(
     const settings = {
         factory,
         lineTemplate      : DEFAULT_LINE_TEMPLATE,
-        multiselectHotkey : "ctrl"
+        multiselectHotkey : "control"
     } satisfies PowerEditPluginSettings;
     const plugin = new TestablePowerEditPlugin(editor, settings);
 

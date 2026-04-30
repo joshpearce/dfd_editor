@@ -3,7 +3,7 @@ import { BoundingBox } from "./BoundingBox";
 import { drawBoundingRegion } from "@OpenChart/Utilities";
 import type { ViewportRegion } from "../ViewportRegion";
 import type { RenderSettings } from "../RenderSettings";
-import type { DiagramObjectView } from "../Views";
+import type { DiagramObjectView, HitTarget } from "../Views";
 
 export abstract class DiagramFace {
 
@@ -16,6 +16,35 @@ export abstract class DiagramFace {
      * The offset needed to align faces with the grid's markers.
      */
     public static readonly markerOffset: number = 1;
+
+
+    /**
+     * Returns `true` if the point `(x, y)` is inside the visible marker dot
+     * centred at `(hx + markerOffset, hy + markerOffset)` with the supplied
+     * `radius`.  Strict inequality on the boundary (edge is NOT a hit) mirrors
+     * the `HandlePoint` / `LatchPoint` hit-test convention this replaces.
+     *
+     * Shared by point-style faces (`HandlePoint`, `LatchPoint`) and by the
+     * dead-zone catch in `PolyLine.getObjectAt` so all three use the same
+     * geometry.
+     *
+     * @param hx - The face's bounding-box x (NOT the rendered centre).
+     * @param hy - The face's bounding-box y (NOT the rendered centre).
+     * @param x - The point to test.
+     * @param y - The point to test.
+     * @param radius - The marker radius (from the theme's PointStyle).
+     */
+    public static isInsideMarkerDot(
+        hx: number, hy: number,
+        x: number, y: number,
+        radius: number
+    ): boolean {
+        const cx = hx + DiagramFace.markerOffset;
+        const cy = hy + DiagramFace.markerOffset;
+        const dx = x - cx;
+        const dy = y - cy;
+        return dx * dx + dy * dy < radius * radius;
+    }
 
 
     ///////////////////////////////////////////////////////////////////////////
@@ -157,9 +186,11 @@ export abstract class DiagramFace {
      * @param y
      *  The y coordinate.
      * @returns
-     *  The topmost view, undefined if there isn't one.
+     *  The topmost view, undefined if there isn't one.  Concrete line faces
+     *  may return a {@link PolyLineSpanView} for interior segments; all other
+     *  face types return a {@link DiagramObjectView}.  See {@link HitTarget}.
      */
-    public abstract getObjectAt(x: number, y: number): DiagramObjectView | undefined;
+    public abstract getObjectAt(x: number, y: number): HitTarget | undefined;
 
 
     ///////////////////////////////////////////////////////////////////////////

@@ -33,7 +33,9 @@ export abstract class AnchorFace extends DiagramFace {
      *  The topmost child, undefined if there isn't one.
      */
     protected getChildAt(x: number, y: number): DiagramObjectView | undefined {
-        return findObjectAt([...this.view.latches.values()], x, y);
+        // Latches are LatchView instances — never LineViews — so the result is
+        // always DiagramObjectView | undefined, never PolyLineSpanView.
+        return findObjectAt([...this.view.latches.values()], x, y) as DiagramObjectView | undefined;
     }
 
 

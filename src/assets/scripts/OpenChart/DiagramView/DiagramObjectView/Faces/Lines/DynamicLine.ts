@@ -114,8 +114,9 @@ export class DynamicLine extends LineFace {
      *  The topmost view, undefined if there isn't one.
      */
     public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
-        // Try points
-        const obj = findUnlinkedObjectAt(this.points, x, y);
+        // this.points contains LatchView and HandleView instances — never
+        // LineViews — so the result is always DiagramObjectView | undefined.
+        const obj = findUnlinkedObjectAt(this.points, x, y) as DiagramObjectView | undefined;
         if (obj) {
             return obj;
         }

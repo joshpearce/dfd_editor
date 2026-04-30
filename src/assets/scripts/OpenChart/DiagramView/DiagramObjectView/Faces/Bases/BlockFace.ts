@@ -91,10 +91,11 @@ export abstract class BlockFace extends DiagramFace {
      */
     public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
         if (this.boundingBox.contains(x, y)) {
-            // Try anchors
+            // Anchors are AnchorView instances — never LineViews — so the result
+            // is always DiagramObjectView | undefined, never PolyLineSpanView.
             const object = findUnlinkedObjectAt(
                 [...this.view.anchors.values()], x, y
-            );
+            ) as DiagramObjectView | undefined;
             if (object) {
                 return object;
             }

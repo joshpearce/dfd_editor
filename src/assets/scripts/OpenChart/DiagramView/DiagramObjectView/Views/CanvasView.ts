@@ -8,7 +8,7 @@ import type { GroupView } from "./GroupView";
 import type { ViewObject } from "../ViewObject";
 import type { ViewportRegion } from "../ViewportRegion";
 import type { RenderSettings } from "../RenderSettings";
-import type { DiagramObjectView } from "./DiagramObjectView";
+import type { DiagramObjectView, HitTarget } from "./DiagramObjectView";
 import type { BoundingBox, CanvasFace } from "../Faces";
 
 export class CanvasView extends Canvas implements ViewObject {
@@ -271,7 +271,7 @@ export class CanvasView extends Canvas implements ViewObject {
      * @returns
      *  The topmost view, undefined if there isn't one.
      */
-    public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
+    public getObjectAt(x: number, y: number): HitTarget | undefined {
         return this.face.getObjectAt(x, y);
     }
 

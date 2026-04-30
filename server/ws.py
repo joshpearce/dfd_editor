@@ -17,12 +17,11 @@ received it".
 
 from __future__ import annotations
 
-import atexit
+import http.client
+import json
 import logging
 import threading
 from typing import Any
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +54,6 @@ def broadcast(envelope: dict) -> bool:
     ``post_broadcast_envelope`` so callers can treat the two strategies
     interchangeably.
     """
-    import json
-
     with _ws_lock:
         snapshot = set(_ws_clients)
     dead = set()
@@ -72,24 +69,29 @@ def broadcast(envelope: dict) -> bool:
     return True
 
 
-# Loopback HTTP client reused across MCP tool calls. Timeout matches
-# realistic localhost upper bound; a shared Client avoids per-request
-# TCP setup cost.
-_loopback_http = httpx.Client(base_url="http://127.0.0.1:5050", timeout=5.0)
-atexit.register(_loopback_http.close)
-
-
 def post_broadcast_envelope(envelope: dict) -> bool:
     """POST ``envelope`` to Flask's loopback-only broadcast endpoint.
 
     Returns True if Flask accepted (2xx), False on any transport or HTTP
     error. Used by the MCP server, which runs in a separate process from
     the Flask WebSocket endpoint.
+
+    Uses stdlib http.client with a literal IP address so the call never
+    touches the 'idna' codec (absent in some Python 3.14 builds).
     """
     try:
-        resp = _loopback_http.post("/api/internal/broadcast", json=envelope)
-        resp.raise_for_status()
-        return True
+        body = json.dumps(envelope).encode()
+        conn = http.client.HTTPConnection("127.0.0.1", 5050, timeout=5)
+        conn.request(
+            "POST",
+            "/api/internal/broadcast",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        return resp.status // 100 == 2
     except Exception:
         logger.exception("failed to post broadcast envelope: %s", envelope)
         return False

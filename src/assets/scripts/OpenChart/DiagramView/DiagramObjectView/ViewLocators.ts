@@ -1,10 +1,17 @@
 import { LatchView } from "./Views";
+import { PolyLineSpanView } from "./Faces/Lines/PolyLineSpanView";
 import { Tangibility } from "./ViewAttributes";
-import type { CanvasView, DiagramObjectView, GroupView } from "./Views";
+import type { CanvasView, DiagramObjectView, GroupView, HitTarget } from "./Views";
 
 /**
  * Finds and returns the topmost view within a given set of views at the
  * specified coordinates.
+ *
+ * The return type is {@link HitTarget} so that callers passing arrays that
+ * include {@link LineView} instances (e.g. via `view.objects`) receive
+ * {@link PolyLineSpanView} hits intact rather than having them silently
+ * swallowed.
+ *
  * @param views
  *  The views to search.
  * @param x
@@ -14,20 +21,20 @@ import type { CanvasView, DiagramObjectView, GroupView } from "./Views";
  * @returns
  *  The topmost view. `undefined` if there isn't one.
  */
-export function findObjectAt(views: DiagramObjectView[], x: number, y: number): DiagramObjectView | undefined {
-    let select = undefined;
-    let object = undefined;
+export function findObjectAt(views: DiagramObjectView[], x: number, y: number): HitTarget | undefined {
+    let select: HitTarget | undefined;
     for (let i = views.length - 1; 0 <= i; i--) {
         const view = views[i];
-        // If no object, skip
-        if (!(object = view.getObjectAt(x, y))) {
+        const object = view.getObjectAt(x, y);
+        if (!object) {
             continue;
         }
-        // Update selection
-        if (object?.tangibility === Tangibility.Priority) {
-            return object;
-        } else {
+        // PolyLineSpanView has no tangibility field — treat it like a
+        // non-priority DiagramObjectView (it never claims priority).
+        if (object instanceof PolyLineSpanView || object.tangibility !== Tangibility.Priority) {
             select ??= object;
+        } else {
+            return object;
         }
     }
     return select;
@@ -36,6 +43,12 @@ export function findObjectAt(views: DiagramObjectView[], x: number, y: number): 
 /**
  * Finds and returns the topmost unlinked view within a given set of views at
  * the specified coordinates.
+ *
+ * The return type is {@link HitTarget} so that callers passing arrays that
+ * include {@link LineView} instances (e.g. via `view.objects`) receive
+ * {@link PolyLineSpanView} hits intact rather than having them silently
+ * swallowed.
+ *
  * @param views
  *  The views to search.
  * @param x
@@ -45,24 +58,24 @@ export function findObjectAt(views: DiagramObjectView[], x: number, y: number): 
  * @returns
  *  The topmost unlinked view. `undefined` if there isn't one.
  */
-export function findUnlinkedObjectAt(views: DiagramObjectView[], x: number, y: number): DiagramObjectView | undefined {
-    let select = undefined;
-    let object = undefined;
+export function findUnlinkedObjectAt(views: DiagramObjectView[], x: number, y: number): HitTarget | undefined {
+    let select: HitTarget | undefined;
     for (let i = views.length - 1; 0 <= i; i--) {
         const view = views[i];
         // If linked latch, skip
         if (view instanceof LatchView && view.isLinked()) {
             continue;
         }
-        // If no object, skip
-        if (!(object = view.getObjectAt(x, y))) {
+        const object = view.getObjectAt(x, y);
+        if (!object) {
             continue;
         }
-        // Update selection
-        if (object?.tangibility === Tangibility.Priority) {
-            return object;
-        } else {
+        // PolyLineSpanView has no tangibility field — treat it like a
+        // non-priority DiagramObjectView (it never claims priority).
+        if (object instanceof PolyLineSpanView || object.tangibility !== Tangibility.Priority) {
             select ??= object;
+        } else {
+            return object;
         }
     }
     return select;

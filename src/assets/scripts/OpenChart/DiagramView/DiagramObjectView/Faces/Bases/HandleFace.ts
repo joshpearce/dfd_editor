@@ -8,6 +8,14 @@ export abstract class HandleFace extends DiagramFace {
      */
     declare protected view: HandleView;
 
+    /**
+     * The handle-dot marker radius (in diagram units).  Concrete handle faces
+     * expose this so hit-tests anchored on the marker geometry (the dead-zone
+     * catch in `PolyLine.getObjectAt`, for example) can read per-face without
+     * duplicating the theme's `PointStyle.radius`.
+     */
+    public abstract readonly radius: number;
+
 
     /**
      * Creates a new {@link HandleFace}.

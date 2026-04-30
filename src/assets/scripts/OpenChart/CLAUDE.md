@@ -156,3 +156,11 @@ abandoned; treat this directory as first-party code.
   same face (both left, both top, etc.) — the old `oneAxisCapSpace`
   would push the source's first segment back through its own block
   instead of out past the face.
+- **PolyLine edit affordance is span-drag only.** Interior handle dots
+  render when the line is focused (visual feedback only) but are excluded
+  from `getObjectAt` hit-testing — they are positional anchors driven by
+  span-drag, not independent drag targets.  Grabbing an interior segment
+  returns a `PolyLineSpanView` and fires `PolyLineSpanMover`, which locks
+  the delta perpendicular to the segment's axis (`"H"` → vertical only,
+  `"V"` → horizontal only) so the H/V alternation invariant is preserved.
+  End segments and latches behave as before (`DynamicLine` parity).

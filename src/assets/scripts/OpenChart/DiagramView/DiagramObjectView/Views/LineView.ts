@@ -7,7 +7,7 @@ import type { HandleView } from "./HandleView";
 import type { ViewObject } from "../ViewObject";
 import type { ViewportRegion } from "../ViewportRegion";
 import type { RenderSettings } from "../RenderSettings";
-import type { DiagramObjectView } from "./DiagramObjectView";
+import type { DiagramObjectView, HitTarget } from "./DiagramObjectView";
 import type { BoundingBox, LineFace } from "../Faces";
 
 export class LineView extends Line implements ViewObject {
@@ -276,9 +276,11 @@ export class LineView extends Line implements ViewObject {
      * @param y
      *  The y coordinate.
      * @returns
-     *  The topmost view, undefined if there isn't one.
+     *  The topmost view, undefined if there isn't one.  Returns a
+     *  {@link PolyLineSpanView} when the line uses a {@link PolyLine} face
+     *  and the hit lands on an interior segment.
      */
-    public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
+    public getObjectAt(x: number, y: number): HitTarget | undefined {
         return this.face.getObjectAt(x, y);
     }
 

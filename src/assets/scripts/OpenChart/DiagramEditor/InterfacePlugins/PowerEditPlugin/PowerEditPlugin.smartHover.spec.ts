@@ -13,16 +13,18 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { BlockView, GroupView, LineView, ResizeEdge } from "@OpenChart/DiagramView";
 import { createGroupTestingFactory } from "../../../DiagramView/DiagramObjectView/Faces/Bases/GroupFace.testing";
 import { createTestableEditor, findById } from "./PowerEditPlugin.testing";
-import type { DiagramObjectView, DiagramObjectViewFactory } from "@OpenChart/DiagramView";
+import type { DiagramObjectView, DiagramObjectViewFactory, HitTarget } from "@OpenChart/DiagramView";
 
 
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
 
-function expectHitToBe(hit: DiagramObjectView | undefined, target: DiagramObjectView): void {
+function expectHitToBe(hit: HitTarget | undefined, target: DiagramObjectView): void {
     expect(hit).toBeDefined();
-    let cursor: DiagramObjectView | null | undefined = hit;
+    // Narrow to DiagramObjectView — these tests only hit blocks/lines/groups,
+    // never PolyLineSpanView.  The assertion below will catch mismatches.
+    let cursor: DiagramObjectView | null | undefined = hit as DiagramObjectView | undefined;
     while (cursor) {
         if (cursor === target) { return; }
         cursor = cursor.parent;

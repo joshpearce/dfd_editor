@@ -4,7 +4,7 @@ import { findUnlinkedObjectAt } from "../../ViewLocators";
 import type { GroupStyle } from "../Styles/GroupStyle";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
-import type { DiagramObjectView, GroupView } from "../../Views";
+import type { GroupView, HitTarget } from "../../Views";
 
 /**
  * Default group styling (the trust-boundary look: dashed indigo).
@@ -188,9 +188,10 @@ export class GroupFace extends DiagramFace {
      * @returns
      *  The topmost view, undefined if there isn't one.
      */
-    public getObjectAt(x: number, y: number): DiagramObjectView | undefined {
+    public getObjectAt(x: number, y: number): HitTarget | undefined {
         if (this.boundingBox.contains(x, y)) {
-            // Try objects
+            // Try objects (view.objects yields groups, lines, and blocks;
+            // findUnlinkedObjectAt now passes PolyLineSpanView hits through)
             const object = findUnlinkedObjectAt(
                 [...this.view.objects], x, y
             );

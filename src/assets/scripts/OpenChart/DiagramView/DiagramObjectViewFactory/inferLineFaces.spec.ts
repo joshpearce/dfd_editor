@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
+    BlockView,
     CanvasView,
     DynamicLine,
     GroupView,
@@ -105,6 +106,65 @@ describe("DiagramObjectViewFactory.inferLineFaces", () => {
         factory.restyleDiagramObject([line]);
 
         expect(line.face).toBeInstanceOf(DynamicLine);
+    });
+
+    it("preserves linked-latch positions across a theme swap", async () => {
+        // Regression: before this test, `restyleDiagramObject` replaced
+        // every face with a fresh instance whose boundingBox started at
+        // (0, 0) and relied on `if (face.userSetPosition) object.moveTo(x, y)`
+        // to restore position.  Linked latches have userSetPosition=False
+        // (set by `Latch.link`), so nothing reseeded the new face's bb
+        // — every line endpoint collapsed to the top-left corner of the
+        // canvas on a theme swap.
+        //
+        // Scenario: two blocks + a one-handle line, both latches attached
+        // to block anchors, then restyle.  Assertion: both latches stay
+        // at the anchor positions the block layout places them at, not (0, 0).
+        const factory = await createLinesTestingFactory();
+        const canvas = factory.createNewDiagramObject(factory.canvas.name, CanvasView);
+
+        const blockA = factory.createNewDiagramObject("process", BlockView);
+        const blockB = factory.createNewDiagramObject("process", BlockView);
+        const groupA = factory.createNewDiagramObject("trust_boundary", GroupView);
+        const groupB = factory.createNewDiagramObject("trust_boundary", GroupView);
+        canvas.addObject(groupA);
+        canvas.addObject(groupB);
+        groupA.addObject(blockA);
+        groupB.addObject(blockB);
+
+        const line = factory.createNewDiagramObject("data_flow", LineView);
+        canvas.addObject(line);
+        const anchorA = blockA.anchors.values().next().value!;
+        const anchorB = blockB.anchors.values().next().value!;
+        line.node1.link(anchorA);
+        line.node2.link(anchorB);
+        // Move blocks AFTER linking so the anchor→latch cascade syncs the
+        // latch positions to the anchors.  Linking alone does not copy
+        // position; it only establishes the reference for future moveBy
+        // cascades.
+        canvas.calculateLayout();
+        blockA.moveTo(100, 100);
+        blockB.moveTo(500, 300);
+
+        const node1PosBefore = { x: line.node1.x, y: line.node1.y };
+        const node2PosBefore = { x: line.node2.x, y: line.node2.y };
+
+        // Sanity: latches landed somewhere meaningful (away from the origin
+        // where a face reset would dump them).
+        expect(Math.abs(node1PosBefore.x) + Math.abs(node1PosBefore.y))
+            .toBeGreaterThan(50);
+        expect(Math.abs(node2PosBefore.x) + Math.abs(node2PosBefore.y))
+            .toBeGreaterThan(50);
+
+        // Apply restyle — same path SetTheme uses.
+        factory.restyleDiagramObject([canvas]);
+
+        // Latch positions must be preserved across the face swap.  If the
+        // regression returns, both latches collapse to (0, 0).
+        expect(line.node1.x).toBe(node1PosBefore.x);
+        expect(line.node1.y).toBe(node1PosBefore.y);
+        expect(line.node2.x).toBe(node2PosBefore.x);
+        expect(line.node2.y).toBe(node2PosBefore.y);
     });
 
     it("traverses lines nested under a group inside a canvas root", async () => {
