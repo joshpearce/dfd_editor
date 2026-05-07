@@ -743,12 +743,14 @@ describe("diffAutoLayout", () => {
             const instanceMap = new Map<string, string>();
             const cloned = liveFile.clone(undefined, instanceMap);
 
-            // Clone has 4 handles; remove 2 so it has 2.
+            // Clone has 4 handles; remove non-adjacent indices 3 and 1 from the
+            // clone so it retains handles at original positions 0 and 2.
+            // Remove from the clone preserving the handles we want to keep.
             const clonedLine = findClonedLine(cloned.canvas, liveLine.instance, instanceMap);
-            // Remove from end to avoid shifting — we want to test that
-            // diffAutoLayout emits in descending index order regardless.
+            // Remove index 3 first (end), then index 1 (now index 1 of the
+            // 3-handle remainder) to avoid shifting.
             clonedLine.deleteHandle(clonedLine.handles[3], false);
-            clonedLine.deleteHandle(clonedLine.handles[2], false);
+            clonedLine.deleteHandle(clonedLine.handles[1], false);
             expect(clonedLine.handles.length).toBe(2);
 
             const cmds = diffAutoLayout(liveFile.canvas, cloned.canvas, instanceMap);
@@ -756,9 +758,22 @@ describe("diffAutoLayout", () => {
             const removeCmds = cmds.filter(c => c instanceof RemoveHandleFromLine) as RemoveHandleFromLine[];
             expect(removeCmds).toHaveLength(2);
 
-            // Descending order: index 3 must come before index 2.
+            // Descending order: index 3 must come before index 1.
+            // Emitting [1, 3] would corrupt the handle list — removing index 1
+            // first shifts index 3 down to 2, so the second remove targets the
+            // wrong handle. Emitting [3, 1] correctly removes 3 first (leaving
+            // 0,1,2), then 1 (leaving 0,2).
             expect(removeCmds[0].atIndex).toBe(3);
-            expect(removeCmds[1].atIndex).toBe(2);
+            expect(removeCmds[1].atIndex).toBe(1);
+
+            // Execute both remove commands sequentially against the live line and
+            // verify that the two surviving handles are the originals at indices 0 and 2.
+            const liveHandle0 = liveLine.handles[0];
+            const liveHandle2 = liveLine.handles[2];
+            for (const cmd of removeCmds) { cmd.execute(); }
+            expect(liveLine.handles).toHaveLength(2);
+            expect(liveLine.handles[0]).toBe(liveHandle0);
+            expect(liveLine.handles[1]).toBe(liveHandle2);
         });
 
     });

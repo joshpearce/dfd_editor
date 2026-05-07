@@ -117,6 +117,18 @@ export function diffAutoLayout(
             const liveLen    = liveHandles.length;
             const plannedLen = plannedHandles.length;
 
+            // Build a set of live handle ids that are present in the planned
+            // line, using the plannedToLive instance map for identity matching.
+            // Handles that are present in planned but absent in live are appended
+            // at the tail; handles absent in planned are removed.
+            const plannedLiveHandleIds = new Set<string>();
+            for (const ph of plannedHandles) {
+                const liveHandleId = plannedToLive.get(ph.instance);
+                if (liveHandleId !== undefined) {
+                    plannedLiveHandleIds.add(liveHandleId);
+                }
+            }
+
             if (plannedLen > liveLen) {
                 // Add handles that are present in planned but absent in live.
                 // Ascending index keeps earlier inserts from shifting later ones.
@@ -125,20 +137,32 @@ export function diffAutoLayout(
                     handleAdds.push(new AddHandleToLine(liveLine, ph.x, ph.y, i));
                 }
             } else if (plannedLen < liveLen) {
-                // Remove surplus handles.  Descending index keeps earlier
-                // indices stable as later ones are removed.
-                for (let i = liveLen - 1; i >= plannedLen; i--) {
-                    handleRemoves.push(new RemoveHandleFromLine(liveLine, i));
+                // Remove live handles that have no corresponding planned handle.
+                // Collect the live indices to remove in descending order so that
+                // executing them sequentially does not shift earlier indices.
+                const toRemove: number[] = [];
+                for (let i = 0; i < liveLen; i++) {
+                    if (!plannedLiveHandleIds.has(liveHandles[i].instance)) {
+                        toRemove.push(i);
+                    }
+                }
+                // Sort descending so high-index removes execute first.
+                toRemove.sort((a, b) => b - a);
+                for (const idx of toRemove) {
+                    handleRemoves.push(new RemoveHandleFromLine(liveLine, idx));
                 }
             }
 
-            // Position diff for handles shared by both canvases.  Newly added
-            // handles are already positioned at construction time via
-            // AddHandleToLine, so only the min-length overlap is checked.
-            const sharedLen = Math.min(liveLen, plannedLen);
-            for (let i = 0; i < sharedLen; i++) {
-                const lh = liveHandles[i];
-                const ph = plannedHandles[i];
+            // Position diff for handles shared by both canvases.
+            // Walk live handles in order and find their planned counterpart by
+            // identity (via the instance map); only emit a move when positions
+            // actually differ.  Newly added handles (no live counterpart) are
+            // positioned at construction time via AddHandleToLine and skipped.
+            for (const lh of liveHandles) {
+                const plannedHandleId = liveToPlanned.get(lh.instance);
+                if (plannedHandleId === undefined) { continue; }
+                const ph = plannedHandles.find(h => h.instance === plannedHandleId);
+                if (ph === undefined) { continue; }
                 if (differs(lh.x, ph.x) || differs(lh.y, ph.y)) {
                     moves.push(new MoveObjectsTo(lh, ph.x, ph.y));
                 }
@@ -167,8 +191,18 @@ export function diffAutoLayout(
             // Determine whether the anchor identity changed.
             // live=A, planned=A (same)            → anchorChanged = false
             // live=A, planned=B (different)       → anchorChanged = true
-            // live=A, planned=null                → anchorChanged = false (no target; treat as no-op for anchor)
             // live=null, planned=A                → anchorChanged = true (need Attach)
+            //
+            // live=A, planned=null: TALA never produces an unlinked latch where
+            // the live latch is still linked, so throw immediately — silent
+            // drop here would hide bugs.
+            if (liveAnchor !== null && plannedAnchor === null) {
+                throw new Error(
+                    `diffAutoLayout: live latch ${liveLatch.instance} is linked to anchor ` +
+                    `${liveAnchor.instance}, but planned latch ${plannedObj.instance} is ` +
+                    "unlinked. This case is not currently supported."
+                );
+            }
             const anchorChanged =
                 plannedAnchorLiveId !== undefined &&
                 plannedAnchorLiveId !== (liveAnchor?.instance ?? null);
@@ -183,8 +217,9 @@ export function diffAutoLayout(
                 if (newLiveAnchor === undefined) {
                     // Contract violation: planned latch references an anchor with no live counterpart.
                     throw new Error(
-                        `diffAutoLayout: planned latch ${plannedObj.instance} references anchor ` +
-                        `${plannedAnchor!.instance} which has no live counterpart`
+                        `diffAutoLayout: live latch ${liveLatch.instance} / planned latch ` +
+                        `${plannedObj.instance} references anchor ${plannedAnchor!.instance} ` +
+                        "which has no live counterpart"
                     );
                 }
 
@@ -231,12 +266,15 @@ export function diffAutoLayout(
             }
 
             // SE corner delta — moves the SE corner while keeping NW fixed.
-            // Read live bounding box values again: after the NW resize above is
-            // eventually executed, xMax may shift if clamping occurs.  However,
-            // since commands are collected first and executed later, we compute
-            // both deltas against the current (pre-execute) live bounding box.
-            // The NW resize does not affect xMax/yMax directly, so the SE delta
-            // is independent.
+            // Two ResizeGroupBy calls reach the planned bbox: NW first
+            // (only writes _userXMin/_userYMin), then SE (only writes
+            // _userXMax/_userYMax). GroupFace.resizeBy invokes
+            // calculateLayout at the end of each, which rounds bounds to
+            // children-plus-padding — but TALA outputs always enclose
+            // their children so the rounding is a no-op in practice.
+            // Both deltas are computed against the current (pre-execute)
+            // live bounding box because commands are collected before any
+            // of them run.
             const dxSE = plannedBB.xMax - liveBB.xMax;
             const dySE = plannedBB.yMax - liveBB.yMax;
             if (differs(dxSE, 0) || differs(dySE, 0)) {
