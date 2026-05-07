@@ -7,8 +7,9 @@
  *  - execute: replaces `line.face` with a new instance of `faceCtor`
  *  - undo:    restores a new instance of the prior face class
  *  - redo:    execute after undo re-applies `faceCtor` (prior ctor is captured
- *             exactly once so undo/redo cycles remain symmetric)
+ *             in the constructor so undo/redo cycles remain symmetric)
  *  - Both directions are tested: DynamicLine → PolyLine and PolyLine → DynamicLine
+ *  - style and grid are preserved across execute/undo/redo cycles
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
@@ -20,13 +21,23 @@ import {
 } from "@OpenChart/DiagramView";
 import { createLinesTestingFactory } from "../../../DiagramView/DiagramObjectView/Faces/Lines/Lines.testing";
 import { SetLineFace } from "./SetLineFace";
-import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
+import type { DiagramObjectViewFactory, LineFace } from "@OpenChart/DiagramView";
+import type { GenericLineInternalState } from "../../../DiagramView/DiagramObjectView/Faces/Lines/GenericLineInternalState";
 
 
 ///////////////////////////////////////////////////////////////////////////////
 //  Fixture helpers  //////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+
+/**
+ * Reads the internal style and grid from a {@link LineFace}.
+ * Uses the {@link GenericLineInternalState} escape hatch, mirroring the
+ * production code.
+ */
+function readFaceState(face: LineFace) {
+    return face as unknown as GenericLineInternalState;
+}
 
 /**
  * Builds a {@link LineView} whose face is a {@link DynamicLine}.
@@ -99,6 +110,26 @@ describe("SetLineFace", () => {
                 expect(line.face).not.toBe(priorFace);
             });
 
+            it("new face carries the same style as the original face", () => {
+                const line = buildDynamicLineView(factory);
+                const originalStyle = readFaceState(line.face).style;
+                const cmd = new SetLineFace(line, PolyLine);
+
+                cmd.execute();
+
+                expect(readFaceState(line.face).style).toBe(originalStyle);
+            });
+
+            it("new face carries the same grid as the original face", () => {
+                const line = buildDynamicLineView(factory);
+                const originalGrid = readFaceState(line.face).grid;
+                const cmd = new SetLineFace(line, PolyLine);
+
+                cmd.execute();
+
+                expect(readFaceState(line.face).grid).toEqual(originalGrid);
+            });
+
         });
 
 
@@ -114,6 +145,28 @@ describe("SetLineFace", () => {
                 cmd.undo();
 
                 expect(line.face).toBeInstanceOf(DynamicLine);
+            });
+
+            it("restored face carries the same style as the original face", () => {
+                const line = buildDynamicLineView(factory);
+                const originalStyle = readFaceState(line.face).style;
+                const cmd = new SetLineFace(line, PolyLine);
+
+                cmd.execute();
+                cmd.undo();
+
+                expect(readFaceState(line.face).style).toBe(originalStyle);
+            });
+
+            it("restored face carries the same grid as the original face", () => {
+                const line = buildDynamicLineView(factory);
+                const originalGrid = readFaceState(line.face).grid;
+                const cmd = new SetLineFace(line, PolyLine);
+
+                cmd.execute();
+                cmd.undo();
+
+                expect(readFaceState(line.face).grid).toEqual(originalGrid);
             });
 
         });
@@ -133,6 +186,20 @@ describe("SetLineFace", () => {
 
                 cmd.execute();
                 expect(line.face).toBeInstanceOf(PolyLine);
+            });
+
+            it("redo face carries the same style and grid across a full undo/redo cycle", () => {
+                const line = buildDynamicLineView(factory);
+                const originalStyle = readFaceState(line.face).style;
+                const originalGrid = readFaceState(line.face).grid;
+                const cmd = new SetLineFace(line, PolyLine);
+
+                cmd.execute();
+                cmd.undo();
+                cmd.execute();
+
+                expect(readFaceState(line.face).style).toBe(originalStyle);
+                expect(readFaceState(line.face).grid).toEqual(originalGrid);
             });
 
             it("prior face ctor remains DynamicLine across multiple undo/redo cycles", () => {
@@ -171,6 +238,26 @@ describe("SetLineFace", () => {
                 expect(line.face).toBeInstanceOf(DynamicLine);
             });
 
+            it("new face carries the same style as the original face", () => {
+                const line = buildPolyLineView(factory);
+                const originalStyle = readFaceState(line.face).style;
+                const cmd = new SetLineFace(line, DynamicLine);
+
+                cmd.execute();
+
+                expect(readFaceState(line.face).style).toBe(originalStyle);
+            });
+
+            it("new face carries the same grid as the original face", () => {
+                const line = buildPolyLineView(factory);
+                const originalGrid = readFaceState(line.face).grid;
+                const cmd = new SetLineFace(line, DynamicLine);
+
+                cmd.execute();
+
+                expect(readFaceState(line.face).grid).toEqual(originalGrid);
+            });
+
         });
 
 
@@ -186,6 +273,19 @@ describe("SetLineFace", () => {
                 cmd.undo();
 
                 expect(line.face).toBeInstanceOf(PolyLine);
+            });
+
+            it("restored face carries the same style and grid after undo", () => {
+                const line = buildPolyLineView(factory);
+                const originalStyle = readFaceState(line.face).style;
+                const originalGrid = readFaceState(line.face).grid;
+                const cmd = new SetLineFace(line, DynamicLine);
+
+                cmd.execute();
+                cmd.undo();
+
+                expect(readFaceState(line.face).style).toBe(originalStyle);
+                expect(readFaceState(line.face).grid).toEqual(originalGrid);
             });
 
         });

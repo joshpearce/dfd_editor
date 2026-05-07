@@ -3,6 +3,11 @@ import { PositionSetByUser } from "../../ViewAttributes";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { DiagramObjectView, LineView } from "../../Views";
 
+/**
+ * Concrete subclasses must accept `(style: LineStyle, grid: [number, number])`
+ * as their constructor signature to be usable with `LineFaceCtor` and
+ * the `SetLineFace` editor command.
+ */
 export abstract class LineFace extends DiagramFace {
 
     /**
