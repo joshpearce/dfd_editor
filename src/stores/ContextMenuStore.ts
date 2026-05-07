@@ -31,6 +31,7 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                 this.openFileMenu,
                 this.isRecoverFileMenuShown ? this.recoverFileMenu : null,
                 this.saveFileMenu,
+                this.formatFileMenu,
                 app.activePublisher ? this.publishFileMenu : null
             ].filter(Boolean) as ContextMenuSection<CommandEmitter>[];
             // Menu
@@ -159,6 +160,27 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                         type: MenuType.Action,
                         data: () => AppCommands.exportActiveFileAsDataFlow(app),
                         disabled: editor.id === PhantomEditor.id || !app.serverFileId
+                    }
+                ]
+            };
+        },
+
+        /**
+         * Returns the 'format file' menu section.
+         * @returns
+         *  The 'format file' menu section.
+         */
+        formatFileMenu(): ContextMenuSection<CommandEmitter> {
+            const app = useApplicationStore();
+            const editor = app.activeEditor;
+            return {
+                id: "format_file_options",
+                items: [
+                    {
+                        text: "Auto Format",
+                        type: MenuType.Action,
+                        data: () => AppCommands.autoLayoutActiveFile(app),
+                        disabled: editor.id === PhantomEditor.id
                     }
                 ]
             };

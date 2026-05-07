@@ -6,6 +6,7 @@ import { stripExtension } from "@OpenChart/Utilities";
 import { DiagramObjectViewFactory, DiagramViewFile, NewAutoLayoutEngine } from "@OpenChart/DiagramView";
 import { createDiagram, getDiagram, importMinimalDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
 import {
+    AutoLayoutActiveFile,
     BindEditorToServer,
     ClearFileRecoveryBank,
     ExportDiagramAsDataFlow,
@@ -19,6 +20,7 @@ import {
     SaveDiagramImageToDevice,
     SaveSelectionImageToDevice
 } from "./index.commands";
+import { PhantomEditor } from "@/stores/PhantomEditor";
 import type { ApplicationStore } from "@/stores/ApplicationStore";
 import type { DiagramViewExport } from "@OpenChart/DiagramView";
 import type { DiagramViewEditor } from "@/assets/scripts/OpenChart/DiagramEditor";
@@ -505,6 +507,27 @@ export function saveActiveFileToServer(
         return new DoNothing();
     }
     return new SaveDiagramFileToServer(context.activeEditor, id);
+}
+
+
+/**
+ * Runs TALA auto-layout on a clone of the active file, diffs the result
+ * against the live canvas, and pushes the minimal set of edit commands as a
+ * single undoable {@link GroupCommand}. Returns a no-op when the active
+ * editor has no real file (phantom editor).
+ * @param context
+ *  The application context.
+ * @returns
+ *  A command that represents the action.
+ */
+export function autoLayoutActiveFile(
+    context: ApplicationStore
+): AppCommand {
+    const editor = context.activeEditor;
+    if (editor.id === PhantomEditor.id) {
+        return new DoNothing();
+    }
+    return new AutoLayoutActiveFile(editor);
 }
 
 

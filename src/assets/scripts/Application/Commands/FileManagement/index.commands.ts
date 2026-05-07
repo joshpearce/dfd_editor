@@ -1,3 +1,4 @@
+export * from "./AutoLayoutActiveFile";
 export * from "./BindEditorToServer";
 export * from "./ClearFileRecoveryBank";
 export * from "./LoadFile";
