@@ -72,7 +72,6 @@ async function handleDisplay(
     }
     try {
         await ctx.execute(await prepareEditorFromServerFile(ctx, id));
-        ctx.markRemoteActivity();
     } catch (err) {
         console.error("DfdSocketDispatcher: failed to display diagram:", err);
     }
@@ -144,7 +143,6 @@ async function handleDiagramUpdated(
             return;
         }
         await ctx.execute(cmd);
-        ctx.markRemoteActivity();
     } catch (err) {
         console.error("DfdSocketDispatcher: failed to reload updated diagram:", err);
     }
@@ -177,7 +175,6 @@ async function handleDiagramDeleted(
         // (validator, save, find) don't operate on a now-deleted file.
         ctx.resetActiveEditor();
         await ctx.execute(showSplashMenu(ctx));
-        ctx.markRemoteActivity();
     } catch (err) {
         console.error("DfdSocketDispatcher: failed to show splash after diagram deleted:", err);
     }

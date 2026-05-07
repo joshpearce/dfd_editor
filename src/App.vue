@@ -53,7 +53,6 @@ import { Device, clamp, OperatingSystem, PointerTracker } from "./assets/scripts
 import type { Command } from "./assets/scripts/Application"
 import { DfdSocketClient } from "./assets/scripts/api/DfdSocketClient";
 import { wireSocketClient } from "./assets/scripts/api/DfdSocketDispatcher";
-import { useEditorEditEvent } from "@/composables/useEditorEditEvent";
 // Components
 import FindDialog from "@/components/Elements/FindDialog.vue";
 import SplashMenu from "@/components/Elements/SplashMenu.vue";
@@ -71,15 +70,6 @@ const Handle = {
 export default defineComponent({
   name: 'App',
   setup() {
-    const application = useApplicationStore();
-    useEditorEditEvent(application, () => {
-      if (
-        application.remoteActivityUndoDepth !== null &&
-        application.activeEditor.undoDepth !== application.remoteActivityUndoDepth
-      ) {
-        application.clearRemoteActivity();
-      }
-    });
     return { body: ref<HTMLElement | null>(null) };
   },
   data() {
