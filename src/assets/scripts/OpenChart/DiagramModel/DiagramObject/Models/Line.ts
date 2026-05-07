@@ -200,6 +200,27 @@ export class Line extends DiagramObject {
     }
 
     /**
+     * Inserts a handle into the line at a specific index.
+     * @param handle
+     *  The line's {@link Handle}.
+     * @param atIndex
+     *  The index at which to insert the handle.
+     * @param update
+     *  Whether to update the diagram or not.
+     *  (Default: `false`)
+     */
+    public insertHandle(handle: Handle, atIndex: number, update: boolean = false) {
+        // Set handle's parent
+        this.makeChild(handle);
+        // Insert handle at index
+        this._handles.splice(atIndex, 0, handle);
+        // Update diagram
+        if (update) {
+            this.handleUpdate(ModelUpdateReason.ObjectAdded);
+        }
+    }
+
+    /**
      * Removes a handle from the line.
      * @param branch
      *  The branch's name.

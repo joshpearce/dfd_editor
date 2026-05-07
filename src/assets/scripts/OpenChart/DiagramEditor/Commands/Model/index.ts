@@ -1,15 +1,58 @@
 import {
     AddGroupToGroup,
+    AddHandleToLine,
     AddObjectToGroup,
     AttachLatchToAnchor,
     DetachLatchFromAnchor,
+    RemoveHandleFromLine,
     RemoveObjectFromGroup,
     ReparentObject
 } from "./index.commands";
 import type { Latch, Anchor, DiagramObject, Group } from "@OpenChart/DiagramModel";
+import type { LineView } from "@OpenChart/DiagramView/DiagramObjectView/Views/LineView";
 
 ///////////////////////////////////////////////////////////////////////////////
-//  1. Anchors  ///////////////////////////////////////////////////////////////
+//  1. Handles  ///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+/**
+ * Adds a handle to a line at a specific index.
+ * @param line
+ *  The line. Must have at least one existing handle (index 0) to clone.
+ * @param x
+ *  The x coordinate of the new handle.
+ * @param y
+ *  The y coordinate of the new handle.
+ * @param atIndex
+ *  The index at which to insert the handle.
+ * @returns
+ *  A command that represents the action.
+ */
+export function addHandleToLine(
+    line: LineView, x: number, y: number, atIndex: number
+): AddHandleToLine {
+    return new AddHandleToLine(line, x, y, atIndex);
+}
+
+/**
+ * Removes a handle from a line at a specific index.
+ * @param line
+ *  The line.
+ * @param atIndex
+ *  The index of the handle to remove.
+ * @returns
+ *  A command that represents the action.
+ */
+export function removeHandleFromLine(
+    line: LineView, atIndex: number
+): RemoveHandleFromLine {
+    return new RemoveHandleFromLine(line, atIndex);
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  2. Anchors  ///////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -43,7 +86,7 @@ export function detachLatchFromAnchor(
 
 
 ///////////////////////////////////////////////////////////////////////////////
-//  2. Groups  ////////////////////////////////////////////////////////////////
+//  3. Groups  ////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
 
