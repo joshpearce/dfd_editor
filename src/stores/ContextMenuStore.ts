@@ -180,7 +180,7 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                         text: "Auto Layout",
                         type: MenuType.Action,
                         data: () => AppCommands.autoLayoutActiveFile(app),
-                        disabled: editor.id === PhantomEditor.id
+                        disabled: editor.id === PhantomEditor.id || !app.serverFileId
                     }
                 ]
             };

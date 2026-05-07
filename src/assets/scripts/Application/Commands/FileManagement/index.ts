@@ -509,8 +509,10 @@ export function saveActiveFileToServer(
 }
 
 /**
- * Re-runs TALA on the active file and clears the undo/redo history.
- * Prompts the user for confirmation before proceeding.
+ * Re-runs TALA on the active file by reloading it from the server with its
+ * stored layout stripped. Wholesale-replaces the active editor, which clears
+ * the undo/redo history as a side effect. No-op when the active editor has
+ * no server binding. Prompts the user for confirmation before proceeding.
  * @param context
  *  The application context.
  * @returns
@@ -519,7 +521,11 @@ export function saveActiveFileToServer(
 export function autoLayoutActiveFile(
     context: ApplicationStore
 ): AppCommand {
-    return new AutoLayoutActiveFile(context.activeEditor, context.serverFileId);
+    const id = context.serverFileId;
+    if (!id) {
+        return new DoNothing();
+    }
+    return new AutoLayoutActiveFile(context, id);
 }
 
 
