@@ -79,7 +79,7 @@ export default defineComponent({
       bodyWidth: -1,
       bodyHeight: -1,
       frameSize: {
-        [Handle.Right]: 376
+        [Handle.Right]: 310
       },
       minFrameSize: {
         [Handle.Right]: 310
