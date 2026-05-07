@@ -12,10 +12,6 @@
  *   - the correct target coordinates / indices, and
  *   - the correct dependency order.
  *
- * The tests deliberately do NOT execute the returned commands — that would
- * defeat the purpose of testing the diff walker in isolation.  Only the
- * command list is inspected.
- *
  * Mutation helpers used:
  *   - `block.moveTo(x, y)`          — reposition a block on the clone canvas
  *   - `line.addHandle(handle)`       — add an extra handle to the clone's line
@@ -28,6 +24,7 @@ import {
     AnchorView,
     BlockView,
     CanvasView,
+    GroupView,
     HandleView,
     LineView,
     PolyLine,
@@ -35,8 +32,11 @@ import {
     DiagramViewFile,
     PositionSetByUser
 } from "@OpenChart/DiagramView";
+import { DiagramObjectSerializer } from "@OpenChart/DiagramModel";
+import { ManualLayoutEngine } from "@OpenChart/DiagramView/DiagramLayoutEngine";
 import { AddHandleToLine } from "@OpenChart/DiagramEditor/Commands/Model/AddHandleToLine";
 import { RemoveHandleFromLine } from "@OpenChart/DiagramEditor/Commands/Model/RemoveHandleFromLine";
+import { ResizeGroupBy } from "@OpenChart/DiagramEditor/Commands/View/ResizeGroupBy";
 import { SetLineFace } from "@OpenChart/DiagramEditor/Commands/View/SetLineFace";
 import { DetachLatchFromAnchor } from "@OpenChart/DiagramEditor/Commands/Model/DetachLatchFromAnchor";
 import { AttachLatchToAnchor } from "@OpenChart/DiagramEditor/Commands/Model/AttachLatchToAnchor";
@@ -94,7 +94,7 @@ async function buildTwoBlockFile(factory: DiagramObjectViewFactory): Promise<{
     const file = new DiagramViewFile(factory, {
         schema  : factory.id,
         theme   : factory.theme.id,
-        objects : import_objects_from_canvas(canvas, factory),
+        objects : import_objects_from_canvas(canvas),
         layout  : generate_layout(canvas)
     });
 
@@ -115,11 +115,7 @@ async function buildTwoBlockFile(factory: DiagramObjectViewFactory): Promise<{
     };
 }
 
-// Helpers to build the minimal export structure used inside buildTwoBlockFile.
-import { DiagramObjectSerializer } from "@OpenChart/DiagramModel";
-import { ManualLayoutEngine } from "@OpenChart/DiagramView/DiagramLayoutEngine";
-
-function import_objects_from_canvas(canvas: CanvasView, _factory: DiagramObjectViewFactory) {
+function import_objects_from_canvas(canvas: CanvasView) {
     return DiagramObjectSerializer.exportObjects([canvas]);
 }
 
@@ -162,6 +158,44 @@ function findClonedBlock(cloneCanvas: CanvasView, liveInstance: string, instance
     return found as BlockView;
 }
 
+/**
+ * Finds a {@link GroupView} in a canvas (top-level groups only) whose live
+ * instance corresponds to `liveInstance`.
+ */
+function findClonedGroup(cloneCanvas: CanvasView, liveInstance: string, instanceMap: Map<string, string>): GroupView {
+    const plannedId = instanceMap.get(liveInstance)!;
+    const found = (cloneCanvas.groups as readonly GroupView[]).find(g => g.instance === plannedId);
+    if (!found) { throw new Error(`Could not find cloned group for live instance ${liveInstance}`); }
+    return found;
+}
+
+/**
+ * Builds a live {@link DiagramViewFile} that contains a single empty
+ * {@link GroupView} with the given explicit bounds.
+ *
+ * Returns the live file and the live GroupView.
+ */
+async function buildGroupFile(
+    factory: DiagramObjectViewFactory,
+    bounds: [number, number, number, number]
+): Promise<{ file: DiagramViewFile, group: GroupView }> {
+    const canvas = factory.createNewDiagramObject(factory.canvas.name, CanvasView);
+    const group  = factory.createNewDiagramObject("trust_boundary", GroupView);
+    group.face.setBounds(...bounds);
+    canvas.addObject(group);
+    canvas.calculateLayout();
+
+    const file = new DiagramViewFile(factory, {
+        schema  : factory.id,
+        theme   : factory.theme.id,
+        objects : import_objects_from_canvas(canvas),
+        layout  : generate_layout(canvas)
+    });
+
+    const liveGroup = (file.canvas.groups as readonly GroupView[])[0];
+    return { file, group: liveGroup };
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //  Tests                                                                     //
@@ -188,6 +222,31 @@ describe("diffAutoLayout", () => {
             const { clone, instanceMap } = cloneFile(file);
 
             const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
+
+            expect(cmds).toHaveLength(0);
+        });
+
+        it("returns an empty array for two identical canvases with multi-handle DynamicLine lines", async () => {
+            // Build a live file with a multi-handle line whose face stays
+            // DynamicLine (only 1 extra handle, not 2+), clone it without
+            // any mutations — should be a no-op.
+            const canvas = factory.createNewDiagramObject(factory.canvas.name, CanvasView);
+            const lineRaw = factory.createNewDiagramObject("data_flow", LineView);
+            lineRaw.addHandle(factory.createNewDiagramObject("generic_handle", HandleView), false);
+            canvas.addObject(lineRaw);
+            canvas.calculateLayout();
+
+            const liveFile = new DiagramViewFile(factory, {
+                schema  : factory.id,
+                theme   : factory.theme.id,
+                objects : DiagramObjectSerializer.exportObjects([canvas]),
+                layout  : ManualLayoutEngine.generatePositionMap([canvas])
+            });
+
+            const instanceMap = new Map<string, string>();
+            const cloned = liveFile.clone(undefined, instanceMap);
+
+            const cmds = diffAutoLayout(liveFile.canvas, cloned.canvas, instanceMap);
 
             expect(cmds).toHaveLength(0);
         });
@@ -258,6 +317,29 @@ describe("diffAutoLayout", () => {
             expect(blockAMove).toBeUndefined();
         });
 
+        it("does not emit MoveObjectsTo for linked latches when only the parent block moves (cascade no-op)", async () => {
+            // When a block moves, its linked latches' positions are cascaded by
+            // MoveObjectsTo(block).  Emitting separate MoveObjectsTo commands
+            // for the latches would be redundant on execute and corrupt undo.
+            const { file, blockA, line } = await buildTwoBlockFile(factory);
+            const { clone, instanceMap } = cloneFile(file);
+
+            // Move blockA on the clone; node1 is linked to blockA's anchor.
+            const clonedBlockA = findClonedBlock(clone.canvas, blockA.instance, instanceMap);
+            clonedBlockA.moveTo(200, 200);
+
+            const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
+
+            // Must have exactly one MoveObjectsTo: for blockA.
+            const moveCmds = cmds.filter(c => c instanceof MoveObjectsTo);
+            const blockAMove = moveCmds.find(c => (c as MoveObjectsTo).object === blockA);
+            expect(blockAMove).toBeDefined();
+
+            // node1 is linked to blockA's anchor — no explicit move for it.
+            const latchMove = moveCmds.find(c => (c as MoveObjectsTo).object === line.node1);
+            expect(latchMove).toBeUndefined();
+        });
+
     });
 
 
@@ -275,10 +357,6 @@ describe("diffAutoLayout", () => {
             const extraHandle = factory.createNewDiagramObject("generic_handle", HandleView);
             extraHandle.face.moveTo(300, 200);
             clonedLine.addHandle(extraHandle, false);
-            // inferLineFaces is not needed here because we're only comparing
-            // handle counts in the diff — the line on the clone still has a
-            // DynamicLine face (the live line also does), so the face-swap
-            // branch won't trigger for this test.
 
             const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
 
@@ -318,6 +396,62 @@ describe("diffAutoLayout", () => {
             expect(addCmd.y).toBe(456);
             // The live line starts with 1 handle; the new one sits at index 1.
             expect(addCmd.atIndex).toBe(1);
+        });
+
+    });
+
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  Handle move (per-index)                                               //
+    ///////////////////////////////////////////////////////////////////////////
+
+    describe("handle move", () => {
+
+        it("emits exactly one MoveObjectsTo for a handle whose position changed", async () => {
+            // Build a live file whose line has 3 handles (PolyLine), then
+            // clone it and move only the interior handle (index 1).
+            const canvas = factory.createNewDiagramObject(factory.canvas.name, CanvasView);
+            const lineRaw = factory.createNewDiagramObject("data_flow", LineView);
+            const h1 = factory.createNewDiagramObject("generic_handle", HandleView);
+            const h2 = factory.createNewDiagramObject("generic_handle", HandleView);
+            lineRaw.addHandle(h1, false);
+            lineRaw.addHandle(h2, false);
+            for (let i = 0; i < lineRaw.handles.length; i++) {
+                lineRaw.handles[i].userSetPosition = PositionSetByUser.True;
+                lineRaw.handles[i].face.moveTo([100, 200, 300][i], 50);
+            }
+            factory.inferLineFaces([lineRaw]);
+            canvas.addObject(lineRaw);
+            canvas.calculateLayout();
+
+            const liveFile = new DiagramViewFile(factory, {
+                schema  : factory.id,
+                theme   : factory.theme.id,
+                objects : DiagramObjectSerializer.exportObjects([canvas]),
+                layout  : ManualLayoutEngine.generatePositionMap([canvas])
+            });
+
+            const liveLine = [...liveFile.canvas.lines][0] as LineView;
+            expect(liveLine.handles.length).toBe(3);
+
+            const instanceMap = new Map<string, string>();
+            const cloned = liveFile.clone(undefined, instanceMap);
+
+            const clonedLine = findClonedLine(cloned.canvas, liveLine.instance, instanceMap);
+
+            // Move only the interior handle (index 1) on the clone.
+            clonedLine.handles[1].face.moveTo(999, 777);
+
+            const cmds = diffAutoLayout(liveFile.canvas, cloned.canvas, instanceMap);
+
+            const moveCmds = cmds.filter(c => c instanceof MoveObjectsTo);
+            // Exactly one MoveObjectsTo for the handle at index 1.
+            expect(moveCmds).toHaveLength(1);
+            const moveCmd = moveCmds[0] as MoveObjectsTo;
+            // Must reference the live handle at index 1, not the clone's.
+            expect(moveCmd.object).toBe(liveLine.handles[1]);
+            expect(moveCmd.nx).toBe(999);
+            expect(moveCmd.ny).toBe(777);
         });
 
     });
@@ -518,6 +652,230 @@ describe("diffAutoLayout", () => {
 
 
     ///////////////////////////////////////////////////////////////////////////
+    //  Handle remove                                                         //
+    ///////////////////////////////////////////////////////////////////////////
+
+    describe("handle remove", () => {
+
+        it("returns RemoveHandleFromLine commands when the clone has fewer handles than live", async () => {
+            // Build a live file whose line already has 3 handles (PolyLine),
+            // then clone it and drop one handle from the clone's line.
+            const liveFactory = factory;
+            const canvas = liveFactory.createNewDiagramObject(liveFactory.canvas.name, CanvasView);
+            const lineRaw = liveFactory.createNewDiagramObject("data_flow", LineView);
+            const h1 = liveFactory.createNewDiagramObject("generic_handle", HandleView);
+            const h2 = liveFactory.createNewDiagramObject("generic_handle", HandleView);
+            lineRaw.addHandle(h1, false);
+            lineRaw.addHandle(h2, false);
+            // Mark all handles as user-set and give them positions so the
+            // ManualLayoutEngine includes them in the position map and they
+            // survive the export/import round-trip through DiagramViewFile.
+            const handlePositions: Array<[number, number]> = [
+                [100, 50],
+                [200, 100],
+                [300, 50]
+            ];
+            for (let i = 0; i < lineRaw.handles.length; i++) {
+                lineRaw.handles[i].userSetPosition = PositionSetByUser.True;
+                lineRaw.handles[i].face.moveTo(handlePositions[i][0], handlePositions[i][1]);
+            }
+            liveFactory.inferLineFaces([lineRaw]);
+            canvas.addObject(lineRaw);
+            canvas.calculateLayout();
+
+            const liveFile = new DiagramViewFile(liveFactory, {
+                schema  : liveFactory.id,
+                theme   : liveFactory.theme.id,
+                objects : DiagramObjectSerializer.exportObjects([canvas]),
+                layout  : ManualLayoutEngine.generatePositionMap([canvas])
+            });
+
+            // The live line should now have 3 handles and be PolyLine after
+            // DiagramViewFile's constructor infers faces.
+            const liveLine = [...liveFile.canvas.lines][0] as LineView;
+            expect(liveLine.handles.length).toBe(3);
+
+            const instanceMap = new Map<string, string>();
+            const cloned = liveFile.clone(undefined, instanceMap);
+
+            // Remove one handle from the clone's line.
+            const clonedLine = findClonedLine(cloned.canvas, liveLine.instance, instanceMap);
+            expect(clonedLine.handles.length).toBe(3);
+            clonedLine.deleteHandle(clonedLine.handles[2], false);
+            expect(clonedLine.handles.length).toBe(2);
+
+            const cmds = diffAutoLayout(liveFile.canvas, cloned.canvas, instanceMap);
+
+            const removeCmds = cmds.filter(c => c instanceof RemoveHandleFromLine);
+            expect(removeCmds).toHaveLength(1);
+            expect((removeCmds[0] as RemoveHandleFromLine).line).toBe(liveLine);
+        });
+
+        it("emits RemoveHandleFromLine in descending index order when multiple handles are removed", async () => {
+            // Build a live file with a 4-handle line, clone it, remove 2
+            // handles from the clone, and assert the emitted Remove commands
+            // are ordered with higher indices first so that earlier indices
+            // are not shifted by later removes.
+            const canvas = factory.createNewDiagramObject(factory.canvas.name, CanvasView);
+            const lineRaw = factory.createNewDiagramObject("data_flow", LineView);
+            for (let i = 0; i < 3; i++) {
+                const h = factory.createNewDiagramObject("generic_handle", HandleView);
+                lineRaw.addHandle(h, false);
+            }
+            for (let i = 0; i < lineRaw.handles.length; i++) {
+                lineRaw.handles[i].userSetPosition = PositionSetByUser.True;
+                lineRaw.handles[i].face.moveTo(100 + i * 100, 50);
+            }
+            factory.inferLineFaces([lineRaw]);
+            canvas.addObject(lineRaw);
+            canvas.calculateLayout();
+
+            const liveFile = new DiagramViewFile(factory, {
+                schema  : factory.id,
+                theme   : factory.theme.id,
+                objects : DiagramObjectSerializer.exportObjects([canvas]),
+                layout  : ManualLayoutEngine.generatePositionMap([canvas])
+            });
+
+            const liveLine = [...liveFile.canvas.lines][0] as LineView;
+            expect(liveLine.handles.length).toBe(4);
+
+            const instanceMap = new Map<string, string>();
+            const cloned = liveFile.clone(undefined, instanceMap);
+
+            // Clone has 4 handles; remove 2 so it has 2.
+            const clonedLine = findClonedLine(cloned.canvas, liveLine.instance, instanceMap);
+            // Remove from end to avoid shifting — we want to test that
+            // diffAutoLayout emits in descending index order regardless.
+            clonedLine.deleteHandle(clonedLine.handles[3], false);
+            clonedLine.deleteHandle(clonedLine.handles[2], false);
+            expect(clonedLine.handles.length).toBe(2);
+
+            const cmds = diffAutoLayout(liveFile.canvas, cloned.canvas, instanceMap);
+
+            const removeCmds = cmds.filter(c => c instanceof RemoveHandleFromLine) as RemoveHandleFromLine[];
+            expect(removeCmds).toHaveLength(2);
+
+            // Descending order: index 3 must come before index 2.
+            expect(removeCmds[0].atIndex).toBe(3);
+            expect(removeCmds[1].atIndex).toBe(2);
+        });
+
+    });
+
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  Group bounds                                                          //
+    ///////////////////////////////////////////////////////////////////////////
+
+    describe("group bounds", () => {
+
+        it("emits the right commands when only the group center moves (size unchanged)", async () => {
+            // Live group at [-100,-80,100,80]; planned group shifted +50,+30
+            // so it is at [-50,-50,150,110].  Size is the same (200×160).
+            // After executing the two ResizeGroupBy commands, the live group's
+            // xMin/yMin/xMax/yMax must equal the planned group's.
+            const liveBounds: [number, number, number, number] = [-100, -80, 100, 80];
+            const { file, group } = await buildGroupFile(factory, liveBounds);
+            const { clone, instanceMap } = cloneFile(file);
+
+            const clonedGroup = findClonedGroup(clone.canvas, group.instance, instanceMap);
+            // Shift both corners by (+50, +30) — preserves size.
+            clonedGroup.face.setBounds(-50, -50, 150, 110);
+            clonedGroup.face.calculateLayout();
+
+            const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
+
+            // Execute commands and verify final state.
+            for (const cmd of cmds) { cmd.execute(); }
+
+            expect(group.face.boundingBox.xMin).toBeCloseTo(-50, 1);
+            expect(group.face.boundingBox.yMin).toBeCloseTo(-50, 1);
+            expect(group.face.boundingBox.xMax).toBeCloseTo(150, 1);
+            expect(group.face.boundingBox.yMax).toBeCloseTo(110, 1);
+        });
+
+        it("emits the right commands when only the group size changes (center unchanged)", async () => {
+            // Live group at [-100,-80,100,80]; planned group expanded symmetrically
+            // to [-150,-120,150,120].  Center is still (0,0).
+            const liveBounds: [number, number, number, number] = [-100, -80, 100, 80];
+            const { file, group } = await buildGroupFile(factory, liveBounds);
+            const { clone, instanceMap } = cloneFile(file);
+
+            const clonedGroup = findClonedGroup(clone.canvas, group.instance, instanceMap);
+            clonedGroup.face.setBounds(-150, -120, 150, 120);
+            clonedGroup.face.calculateLayout();
+
+            const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
+
+            for (const cmd of cmds) { cmd.execute(); }
+
+            expect(group.face.boundingBox.xMin).toBeCloseTo(-150, 1);
+            expect(group.face.boundingBox.yMin).toBeCloseTo(-120, 1);
+            expect(group.face.boundingBox.xMax).toBeCloseTo(150, 1);
+            expect(group.face.boundingBox.yMax).toBeCloseTo(120, 1);
+        });
+
+        it("emits the right commands when both center and size change", async () => {
+            // Live group at [-100,-80,100,80].
+            // Planned group at [0,20,300,220] — both center shifted and size changed.
+            const liveBounds: [number, number, number, number] = [-100, -80, 100, 80];
+            const { file, group } = await buildGroupFile(factory, liveBounds);
+            const { clone, instanceMap } = cloneFile(file);
+
+            const clonedGroup = findClonedGroup(clone.canvas, group.instance, instanceMap);
+            clonedGroup.face.setBounds(0, 20, 300, 220);
+            clonedGroup.face.calculateLayout();
+
+            const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
+
+            for (const cmd of cmds) { cmd.execute(); }
+
+            expect(group.face.boundingBox.xMin).toBeCloseTo(0, 1);
+            expect(group.face.boundingBox.yMin).toBeCloseTo(20, 1);
+            expect(group.face.boundingBox.xMax).toBeCloseTo(300, 1);
+            expect(group.face.boundingBox.yMax).toBeCloseTo(220, 1);
+        });
+
+        it("emits ResizeGroupBy commands for the group (not MoveObjectsTo)", async () => {
+            const liveBounds: [number, number, number, number] = [-100, -80, 100, 80];
+            const { file, group } = await buildGroupFile(factory, liveBounds);
+            const { clone, instanceMap } = cloneFile(file);
+
+            const clonedGroup = findClonedGroup(clone.canvas, group.instance, instanceMap);
+            clonedGroup.face.setBounds(-50, -40, 200, 160);
+            clonedGroup.face.calculateLayout();
+
+            const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
+
+            const resizeCmds = cmds.filter(c => c instanceof ResizeGroupBy) as ResizeGroupBy[];
+            const moveCmdsForGroup = cmds.filter(
+                c => c instanceof MoveObjectsTo && (c as MoveObjectsTo).object === group
+            );
+
+            expect(resizeCmds.length).toBeGreaterThan(0);
+            expect(moveCmdsForGroup).toHaveLength(0);
+
+            // All resize commands must reference the live group.
+            for (const rc of resizeCmds) {
+                expect(rc.group).toBe(group);
+            }
+        });
+
+        it("returns an empty array when group bounds are unchanged", async () => {
+            const liveBounds: [number, number, number, number] = [-100, -80, 100, 80];
+            const { file } = await buildGroupFile(factory, liveBounds);
+            const { clone, instanceMap } = cloneFile(file);
+
+            const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
+
+            expect(cmds).toHaveLength(0);
+        });
+
+    });
+
+
+    ///////////////////////////////////////////////////////////////////////////
     //  Identity invariant                                                    //
     ///////////////////////////////////////////////////////////////////////////
 
@@ -580,69 +938,6 @@ describe("diffAutoLayout", () => {
 
 
     ///////////////////////////////////////////////////////////////////////////
-    //  Handle remove                                                         //
-    ///////////////////////////////////////////////////////////////////////////
-
-    describe("handle remove", () => {
-
-        it("returns RemoveHandleFromLine commands when the clone has fewer handles than live", async () => {
-            // Build a live file whose line already has 3 handles (PolyLine),
-            // then clone it and drop one handle from the clone's line.
-            const liveFactory = factory;
-            const canvas = liveFactory.createNewDiagramObject(liveFactory.canvas.name, CanvasView);
-            const lineRaw = liveFactory.createNewDiagramObject("data_flow", LineView);
-            const h1 = liveFactory.createNewDiagramObject("generic_handle", HandleView);
-            const h2 = liveFactory.createNewDiagramObject("generic_handle", HandleView);
-            lineRaw.addHandle(h1, false);
-            lineRaw.addHandle(h2, false);
-            // Mark all handles as user-set and give them positions so the
-            // ManualLayoutEngine includes them in the position map and they
-            // survive the export/import round-trip through DiagramViewFile.
-            const handlePositions: Array<[number, number]> = [
-                [100, 50],
-                [200, 100],
-                [300, 50]
-            ];
-            for (let i = 0; i < lineRaw.handles.length; i++) {
-                lineRaw.handles[i].userSetPosition = PositionSetByUser.True;
-                lineRaw.handles[i].face.moveTo(handlePositions[i][0], handlePositions[i][1]);
-            }
-            liveFactory.inferLineFaces([lineRaw]);
-            canvas.addObject(lineRaw);
-            canvas.calculateLayout();
-
-            const liveFile = new DiagramViewFile(liveFactory, {
-                schema  : liveFactory.id,
-                theme   : liveFactory.theme.id,
-                objects : DiagramObjectSerializer.exportObjects([canvas]),
-                layout  : ManualLayoutEngine.generatePositionMap([canvas])
-            });
-
-            // The live line should now have 3 handles and be PolyLine after
-            // DiagramViewFile's constructor infers faces.
-            const liveLine = [...liveFile.canvas.lines][0] as LineView;
-            expect(liveLine.handles.length).toBe(3);
-
-            const instanceMap = new Map<string, string>();
-            const cloned = liveFile.clone(undefined, instanceMap);
-
-            // Remove one handle from the clone's line.
-            const clonedLine = findClonedLine(cloned.canvas, liveLine.instance, instanceMap);
-            expect(clonedLine.handles.length).toBe(3);
-            clonedLine.deleteHandle(clonedLine.handles[2], false);
-            expect(clonedLine.handles.length).toBe(2);
-
-            const cmds = diffAutoLayout(liveFile.canvas, cloned.canvas, instanceMap);
-
-            const removeCmds = cmds.filter(c => c instanceof RemoveHandleFromLine);
-            expect(removeCmds).toHaveLength(1);
-            expect((removeCmds[0] as RemoveHandleFromLine).line).toBe(liveLine);
-        });
-
-    });
-
-
-    ///////////////////////////////////////////////////////////////////////////
     //  Combined scenario: block move + handle add + face swap                //
     ///////////////////////////////////////////////////////////////////////////
 
@@ -678,31 +973,6 @@ describe("diffAutoLayout", () => {
             expect(faceSwapIdx).toBeLessThan(handleAddIdx);
             // The move bucket comes after face swaps and handle adds.
             expect(handleAddIdx).toBeLessThan(blockMoveIdx);
-        });
-
-        it("returns an empty array for two identical canvases with PolyLine lines", async () => {
-            // Build a live file with a multi-handle line, clone it without
-            // any mutations — should still be a no-op.
-            const canvas = factory.createNewDiagramObject(factory.canvas.name, CanvasView);
-            const lineRaw = factory.createNewDiagramObject("data_flow", LineView);
-            lineRaw.addHandle(factory.createNewDiagramObject("generic_handle", HandleView), false);
-            lineRaw.addHandle(factory.createNewDiagramObject("generic_handle", HandleView), false);
-            canvas.addObject(lineRaw);
-            canvas.calculateLayout();
-
-            const liveFile = new DiagramViewFile(factory, {
-                schema  : factory.id,
-                theme   : factory.theme.id,
-                objects : DiagramObjectSerializer.exportObjects([canvas]),
-                layout  : ManualLayoutEngine.generatePositionMap([canvas])
-            });
-
-            const instanceMap = new Map<string, string>();
-            const cloned = liveFile.clone(undefined, instanceMap);
-
-            const cmds = diffAutoLayout(liveFile.canvas, cloned.canvas, instanceMap);
-
-            expect(cmds).toHaveLength(0);
         });
 
     });

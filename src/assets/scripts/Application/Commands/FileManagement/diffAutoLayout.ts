@@ -1,10 +1,8 @@
-// pattern: Functional Core
-import { Canvas, Group, Line, Handle, Latch, traverse } from "@OpenChart/DiagramModel";
+import { traverse } from "@OpenChart/DiagramModel";
 import { MoveObjectsTo, ResizeGroupBy, SetLineFace } from "@OpenChart/DiagramEditor/Commands/View/index.commands";
 import { AddHandleToLine, RemoveHandleFromLine, DetachLatchFromAnchor, AttachLatchToAnchor } from "@OpenChart/DiagramEditor/Commands/Model/index.commands";
-import { GroupView, LineView, LatchView, ResizeEdge } from "@OpenChart/DiagramView";
-import type { AnchorView } from "@OpenChart/DiagramView";
-import type { CanvasView, DiagramObjectView } from "@OpenChart/DiagramView";
+import { AnchorView, CanvasView, GroupView, HandleView, LatchView, LineView, ResizeEdge } from "@OpenChart/DiagramView";
+import type { DiagramObjectView } from "@OpenChart/DiagramView";
 import type { SynchronousEditorCommand } from "@OpenChart/DiagramEditor/Commands/SynchronousEditorCommand";
 import type { LineFaceCtor } from "@OpenChart/DiagramEditor/Commands/View/SetLineFace";
 
@@ -28,6 +26,11 @@ import type { LineFaceCtor } from "@OpenChart/DiagramEditor/Commands/View/SetLin
  *
  * Returns an empty array when the two canvases are already identical.
  *
+ * Anchors are skipped: their position is derived state cascaded from the
+ * parent block's moveTo, so no MoveObjectsTo is ever emitted for an anchor.
+ * Linked latches whose anchor is unchanged are also not moved explicitly —
+ * the parent block's move cascades the latch position automatically.
+ *
  * @param live        - The live canvas (owns the JS objects that will be mutated).
  * @param planned     - A canvas snapshot of the desired post-layout state.
  * @param liveToPlanned - The instance-id map returned by
@@ -42,30 +45,20 @@ export function diffAutoLayout(
     liveToPlanned: Map<string, string>
 ): SynchronousEditorCommand[] {
 
-    ///////////////////////////////////////////////////////////////////////////
-    //  Step 1 — index the live canvas by instance id                        //
-    ///////////////////////////////////////////////////////////////////////////
-
+    // Index the live canvas by instance id.
     const liveById = new Map<string, DiagramObjectView>();
     for (const obj of traverse<DiagramObjectView>(live)) {
         liveById.set(obj.instance, obj);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    //  Step 1b — build the inverse map: planned id → live id               //
-    //                                                                       //
-    //  liveToPlanned was populated by Canvas.clone() as                     //
-    //    instanceMap.set(original.instance, clone.instance)                 //
-    //  so inverting gives us plannedToLive for lookups in the walker below. //
-    ///////////////////////////////////////////////////////////////////////////
-
-    const plannedToLive = new Map<string, string>(
-        [...liveToPlanned.entries()].map(([liveId, plannedId]) => [plannedId, liveId])
-    );
-
-    ///////////////////////////////////////////////////////////////////////////
-    //  Step 2 — walk the planned canvas and collect diffs                   //
-    ///////////////////////////////////////////////////////////////////////////
+    // Build the inverse map: planned id → live id.
+    // liveToPlanned was populated by Canvas.clone() as
+    //   instanceMap.set(original.instance, clone.instance)
+    // so inverting gives us plannedToLive for lookups in the walker below.
+    const plannedToLive = new Map<string, string>();
+    for (const [liveId, plannedId] of liveToPlanned) {
+        plannedToLive.set(plannedId, liveId);
+    }
 
     // Command buckets ordered for correct execution dependency.
     const faceSwaps:     SynchronousEditorCommand[] = [];
@@ -82,30 +75,33 @@ export function diffAutoLayout(
         const liveId  = plannedToLive.get(plannedObj.instance);
         const liveObj = liveId !== undefined ? liveById.get(liveId) : undefined;
         if (liveObj === undefined) {
-            // Object exists only in planned — no command to emit.
             continue;
         }
 
-        // ------------------------------------------------------------------ //
-        // Canvas (root) — skip; there is no editor command to move/resize it. //
-        // ------------------------------------------------------------------ //
-        if (plannedObj instanceof Canvas) {
+        // Canvas (root) — skip; there is no editor command to move/resize it.
+        if (plannedObj instanceof CanvasView) {
             continue;
         }
 
-        // ------------------------------------------------------------------ //
-        // Handle — position is managed per-line in the Line branch below.    //
-        // ------------------------------------------------------------------ //
-        if (plannedObj instanceof Handle) {
+        // Anchor — skip; anchors are derived state cascaded from the parent
+        // block's position.  Emitting MoveObjectsTo for an anchor is redundant
+        // on execute and corrupts undo: the anchor's captured px/py is the
+        // original live position, so undo restores it directly while the parent
+        // block's undo also cascades the anchor by the inverse delta — leaving
+        // the anchor at live_anchor − block_delta, which is wrong by block_delta.
+        if (plannedObj instanceof AnchorView) {
             continue;
         }
 
-        // ------------------------------------------------------------------ //
-        // Line — face swap and handle add/remove/move.                       //
-        // ------------------------------------------------------------------ //
-        if (plannedObj instanceof Line) {
-            const plannedLine = plannedObj as unknown as LineView;
-            const liveLine    = liveObj       as LineView;
+        // Handle — position is managed per-line in the Line branch below.
+        if (plannedObj instanceof HandleView) {
+            continue;
+        }
+
+        // Line — face swap and handle add/remove/move.
+        if (plannedObj instanceof LineView) {
+            const plannedLine = plannedObj;
+            const liveLine    = liveObj as LineView;
 
             // Face class diff.  Must run before handle adds so the line is
             // already a PolyLine when interior handles are inserted.
@@ -143,7 +139,7 @@ export function diffAutoLayout(
             for (let i = 0; i < sharedLen; i++) {
                 const lh = liveHandles[i];
                 const ph = plannedHandles[i];
-                if (lh.x !== ph.x || lh.y !== ph.y) {
+                if (differs(lh.x, ph.x) || differs(lh.y, ph.y)) {
                     moves.push(new MoveObjectsTo(lh, ph.x, ph.y));
                 }
             }
@@ -153,12 +149,10 @@ export function diffAutoLayout(
             continue;
         }
 
-        // ------------------------------------------------------------------ //
-        // Latch — anchor rebind + position.                                  //
-        // ------------------------------------------------------------------ //
-        if (plannedObj instanceof Latch) {
-            const plannedLatch = plannedObj as unknown as LatchView;
-            const liveLatch    = liveObj       as LatchView;
+        // Latch — anchor rebind + position.
+        if (plannedObj instanceof LatchView) {
+            const plannedLatch = plannedObj;
+            const liveLatch    = liveObj as LatchView;
 
             const liveAnchor    = liveLatch.anchor;
             const plannedAnchor = plannedLatch.anchor;
@@ -170,70 +164,93 @@ export function diffAutoLayout(
                     ? plannedToLive.get(plannedAnchor.instance)
                     : undefined;
 
+            // Determine whether the anchor identity changed.
+            // live=A, planned=A (same)            → anchorChanged = false
+            // live=A, planned=B (different)       → anchorChanged = true
+            // live=A, planned=null                → anchorChanged = false (no target; treat as no-op for anchor)
+            // live=null, planned=A                → anchorChanged = true (need Attach)
             const anchorChanged =
                 plannedAnchorLiveId !== undefined &&
-                liveAnchor          !== null      &&
-                plannedAnchorLiveId !== liveAnchor.instance;
+                plannedAnchorLiveId !== (liveAnchor?.instance ?? null);
 
             if (anchorChanged) {
-                // Detach from the old anchor first.
-                detaches.push(new DetachLatchFromAnchor(liveLatch));
+                // live=A, planned=B  OR  live=null, planned=A
 
                 // Resolve the target anchor from the LIVE canvas using the
                 // translated live id (the planned anchor is a clone object and
                 // must not be passed to commands).
-                const newLiveAnchor = liveById.get(plannedAnchorLiveId!) as AnchorView | undefined;
-                if (newLiveAnchor !== undefined) {
-                    attaches.push(new AttachLatchToAnchor(liveLatch, newLiveAnchor));
+                const newLiveAnchor = liveById.get(plannedAnchorLiveId) as AnchorView | undefined;
+                if (newLiveAnchor === undefined) {
+                    // Contract violation: planned latch references an anchor with no live counterpart.
+                    throw new Error(
+                        `diffAutoLayout: planned latch ${plannedObj.instance} references anchor ` +
+                        `${plannedAnchor!.instance} which has no live counterpart`
+                    );
+                }
+
+                if (liveAnchor !== null) {
+                    // Detach from the old anchor first (live=A → planned=B).
+                    detaches.push(new DetachLatchFromAnchor(liveLatch));
+                }
+                attaches.push(new AttachLatchToAnchor(liveLatch, newLiveAnchor));
+
+                // Latch position: AttachLatchToAnchor.execute (which calls
+                // Latch.link()) does NOT move the latch to the anchor's
+                // position, so emit a move if the position also changed.
+                if (differs(liveLatch.x, plannedLatch.x) || differs(liveLatch.y, plannedLatch.y)) {
+                    moves.push(new MoveObjectsTo(liveLatch, plannedLatch.x, plannedLatch.y));
+                }
+            } else if (liveAnchor === null) {
+                // Unlinked, free-floating latch — anchor unchanged (both null).
+                // Must emit an explicit move because no parent block cascades it.
+                if (differs(liveLatch.x, plannedLatch.x) || differs(liveLatch.y, plannedLatch.y)) {
+                    moves.push(new MoveObjectsTo(liveLatch, plannedLatch.x, plannedLatch.y));
                 }
             }
-
-            // Latch position — emit regardless of anchor rebind, because
-            // AttachLatchToAnchor.execute (which calls Latch.link()) does NOT
-            // move the latch to the anchor's position.
-            if (liveLatch.x !== plannedLatch.x || liveLatch.y !== plannedLatch.y) {
-                moves.push(new MoveObjectsTo(liveLatch, plannedLatch.x, plannedLatch.y));
-            }
+            // else: anchorChanged=false, liveAnchor !== null — linked latch,
+            // anchor unchanged.  The parent block's MoveObjectsTo cascades the
+            // latch position; no explicit latch move is emitted.
             continue;
         }
 
-        // ------------------------------------------------------------------ //
-        // Group — position (center) and size (width / height).              //
-        // ------------------------------------------------------------------ //
-        if (plannedObj instanceof Group) {
-            const plannedGroup = plannedObj as unknown as GroupView;
-            const liveGroup    = liveObj       as GroupView;
+        // Group — resize using two ResizeGroupBy calls (NW then SE) so both
+        // corners land exactly on the planned bounding box regardless of whether
+        // the center, the size, or both have changed.
+        if (plannedObj instanceof GroupView) {
+            const plannedGroup = plannedObj;
+            const liveGroup    = liveObj as GroupView;
 
             const liveBB    = liveGroup.face.boundingBox;
             const plannedBB = plannedGroup.face.boundingBox;
 
-            // Position (center) diff.  Emit before resize so the NW corner is
-            // in the right place before the SE corner is extended.
-            if (liveBB.x !== plannedBB.x || liveBB.y !== plannedBB.y) {
-                moves.push(new MoveObjectsTo(liveGroup, plannedBB.x, plannedBB.y));
+            // NW corner delta — moves the NW corner while keeping SE fixed.
+            const dxNW = plannedBB.xMin - liveBB.xMin;
+            const dyNW = plannedBB.yMin - liveBB.yMin;
+            if (differs(dxNW, 0) || differs(dyNW, 0)) {
+                moves.push(new ResizeGroupBy(liveGroup, ResizeEdge.NW, dxNW, dyNW));
             }
 
-            // Size diff — use SE edge (expands/contracts bottom-right corner).
-            // dw and dh are signed deltas of total width and height.
-            const dw = plannedBB.width  - liveBB.width;
-            const dh = plannedBB.height - liveBB.height;
-            if (dw !== 0 || dh !== 0) {
-                moves.push(new ResizeGroupBy(liveGroup, ResizeEdge.SE, dw, dh));
+            // SE corner delta — moves the SE corner while keeping NW fixed.
+            // Read live bounding box values again: after the NW resize above is
+            // eventually executed, xMax may shift if clamping occurs.  However,
+            // since commands are collected first and executed later, we compute
+            // both deltas against the current (pre-execute) live bounding box.
+            // The NW resize does not affect xMax/yMax directly, so the SE delta
+            // is independent.
+            const dxSE = plannedBB.xMax - liveBB.xMax;
+            const dySE = plannedBB.yMax - liveBB.yMax;
+            if (differs(dxSE, 0) || differs(dySE, 0)) {
+                moves.push(new ResizeGroupBy(liveGroup, ResizeEdge.SE, dxSE, dySE));
             }
+
             continue;
         }
 
-        // ------------------------------------------------------------------ //
-        // Block (and any other movable object not matched above).            //
-        // ------------------------------------------------------------------ //
-        if (plannedObj.x !== liveObj.x || plannedObj.y !== liveObj.y) {
+        // Block (and any other movable object not matched above).
+        if (differs(plannedObj.x, liveObj.x) || differs(plannedObj.y, liveObj.y)) {
             moves.push(new MoveObjectsTo(liveObj, plannedObj.x, plannedObj.y));
         }
     }
-
-    ///////////////////////////////////////////////////////////////////////////
-    //  Step 3 — return in dependency order                                  //
-    ///////////////////////////////////////////////////////////////////////////
 
     return [
         ...faceSwaps,
@@ -243,4 +260,12 @@ export function diffAutoLayout(
         ...attaches,
         ...moves
     ];
+}
+
+/**
+ * Returns true when two floating-point positions differ by more than a small
+ * epsilon, avoiding spurious commands for sub-pixel jitter.
+ */
+function differs(a: number, b: number): boolean {
+    return Math.abs(a - b) > 1e-3;
 }
