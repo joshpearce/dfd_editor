@@ -185,34 +185,25 @@ export function diffAutoLayout(
                     ? plannedToLive.get(plannedAnchor.instance)
                     : undefined;
 
-            // Determine whether the anchor identity changed.
-            // live=A, planned=A (same)            → anchorChanged = false
-            // live=A, planned=B (different)       → anchorChanged = true
-            // live=null, planned=A                → anchorChanged = true (need Attach)
-            // live=null, planned=null             → anchorChanged = false, falls through
-            //                                       to position-diff via the unlinked branch
-            //
-            // live=A, planned=null: TALA never produces an unlinked latch where
-            // the live latch is still linked, so throw immediately — silent
-            // drop here would hide bugs.
-            if (liveAnchor !== null && plannedAnchor === null) {
-                throw new Error(
-                    `diffAutoLayout: live latch ${liveLatch.instance} is linked to anchor ` +
-                    `${liveAnchor.instance}, but planned latch ${plannedObj.instance} is ` +
-                    "unlinked. This case is not currently supported."
-                );
-            }
-            const anchorChanged =
-                plannedAnchorLiveId !== undefined &&
-                plannedAnchorLiveId !== (liveAnchor?.instance ?? null);
+            // Anchor-state cases:
+            //   live=A,    planned=A    → no anchor change; linked-cascade (no move)
+            //   live=A,    planned=B    → Detach + Attach + (optional MoveObjectsTo)
+            //   live=A,    planned=null → Detach (TALA could not rebind); position-diff via unlinked branch
+            //   live=null, planned=A    → Attach + (optional MoveObjectsTo)
+            //   live=null, planned=null → no anchor change; free-floating, position-diff
+            const liveLinked    = liveAnchor !== null;
+            const plannedLinked = plannedAnchor !== null;
+            const anchorIdChanged =
+                plannedAnchorLiveId !== (liveAnchor?.instance ?? undefined);
 
-            if (anchorChanged) {
-                // live=A, planned=B  OR  live=null, planned=A
-
+            if (liveLinked && !plannedLinked) {
+                // Detach only.  Latch is now free-floating; emit a move below.
+                detaches.push(new DetachLatchFromAnchor(liveLatch));
+            } else if (anchorIdChanged && plannedLinked) {
                 // Resolve the target anchor from the LIVE canvas using the
                 // translated live id (the planned anchor is a clone object and
                 // must not be passed to commands).
-                const newLiveAnchor = liveById.get(plannedAnchorLiveId) as AnchorView | undefined;
+                const newLiveAnchor = liveById.get(plannedAnchorLiveId!) as AnchorView | undefined;
                 if (newLiveAnchor === undefined) {
                     // Contract violation: planned latch references an anchor with no live counterpart.
                     throw new Error(
@@ -222,28 +213,27 @@ export function diffAutoLayout(
                     );
                 }
 
-                if (liveAnchor !== null) {
-                    // Detach from the old anchor first (live=A → planned=B).
+                if (liveLinked) {
+                    // live=A, planned=B → detach from old anchor first.
                     detaches.push(new DetachLatchFromAnchor(liveLatch));
                 }
                 attaches.push(new AttachLatchToAnchor(liveLatch, newLiveAnchor));
-
-                // Latch position: AttachLatchToAnchor.execute (which calls
-                // Latch.link()) does NOT move the latch to the anchor's
-                // position, so emit a move if the position also changed.
-                if (differs(liveLatch.x, plannedLatch.x) || differs(liveLatch.y, plannedLatch.y)) {
-                    moves.push(new MoveObjectsTo(liveLatch, plannedLatch.x, plannedLatch.y));
-                }
-            } else if (liveAnchor === null) {
-                // Unlinked, free-floating latch — anchor unchanged (both null).
-                // Must emit an explicit move because no parent block cascades it.
-                if (differs(liveLatch.x, plannedLatch.x) || differs(liveLatch.y, plannedLatch.y)) {
-                    moves.push(new MoveObjectsTo(liveLatch, plannedLatch.x, plannedLatch.y));
-                }
             }
-            // else: anchorChanged=false, liveAnchor !== null — linked latch,
-            // anchor unchanged.  The parent block's MoveObjectsTo cascades the
-            // latch position; no explicit latch move is emitted.
+
+            // Position emission.
+            //   • If we just detached without re-attaching, the latch is now free
+            //     and needs an explicit move.
+            //   • If anchor changed, AttachLatchToAnchor.execute (which calls
+            //     Latch.link()) does NOT move the latch — emit a move if needed.
+            //   • If both sides are linked to the SAME anchor, the parent block's
+            //     MoveObjectsTo cascades the latch and we skip.
+            //   • If both sides are unlinked (free latch), emit a move if needed.
+            const linkedToSameAnchor = liveLinked && plannedLinked && !anchorIdChanged;
+            const positionDiffers =
+                differs(liveLatch.x, plannedLatch.x) || differs(liveLatch.y, plannedLatch.y);
+            if (!linkedToSameAnchor && positionDiffers) {
+                moves.push(new MoveObjectsTo(liveLatch, plannedLatch.x, plannedLatch.y));
+            }
             continue;
         }
 

@@ -882,10 +882,10 @@ describe("diffAutoLayout", () => {
 
     describe("throw paths", () => {
 
-        it("throws when live latch is linked but planned latch is unlinked", async () => {
-            // Build the standard two-block file (both latches linked to anchors),
-            // clone it, then unlink node1 on the clone so that the live latch is
-            // still linked but the planned latch is null.
+        it("emits Detach (no Attach) when live latch is linked but planned latch is unlinked", async () => {
+            // TALA can produce an unlinked planned latch when it cannot find an
+            // anchor for an endpoint — the diff must emit a Detach so the live
+            // canvas matches the planned one, not throw.
             const { file, line } = await buildTwoBlockFile(factory);
             const { clone, instanceMap } = cloneFile(file);
 
@@ -895,8 +895,13 @@ describe("diffAutoLayout", () => {
             expect(clonedLine.node1.anchor).toBeNull();
             expect(line.node1.anchor).not.toBeNull();
 
-            expect(() => diffAutoLayout(file.canvas, clone.canvas, instanceMap))
-                .toThrow(/live latch.*linked.*planned latch.*unlinked/i);
+            const cmds = diffAutoLayout(file.canvas, clone.canvas, instanceMap);
+
+            const detaches = cmds.filter(c => c instanceof DetachLatchFromAnchor);
+            const attaches = cmds.filter(c => c instanceof AttachLatchToAnchor);
+            expect(detaches).toHaveLength(1);
+            expect(attaches).toHaveLength(0);
+            expect((detaches[0] as DetachLatchFromAnchor).latch).toBe(line.node1);
         });
 
         it("throws when planned latch references an anchor with no live counterpart", async () => {
