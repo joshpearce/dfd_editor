@@ -352,6 +352,15 @@ export class DiagramModelEditor<
         return 0 < this._redoStack.length;
     }
 
+    /**
+     * Clears the undo and redo stacks. Use after an out-of-band file mutation
+     * (e.g. Auto Layout) that the existing commands cannot meaningfully reverse.
+     */
+    public clearHistory(): void {
+        this._undoStack = [];
+        this._redoStack = [];
+    }
+
 
     ///////////////////////////////////////////////////////////////////////////
     //  4. Indexing  //////////////////////////////////////////////////////////

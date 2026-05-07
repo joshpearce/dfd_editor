@@ -31,6 +31,7 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                 this.openFileMenu,
                 this.isRecoverFileMenuShown ? this.recoverFileMenu : null,
                 this.saveFileMenu,
+                this.layoutFileMenu,
                 app.activePublisher ? this.publishFileMenu : null
             ].filter(Boolean) as ContextMenuSection<CommandEmitter>[];
             // Menu
@@ -159,6 +160,27 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                         type: MenuType.Action,
                         data: () => AppCommands.exportActiveFileAsDataFlow(app),
                         disabled: editor.id === PhantomEditor.id || !app.serverFileId
+                    }
+                ]
+            };
+        },
+
+        /**
+         * Returns the 'auto layout' menu section.
+         * @returns
+         *  The 'auto layout' menu section.
+         */
+        layoutFileMenu(): ContextMenuSection<CommandEmitter> {
+            const app = useApplicationStore();
+            const editor = app.activeEditor;
+            return {
+                id: "layout_file_options",
+                items: [
+                    {
+                        text: "Auto Layout",
+                        type: MenuType.Action,
+                        data: () => AppCommands.autoLayoutActiveFile(app),
+                        disabled: editor.id === PhantomEditor.id
                     }
                 ]
             };

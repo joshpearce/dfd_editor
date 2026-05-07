@@ -6,6 +6,7 @@ import { stripExtension } from "@OpenChart/Utilities";
 import { DiagramObjectViewFactory, DiagramViewFile, NewAutoLayoutEngine } from "@OpenChart/DiagramView";
 import { createDiagram, getDiagram, importMinimalDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
 import {
+    AutoLayoutActiveFile,
     BindEditorToServer,
     ClearFileRecoveryBank,
     ExportDiagramAsDataFlow,
@@ -505,6 +506,20 @@ export function saveActiveFileToServer(
         return new DoNothing();
     }
     return new SaveDiagramFileToServer(context.activeEditor, id);
+}
+
+/**
+ * Re-runs TALA on the active file and clears the undo/redo history.
+ * Prompts the user for confirmation before proceeding.
+ * @param context
+ *  The application context.
+ * @returns
+ *  A command that represents the action.
+ */
+export function autoLayoutActiveFile(
+    context: ApplicationStore
+): AppCommand {
+    return new AutoLayoutActiveFile(context.activeEditor, context.serverFileId);
 }
 
 
