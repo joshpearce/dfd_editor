@@ -180,7 +180,8 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                         text: "Auto Format",
                         type: MenuType.Action,
                         data: () => AppCommands.autoLayoutActiveFile(app),
-                        // No `shortcut` — Auto Format hotkey not yet wired into settings.hotkeys.file.
+                        // Auto Format does not currently bind to a hotkey; if added later it would
+                        // need a new entry under settings.hotkeys.file.
                         disabled: editor.id === PhantomEditor.id
                     }
                 ]

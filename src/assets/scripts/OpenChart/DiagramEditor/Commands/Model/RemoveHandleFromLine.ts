@@ -50,8 +50,7 @@ export class RemoveHandleFromLine extends SynchronousEditorCommand {
             const h = this.line.handles[this.atIndex];
             if (h === undefined) {
                 throw new Error(
-                    `RemoveHandleFromLine: atIndex ${this.atIndex} out of range` +
-                    ` (line has ${this.line.handles.length} handles)`
+                    `RemoveHandleFromLine: atIndex ${this.atIndex} out of range (line has ${this.line.handles.length} handles)`
                 );
             }
             this._handle = h;

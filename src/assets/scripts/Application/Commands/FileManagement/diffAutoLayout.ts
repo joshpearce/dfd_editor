@@ -46,6 +46,8 @@ export function diffAutoLayout(
 ): SynchronousEditorCommand[] {
 
     // Index the live canvas by instance id.
+    // traverse() yields canvas + descendants depth-first; canvas root is
+    // skipped explicitly below.
     const liveById = new Map<string, DiagramObjectView>();
     for (const obj of traverse<DiagramObjectView>(live)) {
         liveById.set(obj.instance, obj);
@@ -61,12 +63,12 @@ export function diffAutoLayout(
     }
 
     // Command buckets ordered for correct execution dependency.
-    const faceSwaps:     SynchronousEditorCommand[] = [];
-    const handleAdds:    SynchronousEditorCommand[] = [];
+    const faceSwaps: SynchronousEditorCommand[] = [];
+    const handleAdds: SynchronousEditorCommand[] = [];
     const handleRemoves: SynchronousEditorCommand[] = [];
-    const detaches:      SynchronousEditorCommand[] = [];
-    const attaches:      SynchronousEditorCommand[] = [];
-    const moves:         SynchronousEditorCommand[] = [];
+    const detaches: SynchronousEditorCommand[] = [];
+    const attaches: SynchronousEditorCommand[] = [];
+    const moves: SynchronousEditorCommand[] = [];
 
     for (const plannedObj of traverse<DiagramObjectView>(planned)) {
         // Translate the planned clone id back to its original live id, then
@@ -256,6 +258,13 @@ export function diffAutoLayout(
             const plannedBB = plannedGroup.face.boundingBox;
 
             // NW corner delta — moves the NW corner while keeping SE fixed.
+            // Note: ResizeGroupBy applies its delta to GroupFace._userX/Y*
+            // (the user-set bound), not to face.boundingBox. The math here
+            // is correct because GroupFace.calculateLayout (called during
+            // file construction and clone setup) writes face.boundingBox into
+            // _userX/Y* whenever children push beyond the user bounds, so at
+            // the time we read boundingBox.{xMin,yMin,xMax,yMax} they equal
+            // _userX/Y*.
             const dxNW = plannedBB.xMin - liveBB.xMin;
             const dyNW = plannedBB.yMin - liveBB.yMin;
             if (differs(dxNW, 0) || differs(dyNW, 0)) {

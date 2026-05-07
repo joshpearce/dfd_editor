@@ -1,5 +1,6 @@
 import { EditorDirective } from "../../EditorDirectives";
 import { SynchronousEditorCommand } from "../SynchronousEditorCommand";
+import { DynamicLine } from "@OpenChart/DiagramView";
 import type { DirectiveIssuer } from "../../EditorDirectives";
 import type { HandleView } from "@OpenChart/DiagramView/DiagramObjectView/Views/HandleView";
 import type { LineView } from "@OpenChart/DiagramView/DiagramObjectView/Views/LineView";
@@ -65,12 +66,43 @@ export class AddHandleToLine extends SynchronousEditorCommand {
      */
     public execute(issueDirective: DirectiveIssuer = () => {}): void {
         if (this._handle === null) {
+            // Precondition: the line must not be a DynamicLine when inserting
+            // at index >= 1.  DynamicLine.calculateLayout calls dropHandles(1)
+            // after every update, which silently discards any interior handle
+            // that was just inserted.  diffAutoLayout always emits
+            // SetLineFace(PolyLine) before AddHandleToLine for exactly this
+            // reason; if the face is still a DynamicLine here, the GroupCommand
+            // was constructed incorrectly.
+            //
+            // Insertion at index 0 is safe for DynamicLine because dropHandles
+            // only prunes handles beyond the first (reference) one — it never
+            // removes index 0.
+            if (this.line.face instanceof DynamicLine && this.atIndex >= 1) {
+                throw new Error(
+                    `AddHandleToLine: cannot insert handle at index ${this.atIndex} ` +
+                    "into a DynamicLine; the face must be PolyLine. " +
+                    "Emit SetLineFace before AddHandleToLine."
+                );
+            }
+
+            // Precondition: the line must have at least one existing handle to
+            // serve as a clone template.  This is guaranteed by
+            // DiagramObjectViewFactory (a reference handle is always attached
+            // at index 0 during line creation), so a missing handle signals a
+            // corrupt state rather than a caller mistake.
+            if (this.line.handles.length === 0) {
+                throw new Error(
+                    `AddHandleToLine: line ${this.line.instance} has no handles to clone`
+                );
+            }
+
             // First execute: clone the reference handle and position it while
             // it is still parentless. The cascade we care about
-            // (DynamicLine.calculateLayout → dropHandles(1)) only fires once
-            // the handle is inserted into the line below. We rely on
-            // diffAutoLayout to emit SetLineFace(PolyLine) before this command
-            // whenever the line is currently a DynamicLine.
+            // (DynamicLine.calculateLayout → dropHandles(1), see
+            // OpenChart/CLAUDE.md "Gotchas") only fires once the handle is
+            // inserted into the line below. We rely on diffAutoLayout to emit
+            // SetLineFace(PolyLine) before this command whenever the line is
+            // currently a DynamicLine.
             //
             // HandleView.clone() calls clone.moveTo(template.x, template.y)
             // internally; the face.moveTo call below supersedes that with the

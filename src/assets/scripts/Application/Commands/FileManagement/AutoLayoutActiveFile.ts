@@ -22,12 +22,17 @@ export class AutoLayoutActiveFile extends AppCommand {
     }
 
     public async execute(): Promise<void> {
-        const instanceMap = new Map<string, string>();
-        // clone() populates instanceMap (live → planned ids) so diffAutoLayout
+        const liveToPlanned = new Map<string, string>();
+        // clone() populates liveToPlanned (live → planned ids) so diffAutoLayout
         // can correlate objects across the two trees.
-        const clone = this.editor.file.clone(undefined, instanceMap);
-        await clone.runLayout(new NewAutoLayoutEngine(layoutDiagram));
-        const cmds = diffAutoLayout(this.editor.file.canvas, clone.canvas, instanceMap);
+        const clone = this.editor.file.clone(undefined, liveToPlanned);
+        try {
+            await clone.runLayout(new NewAutoLayoutEngine(layoutDiagram));
+        } catch (err) {
+            console.error("[AutoLayout] layout engine failed:", err);
+            throw err;
+        }
+        const cmds = diffAutoLayout(this.editor.file.canvas, clone.canvas, liveToPlanned);
         if (cmds.length === 0) {
             return;
         }

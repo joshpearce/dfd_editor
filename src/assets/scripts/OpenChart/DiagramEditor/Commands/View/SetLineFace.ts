@@ -14,6 +14,13 @@ export type LineFaceCtor = new (style: LineStyle, grid: [number, number]) => Lin
 /**
  * Swaps the face of a {@link LineView} from one {@link LineFace} subclass
  * to another and records the prior face class so the swap is undoable.
+ *
+ * **Limitation:** style and grid are captured from the prior face at
+ * construction time. If a theme switch occurs between execute and undo, undo
+ * will restore the face with the pre-execute (now stale) style/grid — they
+ * are *not* re-resolved from the current theme. The auto-format flow is
+ * GroupCommand-synchronous so this is fine in practice; flagged here so
+ * future callers don't assume otherwise.
  */
 export class SetLineFace extends SynchronousEditorCommand {
 

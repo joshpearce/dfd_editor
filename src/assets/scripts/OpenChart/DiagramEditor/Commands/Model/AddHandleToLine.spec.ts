@@ -19,7 +19,7 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import { HandleView, LineView, PolyLine } from "@OpenChart/DiagramView";
+import { DynamicLine, HandleView, LineView, PolyLine } from "@OpenChart/DiagramView";
 import { createLinesTestingFactory } from "../../../DiagramView/DiagramObjectView/Faces/Lines/Lines.testing";
 import { AddHandleToLine } from "./AddHandleToLine";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
@@ -29,6 +29,15 @@ import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
 //  Fixture helpers  //////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
+
+/**
+ * Builds a {@link LineView} with a {@link DynamicLine} face (the default
+ * face for `data_flow` in the test theme).  The line starts with exactly
+ * one handle (the reference handle at index 0, inserted by the factory).
+ */
+function buildDynamicLine(factory: DiagramObjectViewFactory): LineView {
+    return factory.createNewDiagramObject("data_flow", LineView);
+}
 
 /**
  * Builds a {@link LineView} with `n` handles and a {@link PolyLine} face.
@@ -63,6 +72,37 @@ describe("AddHandleToLine", () => {
 
     beforeAll(async () => {
         factory = await createLinesTestingFactory();
+    });
+
+
+    describe("preconditions", () => {
+
+        it("throws when the line face is DynamicLine and atIndex >= 1", () => {
+            const line = buildDynamicLine(factory);
+            expect(line.face).toBeInstanceOf(DynamicLine);
+
+            expect(() => new AddHandleToLine(line, 100, 100, 1).execute()).toThrowError(
+                "AddHandleToLine: cannot insert handle at index 1 into a DynamicLine; " +
+                "the face must be PolyLine. Emit SetLineFace before AddHandleToLine."
+            );
+        });
+
+        it("does not throw when the line face is DynamicLine and atIndex is 0", () => {
+            // Index-0 insertion is safe for DynamicLine: dropHandles only
+            // prunes handles past the reference handle (index 0).
+            const line = buildDynamicLine(factory);
+            expect(line.face).toBeInstanceOf(DynamicLine);
+
+            expect(() => new AddHandleToLine(line, 50, 50, 0).execute()).not.toThrow();
+        });
+
+        it("does not throw when the line face is PolyLine and atIndex >= 1", () => {
+            const line = buildPolyLineWithHandles(factory, 2);
+            expect(line.face).toBeInstanceOf(PolyLine);
+
+            expect(() => new AddHandleToLine(line, 50, 50, 1).execute()).not.toThrow();
+        });
+
     });
 
 
