@@ -114,54 +114,49 @@ export function diffAutoLayout(
             // Handle count and position diffs.
             const liveHandles    = liveLine.handles;
             const plannedHandles = plannedLine.handles;
-            const liveLen    = liveHandles.length;
-            const plannedLen = plannedHandles.length;
 
-            // Build a set of live handle ids that are present in the planned
-            // line, using the plannedToLive instance map for identity matching.
-            // Handles that are present in planned but absent in live are appended
-            // at the tail; handles absent in planned are removed.
-            const plannedLiveHandleIds = new Set<string>();
+            // Build a O(1)-lookup map from planned handle instance → HandleView.
+            const plannedHandleById = new Map<string, HandleView>();
             for (const ph of plannedHandles) {
-                const liveHandleId = plannedToLive.get(ph.instance);
-                if (liveHandleId !== undefined) {
-                    plannedLiveHandleIds.add(liveHandleId);
-                }
+                plannedHandleById.set(ph.instance, ph);
             }
 
-            if (plannedLen > liveLen) {
-                // Add handles that are present in planned but absent in live.
-                // Ascending index keeps earlier inserts from shifting later ones.
-                for (let i = liveLen; i < plannedLen; i++) {
-                    const ph = plannedHandles[i];
+            // Removes: live handles whose mapped planned id is absent from the
+            // planned handle set.  Collected and sorted in descending live-index
+            // order so that executing them sequentially does not shift earlier
+            // indices.
+            const toRemove: number[] = [];
+            for (let i = 0; i < liveHandles.length; i++) {
+                const plannedHandleId = liveToPlanned.get(liveHandles[i].instance);
+                if (plannedHandleId === undefined || !plannedHandleById.has(plannedHandleId)) {
+                    toRemove.push(i);
+                }
+            }
+            toRemove.sort((a, b) => b - a);
+            for (const idx of toRemove) {
+                handleRemoves.push(new RemoveHandleFromLine(liveLine, idx));
+            }
+
+            // Adds: planned handles whose instance has no live counterpart (i.e.,
+            // not present as a value in liveToPlanned, meaning plannedToLive has
+            // no entry for them).  Emitted in ascending planned-index order so
+            // that earlier inserts do not shift later ones.
+            for (let i = 0; i < plannedHandles.length; i++) {
+                const ph = plannedHandles[i];
+                if (!plannedToLive.has(ph.instance)) {
                     handleAdds.push(new AddHandleToLine(liveLine, ph.x, ph.y, i));
                 }
-            } else if (plannedLen < liveLen) {
-                // Remove live handles that have no corresponding planned handle.
-                // Collect the live indices to remove in descending order so that
-                // executing them sequentially does not shift earlier indices.
-                const toRemove: number[] = [];
-                for (let i = 0; i < liveLen; i++) {
-                    if (!plannedLiveHandleIds.has(liveHandles[i].instance)) {
-                        toRemove.push(i);
-                    }
-                }
-                // Sort descending so high-index removes execute first.
-                toRemove.sort((a, b) => b - a);
-                for (const idx of toRemove) {
-                    handleRemoves.push(new RemoveHandleFromLine(liveLine, idx));
-                }
             }
 
-            // Position diff for handles shared by both canvases.
-            // Walk live handles in order and find their planned counterpart by
-            // identity (via the instance map); only emit a move when positions
-            // actually differ.  Newly added handles (no live counterpart) are
-            // positioned at construction time via AddHandleToLine and skipped.
+            // Moves: handles present in both canvases whose positions differ.
+            // Walk live handles in order; look up the planned counterpart by
+            // identity via the instance map.  Newly added handles (no live
+            // counterpart) are positioned at construction time via AddHandleToLine
+            // and are skipped here.
             for (const lh of liveHandles) {
                 const plannedHandleId = liveToPlanned.get(lh.instance);
                 if (plannedHandleId === undefined) { continue; }
-                const ph = plannedHandles.find(h => h.instance === plannedHandleId);
+                const ph = plannedHandleById.get(plannedHandleId);
                 if (ph === undefined) { continue; }
                 if (differs(lh.x, ph.x) || differs(lh.y, ph.y)) {
                     moves.push(new MoveObjectsTo(lh, ph.x, ph.y));
@@ -192,6 +187,8 @@ export function diffAutoLayout(
             // live=A, planned=A (same)            → anchorChanged = false
             // live=A, planned=B (different)       → anchorChanged = true
             // live=null, planned=A                → anchorChanged = true (need Attach)
+            // live=null, planned=null             → anchorChanged = false, falls through
+            //                                       to position-diff via the unlinked branch
             //
             // live=A, planned=null: TALA never produces an unlinked latch where
             // the live latch is still linked, so throw immediately — silent

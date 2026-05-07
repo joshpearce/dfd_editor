@@ -780,6 +780,173 @@ describe("diffAutoLayout", () => {
 
 
     ///////////////////////////////////////////////////////////////////////////
+    //  Handle add — non-tail (identity-based)                               //
+    ///////////////////////////////////////////////////////////////////////////
+
+    describe("handle add non-tail", () => {
+
+        it("emits AddHandleToLine in ascending atIndex order for non-tail insertions", async () => {
+            // Build a live file whose line already has 2 handles (indices 0 and 1).
+            // The clone inserts a fresh handle at index 1 (between orig0 and orig1)
+            // and another fresh handle at index 3 (after orig1), so the clone ends
+            // up as [orig0, new1, orig1, new2].  diffAutoLayout must emit the two
+            // AddHandleToLine commands in ascending atIndex order (1 then 3).
+            const canvas = factory.createNewDiagramObject(factory.canvas.name, CanvasView);
+            const lineRaw = factory.createNewDiagramObject("data_flow", LineView);
+            const h0 = factory.createNewDiagramObject("generic_handle", HandleView);
+            lineRaw.addHandle(h0, false);
+            for (let i = 0; i < lineRaw.handles.length; i++) {
+                lineRaw.handles[i].userSetPosition = PositionSetByUser.True;
+                lineRaw.handles[i].face.moveTo(100 + i * 200, 50);
+            }
+            factory.inferLineFaces([lineRaw]);
+            canvas.addObject(lineRaw);
+            canvas.calculateLayout();
+
+            const liveFile = new DiagramViewFile(factory, {
+                schema  : factory.id,
+                theme   : factory.theme.id,
+                objects : DiagramObjectSerializer.exportObjects([canvas]),
+                layout  : ManualLayoutEngine.generatePositionMap([canvas])
+            });
+
+            const liveLine = [...liveFile.canvas.lines][0] as LineView;
+            expect(liveLine.handles.length).toBe(2);
+
+            const instanceMap = new Map<string, string>();
+            const cloned = liveFile.clone(undefined, instanceMap);
+
+            // The clone starts as [cloneOfH0, cloneOfH1] (indices 0 and 1).
+            // Insert new1 at index 1: splice so clone becomes [cloneOfH0, new1, cloneOfH1].
+            // Insert new2 at index 3: splice so clone becomes [cloneOfH0, new1, cloneOfH1, new2].
+            const clonedLine = findClonedLine(cloned.canvas, liveLine.instance, instanceMap);
+            expect(clonedLine.handles.length).toBe(2);
+
+            // Insert new1 at index 1 (between cloneOfH0 and cloneOfH1).
+            const new1 = factory.createNewDiagramObject("generic_handle", HandleView);
+            new1.face.moveTo(150, 75);
+            clonedLine.insertHandle(new1, 1, false);
+            // Clone is now [cloneOfH0, new1, cloneOfH1].
+
+            // Insert new2 at index 3 (after cloneOfH1 at the tail).
+            const new2 = factory.createNewDiagramObject("generic_handle", HandleView);
+            new2.face.moveTo(450, 25);
+            clonedLine.insertHandle(new2, 3, false);
+            // Clone is now [cloneOfH0, new1, cloneOfH1, new2].
+
+            expect(clonedLine.handles.length).toBe(4);
+            expect(clonedLine.handles[1]).toBe(new1);
+            expect(clonedLine.handles[3]).toBe(new2);
+
+            const cmds = diffAutoLayout(liveFile.canvas, cloned.canvas, instanceMap);
+
+            const addCmds = cmds.filter(c => c instanceof AddHandleToLine) as AddHandleToLine[];
+            expect(addCmds).toHaveLength(2);
+
+            // Commands must be in ascending atIndex order.
+            expect(addCmds[0].atIndex).toBe(1);
+            expect(addCmds[1].atIndex).toBe(3);
+
+            // Each command carries the correct planned (x, y).
+            expect(addCmds[0].x).toBe(150);
+            expect(addCmds[0].y).toBe(75);
+            expect(addCmds[1].x).toBe(450);
+            expect(addCmds[1].y).toBe(25);
+
+            // Both commands target the live line.
+            expect(addCmds[0].line).toBe(liveLine);
+            expect(addCmds[1].line).toBe(liveLine);
+
+            // Execute sequentially: live line should gain two handles at the
+            // correct positions while the original live handle references survive.
+            const liveHandle0 = liveLine.handles[0];
+            const liveHandle1 = liveLine.handles[1];
+            for (const cmd of addCmds) { cmd.execute(); }
+            expect(liveLine.handles).toHaveLength(4);
+            // Original handles still present at their new indices.
+            expect(liveLine.handles[0]).toBe(liveHandle0);
+            expect(liveLine.handles[2]).toBe(liveHandle1);
+            // Newly inserted handles land at the positions specified.
+            expect(liveLine.handles[1].x).toBeCloseTo(150, 1);
+            expect(liveLine.handles[1].y).toBeCloseTo(75, 1);
+            expect(liveLine.handles[3].x).toBeCloseTo(450, 1);
+            expect(liveLine.handles[3].y).toBeCloseTo(25, 1);
+        });
+
+    });
+
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  Throw paths                                                           //
+    ///////////////////////////////////////////////////////////////////////////
+
+    describe("throw paths", () => {
+
+        it("throws when live latch is linked but planned latch is unlinked", async () => {
+            // Build the standard two-block file (both latches linked to anchors),
+            // clone it, then unlink node1 on the clone so that the live latch is
+            // still linked but the planned latch is null.
+            const { file, line } = await buildTwoBlockFile(factory);
+            const { clone, instanceMap } = cloneFile(file);
+
+            const clonedLine = findClonedLine(clone.canvas, line.instance, instanceMap);
+            // Unlink node1 from its anchor without re-linking it.
+            clonedLine.node1.unlink(false);
+            expect(clonedLine.node1.anchor).toBeNull();
+            expect(line.node1.anchor).not.toBeNull();
+
+            expect(() => diffAutoLayout(file.canvas, clone.canvas, instanceMap))
+                .toThrow(/live latch.*linked.*planned latch.*unlinked/i);
+        });
+
+        it("throws when planned latch references an anchor with no live counterpart", async () => {
+            // Build the standard two-block file and clone it.  Then deliberately
+            // corrupt the liveToPlanned map by removing the entry for one of the
+            // anchors so that when diffAutoLayout tries to resolve the planned
+            // anchor back to a live anchor it fails to find one.
+            //
+            // Steps:
+            //  1. Clone the file to get a valid instanceMap.
+            //  2. On the clone, rebind node1 to blockB's anchor (so anchorChanged=true).
+            //  3. Find the planned anchor id that node1 now points to in the clone.
+            //  4. Remove that anchor's live→planned entry from instanceMap so
+            //     plannedToLive no longer contains it, causing the lookup to fail.
+            const { file, blockB, line } = await buildTwoBlockFile(factory);
+            const { clone, instanceMap } = cloneFile(file);
+
+            const clonedLine   = findClonedLine(clone.canvas, line.instance, instanceMap);
+            const clonedBlockB = findClonedBlock(clone.canvas, blockB.instance, instanceMap);
+            const clonedAnchorB = clonedBlockB.anchors.values().next().value! as AnchorView;
+
+            // Rebind node1 to blockB's anchor (anchorChanged=true path).
+            clonedLine.node1.link(clonedAnchorB, false);
+
+            // The planned anchor the diff walker will look up is clonedAnchorB.
+            // Remove the live→planned mapping for blockB's live anchor so that
+            // plannedToLive.get(clonedAnchorB.instance) returns the live anchor id,
+            // but liveById won't contain it — achieved by erasing the forward entry
+            // from instanceMap (so plannedToLive won't map clonedAnchorB.instance
+            // back to any live id, making plannedAnchorLiveId === undefined which
+            // means anchorChanged === false; instead we need a different corruption).
+            //
+            // The correct corruption: keep plannedToLive's entry for clonedAnchorB
+            // intact (so anchorChanged is true and plannedAnchorLiveId is defined),
+            // but remove blockB's anchor from liveById by erasing its instanceMap
+            // entry, making liveById.get(plannedAnchorLiveId) === undefined.
+            //
+            // liveById is internal; we corrupt instanceMap differently:
+            // Insert a fake mapping so plannedToLive.get(clonedAnchorB.instance)
+            // returns a nonexistent live id — this is the simplest way.
+            instanceMap.set("__nonexistent_live_anchor__", clonedAnchorB.instance);
+
+            expect(() => diffAutoLayout(file.canvas, clone.canvas, instanceMap))
+                .toThrow(/no live counterpart/i);
+        });
+
+    });
+
+
+    ///////////////////////////////////////////////////////////////////////////
     //  Group bounds                                                          //
     ///////////////////////////////////////////////////////////////////////////
 
