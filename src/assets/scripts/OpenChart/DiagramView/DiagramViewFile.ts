@@ -101,11 +101,20 @@ export class DiagramViewFile extends DiagramModelFile {
      * @param match
      *  A predicate which is applied to each child of the canvas. If the
      *  predicate returns false, the child is excluded from the clone.
+     * @param instanceMap
+     *  An optional map that, if provided, will be populated with live
+     *  object instance ID → clone instance ID associations (same
+     *  direction as the inner {@link Canvas.clone} out-parameter). Pass
+     *  an empty map when callers need to correlate live objects with
+     *  their cloned counterparts (e.g. `diffAutoLayout`).
      */
-    public clone(match?: (obj: DiagramObjectView) => boolean): DiagramViewFile {
+    public clone(
+        match?: (obj: DiagramObjectView) => boolean,
+        instanceMap?: Map<string, string>
+    ): DiagramViewFile {
 
         // Clone canvas
-        const instanceMap = new Map<string, string>();
+        instanceMap ??= new Map<string, string>();
         const canvas = this.canvas.clone(this.canvas.instance, instanceMap, match);
 
         // Calculate layout

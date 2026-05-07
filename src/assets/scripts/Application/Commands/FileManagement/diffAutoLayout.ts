@@ -28,13 +28,18 @@ import type { LineFaceCtor } from "@OpenChart/DiagramEditor/Commands/View/SetLin
  *
  * Returns an empty array when the two canvases are already identical.
  *
- * @param live    - The live canvas (owns the JS objects that will be mutated).
- * @param planned - A canvas snapshot of the desired post-layout state, matched
- *                  to the live canvas by `instance` id.
+ * @param live        - The live canvas (owns the JS objects that will be mutated).
+ * @param planned     - A canvas snapshot of the desired post-layout state.
+ * @param liveToPlanned - The instance-id map returned by
+ *   {@link DiagramViewFile.clone}: keys are live instance ids, values are
+ *   the corresponding clone (planned) instance ids.  Built by the inner
+ *   `Canvas.clone` machinery via `instanceMap.set(original, clone)`, so
+ *   direction is always **live → planned**.
  */
 export function diffAutoLayout(
     live: CanvasView,
-    planned: CanvasView
+    planned: CanvasView,
+    liveToPlanned: Map<string, string>
 ): SynchronousEditorCommand[] {
 
     ///////////////////////////////////////////////////////////////////////////
@@ -45,6 +50,18 @@ export function diffAutoLayout(
     for (const obj of traverse<DiagramObjectView>(live)) {
         liveById.set(obj.instance, obj);
     }
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  Step 1b — build the inverse map: planned id → live id               //
+    //                                                                       //
+    //  liveToPlanned was populated by Canvas.clone() as                     //
+    //    instanceMap.set(original.instance, clone.instance)                 //
+    //  so inverting gives us plannedToLive for lookups in the walker below. //
+    ///////////////////////////////////////////////////////////////////////////
+
+    const plannedToLive = new Map<string, string>(
+        [...liveToPlanned.entries()].map(([liveId, plannedId]) => [plannedId, liveId])
+    );
 
     ///////////////////////////////////////////////////////////////////////////
     //  Step 2 — walk the planned canvas and collect diffs                   //
@@ -59,7 +76,11 @@ export function diffAutoLayout(
     const moves:         SynchronousEditorCommand[] = [];
 
     for (const plannedObj of traverse<DiagramObjectView>(planned)) {
-        const liveObj = liveById.get(plannedObj.instance);
+        // Translate the planned clone id back to its original live id, then
+        // look up the live JS object.  Objects absent from the map (e.g.
+        // objects added to planned after the clone) are skipped.
+        const liveId  = plannedToLive.get(plannedObj.instance);
+        const liveObj = liveId !== undefined ? liveById.get(liveId) : undefined;
         if (liveObj === undefined) {
             // Object exists only in planned — no command to emit.
             continue;
@@ -142,18 +163,26 @@ export function diffAutoLayout(
             const liveAnchor    = liveLatch.anchor;
             const plannedAnchor = plannedLatch.anchor;
 
+            // Translate the planned anchor's clone id back to the live id so
+            // we compare apples-to-apples (both in live-id space).
+            const plannedAnchorLiveId =
+                plannedAnchor !== null
+                    ? plannedToLive.get(plannedAnchor.instance)
+                    : undefined;
+
             const anchorChanged =
-                plannedAnchor !== null &&
-                liveAnchor    !== null &&
-                plannedAnchor.instance !== liveAnchor.instance;
+                plannedAnchorLiveId !== undefined &&
+                liveAnchor          !== null      &&
+                plannedAnchorLiveId !== liveAnchor.instance;
 
             if (anchorChanged) {
                 // Detach from the old anchor first.
                 detaches.push(new DetachLatchFromAnchor(liveLatch));
 
-                // Resolve the target anchor from the LIVE canvas (the planned
-                // anchor is a clone object and must not be passed to commands).
-                const newLiveAnchor = liveById.get(plannedAnchor.instance) as AnchorView | undefined;
+                // Resolve the target anchor from the LIVE canvas using the
+                // translated live id (the planned anchor is a clone object and
+                // must not be passed to commands).
+                const newLiveAnchor = liveById.get(plannedAnchorLiveId!) as AnchorView | undefined;
                 if (newLiveAnchor !== undefined) {
                     attaches.push(new AttachLatchToAnchor(liveLatch, newLiveAnchor));
                 }
