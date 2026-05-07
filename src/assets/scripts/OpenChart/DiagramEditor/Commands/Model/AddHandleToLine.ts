@@ -32,7 +32,7 @@ export class AddHandleToLine extends SynchronousEditorCommand {
 
     /**
      * The handle inserted by this command, captured on first execute for
-     * undo/redo symmetry (null until first execute).
+     * undo/redo symmetry.
      */
     private _handle: HandleView | null;
 
@@ -65,9 +65,16 @@ export class AddHandleToLine extends SynchronousEditorCommand {
      */
     public execute(issueDirective: DirectiveIssuer = () => {}): void {
         if (this._handle === null) {
-            // First execute: clone the reference handle and position it.
-            // Use face.moveTo rather than handle.moveTo to avoid triggering
-            // DynamicLine.calculateLayout → view.dropHandles(1) mid-execute.
+            // First execute: clone the reference handle and position it while
+            // it is still parentless. The cascade we care about
+            // (DynamicLine.calculateLayout → dropHandles(1)) only fires once
+            // the handle is inserted into the line below. We rely on
+            // diffAutoLayout to emit SetLineFace(PolyLine) before this command
+            // whenever the line is currently a DynamicLine.
+            //
+            // HandleView.clone() calls clone.moveTo(template.x, template.y)
+            // internally; the face.moveTo call below supersedes that with the
+            // command-supplied coordinates (template coords ≠ command coords).
             const template = this.line.handles[0];
             const clone = template.clone();
             clone.face.moveTo(this.x, this.y);

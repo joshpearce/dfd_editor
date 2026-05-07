@@ -47,7 +47,14 @@ export class RemoveHandleFromLine extends SynchronousEditorCommand {
         if (this._handle === null) {
             // First execute: capture the handle reference before removal so
             // undo can re-insert the exact same JS object (no fresh clone).
-            this._handle = this.line.handles[this.atIndex];
+            const h = this.line.handles[this.atIndex];
+            if (h === undefined) {
+                throw new Error(
+                    `RemoveHandleFromLine: atIndex ${this.atIndex} out of range` +
+                    ` (line has ${this.line.handles.length} handles)`
+                );
+            }
+            this._handle = h;
         }
         this.line.deleteHandle(this._handle, true);
         issueDirective(EditorDirective.Autosave | EditorDirective.Record);

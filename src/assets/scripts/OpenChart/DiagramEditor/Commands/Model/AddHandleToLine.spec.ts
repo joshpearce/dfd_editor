@@ -34,8 +34,9 @@ import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
  * Builds a {@link LineView} with `n` handles and a {@link PolyLine} face.
  *
  * Requires n ≥ 2 so that `inferLineFaces` upgrades the face to `PolyLine`.
- * Handles are added via `addHandle` (no `update` flag) to avoid the
- * `DynamicLine.calculateLayout → dropHandles(1)` cascade during setup.
+ * Handles are added without `update` so fixture setup runs without layout
+ * side-effects; `inferLineFaces` below upgrades to PolyLine before the
+ * command-under-test runs with `update=true`.
  */
 function buildPolyLineWithHandles(factory: DiagramObjectViewFactory, n: number): LineView {
     if (n < 2) {

@@ -33,8 +33,9 @@ import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
  * Builds a {@link LineView} with `n` handles and a {@link PolyLine} face.
  *
  * Requires n ≥ 2 so that `inferLineFaces` upgrades the face to `PolyLine`.
- * Handles are added via `addHandle` (no `update` flag) to avoid the
- * `DynamicLine.calculateLayout → dropHandles(1)` cascade during setup.
+ * Handles are added without `update` so fixture setup runs without layout
+ * side-effects; `inferLineFaces` below upgrades to PolyLine before the
+ * command-under-test runs with `update=true`.
  */
 function buildPolyLineWithHandles(factory: DiagramObjectViewFactory, n: number): LineView {
     if (n < 2) {
@@ -171,17 +172,26 @@ describe("RemoveHandleFromLine", () => {
             expect(line.handles.some(h => h === targetRef)).toBe(false);
         });
 
-        it("redo is consistent with first execute: same length delta", () => {
+        it("post-redo handle array matches post-first-execute array by identity", () => {
             const line = buildPolyLineWithHandles(factory, 4);
+            const targetRef = line.handles[2];
             const cmd = new RemoveHandleFromLine(line, 2);
 
             cmd.execute();
-            const lengthAfterFirst = line.handles.length;
+            const afterFirstExecute = [...line.handles];
 
             cmd.undo();
             cmd.execute();
 
-            expect(line.handles.length).toBe(lengthAfterFirst);
+            // The captured handle must still be absent after redo.
+            expect(line.handles.some(h => h === targetRef)).toBe(false);
+
+            // The post-redo array must match the post-first-execute array
+            // element-by-element by identity.
+            expect(line.handles.length).toBe(afterFirstExecute.length);
+            for (let i = 0; i < afterFirstExecute.length; i++) {
+                expect(line.handles[i]).toBe(afterFirstExecute[i]);
+            }
         });
 
     });
