@@ -7,6 +7,7 @@ export * from "./MoveObjectsBy";
 export * from "./MoveObjectsTo";
 export * from "./ResizeGroupBy";
 export * from "./RestoreGroupBounds";
+export * from "./SetLineFace";
 export * from "./UserSetObjectPosition";
 export * from "./SetTangibility";
 export * from "./RemoveSelectedChildren";

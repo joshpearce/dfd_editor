@@ -6,13 +6,14 @@ import {
     MoveObjectsBy,
     MoveObjectsTo,
     ResizeGroupBy,
+    SetLineFace,
     SetTangibility,
     UserSetObjectPosition
 } from "./index.commands";
-import type { GroupBoundsSnapshot } from "./index.commands";
+import type { GroupBoundsSnapshot, LineFaceCtor } from "./index.commands";
 import type { BlockView, CanvasView, DiagramObjectView, GroupView, LineView, ResizeEdge } from "@OpenChart/DiagramView";
 
-export type { GroupBoundsSnapshot };
+export type { GroupBoundsSnapshot, LineFaceCtor };
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -167,4 +168,27 @@ export function userSetObjectPosition(
     object: DiagramObjectView
 ): UserSetObjectPosition {
     return new UserSetObjectPosition(object);
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+//  3. Line Face  //////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+
+/**
+ * Replaces a line's face with a new instance of the given face class.
+ * @param line
+ *  The line whose face will be replaced.
+ * @param faceCtor
+ *  The constructor for the new face class (e.g. {@link PolyLine} or
+ *  {@link DynamicLine}).
+ * @returns
+ *  A command that represents the action.
+ */
+export function setLineFace(
+    line: LineView,
+    faceCtor: LineFaceCtor
+): SetLineFace {
+    return new SetLineFace(line, faceCtor);
 }
