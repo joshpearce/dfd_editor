@@ -1,6 +1,6 @@
 # OpenChart (Diagram Engine — Forked)
 
-Last verified: 2026-04-23
+Last verified: 2026-05-08
 
 ## Purpose
 
@@ -73,6 +73,11 @@ abandoned; treat this directory as first-party code.
 - Multi-block reparent is a single undo step (`4299906`).
 - User-set group bounds survive round-trips through save / load /
   clone / restyle (`94fb6ed`).
+- Linked-latch world positions survive theme/restyle swaps
+  (`5b1a809`): `DiagramObjectViewFactory` seeds the new face's
+  `boundingBox.x/y` from the cached pre-swap position before
+  `calculateLayout` runs, so latches with `userSetPosition=False` (set
+  by `Latch.link`) don't collapse to (0, 0).
 - Content beats container in hit priority so clicks on a child inside a
   group hit the child, not the group (`cbc8d9d`).
 

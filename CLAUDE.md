@@ -1,6 +1,6 @@
 # dfd_editor
 
-Last verified: 2026-04-23
+Last verified: 2026-05-08
 
 Browser-based Data Flow Diagram (DFD) editor. Scaffolded from MITRE's
 Apache-2.0 [attack-flow](https://github.com/center-for-threat-informed-defense/attack-flow)
@@ -73,7 +73,11 @@ more handles are upgraded to the `PolyLine` face by `inferLineFaces`, which
 runs both after the engine and on import so multi-bend TALA routes survive
 save/reload. After a `loadFileFromServer` call triggers auto-layout (i.e. the
 stored file had no `layout`), the result is PUT back to the server so
-subsequent opens skip TALA and reuse the stable positions.
+subsequent opens skip TALA and reuse the stable positions. A File → Auto
+Layout menu action re-runs TALA on demand against an already-laid-out
+diagram (`AutoLayoutActiveFile`); it strips the stored layout, reloads from
+the server, and is intentionally not undoable. Disabled when the active
+editor has no server binding.
 
 ## Project Structure
 
@@ -115,10 +119,13 @@ subsequent opens skip TALA and reuse the stable positions.
 - Lint on save; `npm run lint:fix` for mechanical fixes.
 - "API creates the diagram, user edits in the browser" workflow is backed by
   the Flask server's `/api/diagrams` endpoints (see `server/` and
-  `src/assets/scripts/api/DfdApiClient.ts`). Server save/load is the default
-  file surface (`1e5a7af feat(files): make server save/load the default`); the
-  recovery bank is a fallback only. An upstream `?src=<url>` query parameter
-  is not wired in this fork.
+  `src/assets/scripts/api/DfdApiClient.ts`). Server save/load is the only
+  drawing-save surface; the localStorage recovery bank that previously
+  fronted it was removed in `85ee147` along with the "Open File from device"
+  splash button. Image export, the publisher, and Import Data Flow remain.
+  `App.vue` still wires the upstream `?src=<url>` query parameter to a
+  read-only fetch via `prepareEditorFromUrl` (creates an unbound editor —
+  Save is disabled because there is no server id).
 - Per-domain context lives in sibling `CLAUDE.md` files: `server/CLAUDE.md`,
   `src/assets/configuration/CLAUDE.md`, and
   `src/assets/scripts/OpenChart/CLAUDE.md`. Prefer updating those over
