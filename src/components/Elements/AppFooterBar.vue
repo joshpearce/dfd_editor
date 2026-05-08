@@ -4,22 +4,6 @@
       <p class="metric selected">
         <span>{{ application.hasSelection }} Selected</span>
       </p>
-      <Transition name="fade">
-        <div
-          :class="['metric', { error: hasAutosaveFailed }]"
-          v-if="lastAutosave"
-        >
-          <FloppyDisk class="icon" />
-          <Transition
-            name="fade"
-            mode="out-in"
-          >
-            <span v-if="showAutosaveTime">{{ lastAutosave }}</span>
-            <span v-else-if="hasAutosaveFailed">FAILED TO AUTOSAVE</span>
-            <span v-else>Autosaved</span>
-          </Transition>
-        </div>
-      </Transition>
       <div
         :class="['metric', 'server-status', { dirty: isDirtyVsServer }]"
         v-if="hasServerBinding"
@@ -62,17 +46,13 @@ import Configuration from "@/assets/configuration/app.configuration";
 // Dependencies
 import { defineComponent } from "vue";
 import { useApplicationStore } from "@/stores/ApplicationStore";
-// Components
-import FloppyDisk from "../Icons/FloppyDisk.vue";
 
 export default defineComponent({
   name: "AppFooterBar",
   data(){
     return {
       application: useApplicationStore(),
-      fileName: Configuration.file_type_name,
-      showAutosaveTime: false,
-      showAutosaveTimeTimeoutId: 0
+      fileName: Configuration.file_type_name
     }
   },
   computed: {
@@ -117,32 +97,6 @@ export default defineComponent({
     },
 
     /**
-     * Returns the last time the active editor autosaved.
-     * @returns
-     *  The last time the active editor autosaved.
-     */
-    lastAutosave(): string | null {
-      const time = this.application.activeEditor.lastAutosave;
-      if(time === null) {
-        return null;
-      } else if(Number.isNaN(time.getTime())) {
-        return "ERROR"
-      } else {
-        return time.toLocaleString();
-      }
-    },
-
-    /**
-     * Tests if the last autosave failed.
-     * @returns
-     *  True if the last autosave failed, false otherwise.
-     */
-    hasAutosaveFailed(): boolean {
-      const time = this.application.activeEditor.lastAutosave;
-      return time !== null && Number.isNaN(time.getTime());
-    },
-
-    /**
      * Whether the active editor is bound to a server diagram.
      */
     hasServerBinding(): boolean {
@@ -156,21 +110,7 @@ export default defineComponent({
       return this.application.isDirtyVsServer;
     }
 
-  },
-  watch: {
-    "lastAutosave"() {
-      // Clear timer
-      clearTimeout(this.showAutosaveTimeTimeoutId);
-      // Show time
-      this.showAutosaveTime = true;
-      // Set timer
-      this.showAutosaveTimeTimeoutId = window.setTimeout(() => {
-        // Hide time
-        this.showAutosaveTime = false;
-      }, 2500)
-    }
-  },
-  components: { FloppyDisk }
+  }
 });
 </script>
 

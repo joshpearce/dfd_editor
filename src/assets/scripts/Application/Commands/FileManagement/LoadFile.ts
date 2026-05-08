@@ -2,7 +2,6 @@ import Configuration from "@/assets/configuration/app.configuration";
 import { ref } from "vue";
 import { AppCommand } from "../AppCommand";
 import { EditorDirective } from "@OpenChart/DiagramEditor/EditorDirectives";
-import { SaveDiagramFileToRecoveryBank } from "./SaveDiagramFileToRecoveryBank";
 import { DiagramViewEditor } from "@OpenChart/DiagramEditor";
 import { installEditPlugins } from "../EditorPlugins";
 import type { DiagramViewFile } from "@OpenChart/DiagramView";
@@ -47,9 +46,6 @@ export class LoadFile extends AppCommand {
         // Configure editor
         const cmdProcessor = Configuration.cmdProcessor?.create();
         this.editor = ref(new DiagramViewEditor(file, name, cmdProcessor)).value;
-        this.editor.on("autosave", editor => {
-            context.execute(new SaveDiagramFileToRecoveryBank(context, editor));
-        });
         this.editor.on("edit", (editor, _, args) => {
             // If command will result in an auto-save...
             if (args.directives & EditorDirective.Autosave) {

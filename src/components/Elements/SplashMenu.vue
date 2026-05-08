@@ -16,44 +16,6 @@
       >
     </div>
     <div class="menu-body">
-      <div
-        class="section open-recovered-file"
-        v-if="files.size"
-      >
-        <p class="section-title">
-          RECOVER FILE
-        </p>
-        <ScrollBox class="file-scrollbox">
-          <div :class="['file-grid', { 'has-scrollbar': 4 < files.size }]">
-            <div
-              class="file-entry"
-              v-for="[k, p] of files"
-              :key="k"
-            >
-              <div
-                class="file"
-                @click="onRecoverFile(p.contents, p.name)"
-              >
-                <div class="file-header">
-                  <FullPageIcon class="file-icon" />
-                  <p class="file-title">
-                    {{ p.name }}
-                  </p>
-                </div>
-                <p class="file-date">
-                  {{ p.date.toLocaleString() }}
-                </p>
-              </div>
-              <div
-                class="delete-file"
-                @click="onDeleteFile(k)"
-              >
-                Delete ✗
-              </div>
-            </div>
-          </div>
-        </ScrollBox>
-      </div>
       <div class="section open-file">
         <p class="section-title">
           OPEN FILE
@@ -71,20 +33,6 @@
             </div>
             <p class="button-description">
               {{ newFile.description }}
-            </p>
-          </div>
-          <div
-            class="button"
-            @click="onOpenFile"
-          >
-            <div class="button-header">
-              <span class="button-icon"><FolderIcon /></span>
-              <p class="button-title">
-                {{ openFile.title }}
-              </p>
-            </div>
-            <p class="button-description">
-              {{ openFile.description }}
             </p>
           </div>
           <div
@@ -220,7 +168,6 @@ export default defineComponent({
       applicationVersion: version,
       organization: Configuration.splash.organization,
       newFile: Configuration.splash.new_file,
-      openFile: Configuration.splash.open_file,
       helpLinks: Configuration.splash.help_links,
       serverFiles: [] as DiagramSummary[],
       serverError: null as string | null,
@@ -229,24 +176,6 @@ export default defineComponent({
   },
   mounted() {
     void this.loadServerFiles();
-  },
-  computed: {
-
-    /**
-     * Returns the application's recovered files.
-     * @returns
-     *  The application's recovered files.
-     */
-    files(): Map<string, { name: string, date: Date, contents: string }> {
-      const files = new Map();
-      for(const [id, file] of this.application.fileRecoveryBank.files) {
-        if(id !== this.application.activeEditor.id) {
-          files.set(id, file);
-        }
-      }
-      return files;
-    }
-    
   },
   methods: {
 
@@ -268,14 +197,6 @@ export default defineComponent({
     },
 
     /**
-     * Open File behavior.
-     */
-    async onOpenFile() {
-      const ctx = this.application;
-      this.execute(await AppCommands.prepareEditorFromFileSystem(ctx));
-    },
-
-    /**
      * Import Data Flow behavior. Uploads a minimal-format JSON file to the
      * server, which validates + converts it; the new diagram then opens
      * in the editor bound to its server id.
@@ -289,28 +210,6 @@ export default defineComponent({
       } catch (e) {
         this.importError = e instanceof Error ? e.message : "Import failed.";
       }
-    },
-
-    /**
-     * Recover File behavior.
-     * @param file
-     *  The file to recover.
-     * @param name
-     *  The file's name.
-     */
-    async onRecoverFile(file: string, name: string) {
-      const ctx = this.application;
-      this.execute(await AppCommands.prepareEditorFromExistingFile(ctx, file, name));
-    },
-
-    /**
-     * Delete Recovered File behavior.
-     * @param id
-     *  The id of the file to delete.
-     */
-    async onDeleteFile(id: string) {
-      const ctx = this.application;
-      this.execute(await AppCommands.removeFileFromRecoveryBank(ctx, id));
     },
 
     /**
@@ -361,9 +260,8 @@ export default defineComponent({
      */
     async onOpenServerFile(id: string) {
       const ctx = this.application;
-      const summary = this.serverFiles.find(f => f.id === id);
       try {
-        this.execute(await AppCommands.prepareEditorFromServerFile(ctx, id, summary?.modified));
+        this.execute(await AppCommands.prepareEditorFromServerFile(ctx, id));
       } catch (e) {
         this.serverError = e instanceof Error ? e.message : `Failed to open diagram '${id}'.`;
       }
@@ -574,16 +472,6 @@ export default defineComponent({
   grid-template-rows: minmax(0, 1fr);
   grid-template-columns: repeat(3, minmax(0, 1fr));
   column-gap: 14px;
-}
-
-/** === Recovered File Section === */
-
-.section.open-recovered-file .file-scrollbox {
-  max-height: 162px;
-}
-
-.section.open-recovered-file .file-grid.has-scrollbar {
-  padding-right: 10px;
 }
 
 /** === Server Diagrams Section === */

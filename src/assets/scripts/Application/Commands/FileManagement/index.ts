@@ -8,14 +8,11 @@ import { createDiagram, getDiagram, importMinimalDiagram, saveDiagram, layoutDia
 import {
     AutoLayoutActiveFile,
     BindEditorToServer,
-    ClearFileRecoveryBank,
     ExportDiagramAsDataFlow,
     ImportFile,
     LoadFile,
     PrepareEditorWithFile,
     PublishDiagramFileToDevice,
-    RemoveFileFromRecoveryBank,
-    SaveDiagramFileToDevice,
     SaveDiagramFileToServer,
     SaveDiagramImageToDevice,
     SaveSelectionImageToDevice
@@ -84,25 +81,6 @@ export async function loadExistingFile(
     }
     // Return command
     return new LoadFile(context, viewFile, name);
-}
-
-/**
- * Loads a diagram file, from the file system, into the application.
- * @param context
- *  The application's context.
- * @returns
- *  A command that represents the action.
- */
-export async function loadFileFromFileSystem(
-    context: ApplicationStore
-): Promise<AppCommand> {
-    const file = await Device.openTextFileDialog(Configuration.file_type_extension);
-    if (file) {
-        const filename = stripExtension(file.filename);
-        return loadExistingFile(context, file.contents as string, filename);
-    } else {
-        return new DoNothing();
-    }
 }
 
 /**
@@ -282,64 +260,17 @@ export async function prepareEditorFromExistingFile(
 }
 
 /**
- * Prepares the editor with an existing file from the file system.
- * @param context
- *  The application context.
- * @returns
- *  A command that represents the action.
- */
-export async function prepareEditorFromFileSystem(
-    context: ApplicationStore
-): Promise<AppCommand> {
-    const cmd = await loadFileFromFileSystem(context);
-    if (cmd instanceof LoadFile) {
-        return new PrepareEditorWithFile(context, cmd);
-    } else {
-        return cmd;
-    }
-}
-
-/**
  * Prepares the editor with an existing diagram from the server.
- *
- * If a recovery-bank entry exists for this server id and is newer than the
- * server's `modified` timestamp, prompts the user to restore the local copy
- * or discard it. When restored, the editor is marked dirty-vs-server so the
- * user can re-save the local changes.
  * @param context
  *  The application context.
  * @param id
  *  The server-side diagram id.
- * @param serverModified
- *  The server's last-modified timestamp (unix seconds). When omitted, the
- *  newer-local-copy check is skipped.
  * @returns
  *  A command that represents the action.
  */
 export async function prepareEditorFromServerFile(
-    context: ApplicationStore, id: string, serverModified?: number
+    context: ApplicationStore, id: string
 ): Promise<PrepareEditorWithFile> {
-    const recoveryKey = `server:${id}`;
-    const recovery = context.fileRecoveryBank.files.get(recoveryKey);
-    if (
-        recovery
-        && serverModified !== undefined
-        && recovery.date.getTime() > serverModified * 1000
-    ) {
-        const restore = window.confirm(
-            "A newer local copy of this diagram exists "
-            + `(saved ${recovery.date.toLocaleString()}).\n\n`
-            + "OK = Restore the local copy (you'll need to save it).\n"
-            + "Cancel = Discard the local copy and load the server version."
-        );
-        if (restore) {
-            const loadCmd = await loadExistingFile(context, recovery.contents, recovery.name);
-            const cmd = new PrepareEditorWithFile(context, loadCmd);
-            cmd.add(new BindEditorToServer(context, id, true));
-            return cmd;
-        }
-        context.fileRecoveryBank.deleteFile(recoveryKey);
-    }
     const cmd = new PrepareEditorWithFile(context, await loadFileFromServer(context, id));
     cmd.add(new BindEditorToServer(context, id));
     return cmd;
@@ -417,19 +348,6 @@ export async function prepareEditorFromUrl(
 //  4. Save / Export Files  ///////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 
-
-/**
- * Saves a diagram file to the user's file system.
- * @param context
- *  The application's context.
- * @returns
- *  A command that represents the action.
- */
-export function saveActiveFileToDevice(
-    context: ApplicationStore
-): SaveDiagramFileToDevice {
-    return new SaveDiagramFileToDevice(context, context.activeEditor);
-}
 
 /**
  * Publishes a diagram file to the user's file system.
@@ -526,38 +444,4 @@ export function autoLayoutActiveFile(
         return new DoNothing();
     }
     return new AutoLayoutActiveFile(context, id);
-}
-
-
-///////////////////////////////////////////////////////////////////////////////
-//  5. File Recovery Bank  ////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-
-
-/**
- * Removes a file from the application's file recovery bank.
- * @param context
- *  The application context.
- * @param id
- *  The file's id.
- * @returns
- *  A command that represents the action.
- */
-export function removeFileFromRecoveryBank(
-    context: ApplicationStore, id: string
-): RemoveFileFromRecoveryBank {
-    return new RemoveFileFromRecoveryBank(context, id);
-}
-
-/**
- * Clears the application's file recovery bank.
- * @param context
- *  The application context.
- * @returns
- *  A command that represents the action.
- */
-export function clearFileRecoveryBank(
-    context: ApplicationStore
-): ClearFileRecoveryBank {
-    return new ClearFileRecoveryBank(context);
 }

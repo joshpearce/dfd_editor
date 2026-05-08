@@ -29,7 +29,6 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
             // Sections
             const sections: ContextMenuSection<CommandEmitter>[] = [
                 this.openFileMenu,
-                this.isRecoverFileMenuShown ? this.recoverFileMenu : null,
                 this.saveFileMenu,
                 this.layoutFileMenu,
                 app.activePublisher ? this.publishFileMenu : null
@@ -57,69 +56,6 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                     }
                 ]
             };
-        },
-
-        /**
-         * Returns the 'recover file' menu section.
-         * @returns
-         *  The 'recover file' menu section.
-         */
-        recoverFileMenu(): ContextMenuSection<CommandEmitter> {
-            const app = useApplicationStore();
-            const files = app.fileRecoveryBank.files;
-            const activeKey = app.serverFileId
-                ? `server:${app.serverFileId}`
-                : `local:${app.activeEditor.id}`;
-
-            // Build file list
-            const items: ContextMenu<CommandEmitter>[] = [];
-            for (const [id, { name, date, contents }] of files) {
-                // Ignore active file
-                if (id === activeKey) {
-                    continue;
-                }
-                // Add file
-                items.push({
-                    text: `${name} (${date.toLocaleString()})`,
-                    type: MenuType.Action,
-                    data: () => AppCommands.prepareEditorFromExistingFile(app, contents, name)
-                });
-            }
-            if (items.length === 0) {
-                items.push({
-                    text: "No Recovered Files",
-                    type: MenuType.Action,
-                    data: () => AppCommands.doNothing(),
-                    disabled: true
-                });
-            }
-
-            // Build submenu
-            const submenu: ContextMenu<CommandEmitter> = {
-                text: "Open Recovered Files",
-                type: MenuType.Submenu,
-                sections: [
-                    {
-                        id: "recovered_files",
-                        items
-                    },
-                    {
-                        id: "bank_controls",
-                        items: [{
-                            text: "Delete Recovered Files",
-                            type: MenuType.Action,
-                            data: () => AppCommands.clearFileRecoveryBank(app)
-                        }]
-                    }
-                ]
-            };
-
-            // Return menu
-            return {
-                id: "recover_file_options",
-                items: [submenu]
-            };
-
         },
 
         /**
@@ -210,19 +146,6 @@ export const useContextMenuStore = defineStore("contextMenuStore", {
                 ]
             };
         },
-
-        /**
-         * Tests if the 'recovery file' menu should be displayed.
-         * @returns
-         *  True if the menu should be displayed, false otherwise.
-         */
-        isRecoverFileMenuShown(): boolean {
-            const app = useApplicationStore();
-            const editor = app.activeEditor;
-            const ids = [...app.fileRecoveryBank.files.keys()];
-            return (ids.length === 1 && ids[0] !== editor.id) || 1 < ids.length;
-        },
-
 
         ///////////////////////////////////////////////////////////////////////
         //  2. Edit Menus  ////////////////////////////////////////////////////

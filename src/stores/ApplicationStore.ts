@@ -1,6 +1,5 @@
 import Configuration from "@/assets/configuration/app.configuration";
 import { DateTime } from "luxon";
-import { FileStore } from "@/assets/scripts/Browser";
 import { defineStore } from "pinia";
 import { PhantomEditor } from "./PhantomEditor";
 import { BaseAppSettings } from "@/assets/scripts/Application";
@@ -38,7 +37,6 @@ for (const theme of Configuration.themes) {
 export const useApplicationStore = defineStore("applicationStore", {
     state: () => ({
         themeRegistry: themeRegistry,
-        fileRecoveryBank: new FileStore("__recovery_bank_"),
         activeEditor: PhantomEditor,
         activeValidator: Validator,
         activePublisher: Publisher,
