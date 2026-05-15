@@ -172,7 +172,7 @@ async function getObjectFactory(
  * query string cannot structurally reach the standalone parity harness: the
  * harness never imports this file.
  */
-function selectedLayoutEngineKey(): LayoutEngineKey {
+export function selectedLayoutEngineKey(): LayoutEngineKey {
     const param = new URLSearchParams(location.search).get("layoutEngine");
     const normalized = param === "new" ? "tala" : param;
     return normalized === "tala" || normalized === "native"
