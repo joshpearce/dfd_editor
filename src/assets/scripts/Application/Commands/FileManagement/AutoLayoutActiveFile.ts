@@ -6,7 +6,7 @@ import type { ApplicationStore } from "@/stores/ApplicationStore";
 import type { DiagramViewExport } from "@OpenChart/DiagramView";
 
 /**
- * Re-runs TALA on the active file by flushing the file to the server,
+ * Re-runs auto-layout on the active file by flushing the file to the server,
  * stripping its stored layout, and reloading via the normal "open from
  * server" path. The reload swaps the active editor wholesale, so undo /
  * redo history, selection state, and bound listeners are all cleared as

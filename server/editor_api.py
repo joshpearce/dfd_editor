@@ -9,8 +9,11 @@ in the two-module split; the parallel agent API lives in ``agent_api``.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any
 
 from flask import Blueprint, Response, jsonify, request
@@ -245,3 +248,107 @@ def layout():
         return jsonify({"svg": result.stdout})
     error_msg = result.stderr.strip() or "d2 exited with non-zero status"
     return jsonify({"error": error_msg}), 502
+
+
+# ---------------------------------------------------------------------------
+# Native layout (scaffold — no position math yet)
+# ---------------------------------------------------------------------------
+
+
+@editor_api.route("/api/native-layout", methods=["POST"])
+def native_layout():
+    """Accept any JSON body and return an empty position map.
+
+    Scaffold for the forthcoming ``NativeLayoutEngine``; performs no position
+    math.  Unlike ``/api/layout`` this route requires no external binary.
+    """
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "request body must be valid JSON"}), 400
+    return jsonify({"layout": {}})
+
+
+# ---------------------------------------------------------------------------
+# Layout harness (DEV-ONLY — parity-development tool)
+# ---------------------------------------------------------------------------
+
+
+# Repo root is the parent of this file's directory (server/).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Harness entry path relative to the repo root — matched by explicit vitest invocation.
+_HARNESS_ENTRY = "src/assets/scripts/LayoutHarness/runHarness.spec.ts"
+
+
+@editor_api.route("/api/layout-harness", methods=["POST"])
+def layout_harness():
+    """Round-trip a diagram through the real engine pipeline and return the
+    laid-out document.  DEV-ONLY parity-development tool.
+
+    Shells the standalone TS harness via ``npx vitest run``, passing the job
+    as ``LAYOUT_HARNESS_JOB`` (env var) and reading the result from a temp
+    file at ``LAYOUT_HARNESS_OUT``.  Requires the frontend toolchain
+    (``npx vitest``) and a reachable Flask server for the engine HTTP
+    callbacks.  Run under ``npm run dev:all``.
+
+    Returns ``{engine, ms, document}`` on 200.  Never persists anything to
+    ``storage.DATA_DIR`` or touches any editor session.  Deletable alongside
+    the harness directory and the ``tala`` key.
+
+    Timeout is 120 s (vitest cold-start adds overhead atop the engine's own
+    30 s budget; 120 s gives ample margin while preventing indefinite hangs).
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "request body must be valid JSON"}), 400
+    if "diagram" not in body:
+        return jsonify({"error": "missing required field: diagram"}), 400
+    engine = body.get("engine", "tala")
+    if not isinstance(engine, str):
+        return jsonify({"error": "engine must be a string"}), 400
+
+    job = {"diagram": body["diagram"], "engine": engine}
+
+    # Create the temp output file outside storage.DATA_DIR (OS temp dir).
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json")
+    os.close(tmp_fd)  # close the fd; vitest will write the file by path
+
+    try:
+        try:
+            result = subprocess.run(
+                # Fixed argv — no shell=True, no user-data interpolation.
+                ["npx", "vitest", "run", _HARNESS_ENTRY, "--reporter=dot"],
+                cwd=str(_REPO_ROOT),
+                env={**os.environ, "LAYOUT_HARNESS_JOB": json.dumps(job), "LAYOUT_HARNESS_OUT": tmp_path},
+                capture_output=True,
+                text=True,
+                timeout=120,  # vitest cold-start overhead + engine budget (30 s)
+            )
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "layout harness timed out"}), 502
+        except FileNotFoundError:
+            return jsonify({"error": "npx not found on PATH"}), 502
+
+        if result.returncode != 0:
+            stderr_snippet = result.stderr.strip()[:2000] or "layout harness exited non-zero"
+            return jsonify({"error": stderr_snippet}), 502
+
+        try:
+            with open(tmp_path, encoding="utf-8") as f:
+                parsed = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            return jsonify({"error": f"failed to read harness output: {e}"}), 502
+
+        if not isinstance(parsed, dict):
+            return jsonify({"error": "harness output was not a JSON object"}), 502
+
+        if "error" in parsed:
+            return jsonify({"error": parsed["error"]}), 502
+
+        return jsonify(parsed), 200
+
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass

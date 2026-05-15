@@ -1,6 +1,6 @@
 # Flask Backend
 
-Last verified: 2026-05-08
+Last verified: 2026-05-15
 
 ## Purpose
 Hosts DFD diagram files for the browser editor: "API creates diagram,
@@ -71,6 +71,20 @@ drive the same diagram operations over plain HTTP:
     sets `D2_LAYOUT=tala`. Override from the shell
     (`D2_LAYOUT=dagre npm run dev:flask`) to sweep engines without editing
     code.
+  - `POST /api/native-layout` — accepts any JSON body, returns
+    `{"layout": {}}` with 200; 400 on non-JSON. Scaffold for the forthcoming
+    `NativeLayoutEngine`; requires no external binary and does no layout math
+    yet.
+  - `POST /api/layout-harness` — DEV-ONLY parity-development tool. Accepts
+    `{"diagram": <DiagramViewExport>, "engine": "tala"|"native"}` (engine
+    defaults to `"tala"`), shells the standalone TS harness via
+    `npx vitest run src/assets/scripts/LayoutHarness/runHarness.spec.ts`,
+    and returns `{engine, ms, document}` on 200. Returns 400 on bad input,
+    502 on timeout/non-zero exit or harness error. Never persists anything to
+    `storage.DATA_DIR` or touches any editor session. Requires the frontend
+    toolchain (`npx vitest`) and a reachable Flask for engine HTTP callbacks;
+    run under `npm run dev:all`. Deletable alongside the harness directory
+    and the `tala` key.
   - **Agent API** at `/api/agent/*` (parallel surface for external
     non-MCP clients; see `agent_api.py`):
     - `GET  /api/agent/schema` — `Diagram.model_json_schema()`.

@@ -1,6 +1,6 @@
 # dfd_editor
 
-Last verified: 2026-05-08
+Last verified: 2026-05-15
 
 Browser-based Data Flow Diagram (DFD) editor. Scaffolded from MITRE's
 Apache-2.0 [attack-flow](https://github.com/center-for-threat-informed-defense/attack-flow)
@@ -51,20 +51,27 @@ python3 -m venv .venv
 Then `npm run dev:flask` (or `npm run dev:all`). The server persists diagrams
 as JSON files under `server/data/` and exposes `/api/health`,
 `/api/diagrams[/<id>]` (GET/POST/PUT), `/api/diagrams/<id>/export` + `/api/diagrams/import`
-for the minimal DFD interchange format, and `/api/layout` (shells `d2 --layout=tala`
-for `NewAutoLayoutEngine`). CORS is allowed only for `http://localhost:5173`.
+for the minimal DFD interchange format, `/api/layout` (shells `d2 --layout=tala`
+for `NewAutoLayoutEngine`), `/api/native-layout` (scaffold for `NativeLayoutEngine`,
+no external binary), and `/api/layout-harness` (dev-only parity tool). CORS is
+allowed only for `http://localhost:5173`.
 A companion MCP server (`server/mcp_server.py`, port 5051) and a WebSocket
 broadcast endpoint (`GET /ws`) support remote-control from AI agents — see
 `server/CLAUDE.md` "MCP server & WebSocket" for the full topology, endpoints,
 and broadcast envelope.
 
-### TALA auto-layout
+### Auto-layout
 
-`NewAutoLayoutEngine` (under `OpenChart/DiagramView/DiagramLayoutEngine/NewAutoLayoutEngine/`)
-is an async layout engine used for coord-less imported diagrams. It serializes
-the canvas to D2, POSTs to `/api/layout`, and re-parses the returned TALA SVG to
-place blocks/groups. `d2` with the TALA plugin must be on the server's `PATH`;
-without it, `/api/layout` returns 502 rather than failing at startup. Line
+The active layout engine is switchable via the `?layoutEngine=native|tala`
+query string (alias `new`→`tala`; absent/unknown falls back to `"tala"`). The
+registry lives in `src/assets/scripts/LayoutEngineRegistry/`
+(`resolveLayoutEngine`, `DEFAULT_LAYOUT_ENGINE = "tala"`, `LayoutEngineKey`).
+
+`NewAutoLayoutEngine` (under `OpenChart/DiagramView/DiagramLayoutEngine/NewAutoLayoutEngine/`,
+engine key `"tala"`) is an async layout engine used for coord-less imported diagrams.
+It serializes the canvas to D2, POSTs to `/api/layout`, and re-parses the returned
+TALA SVG to place blocks/groups. `d2` with the TALA plugin must be on the server's
+`PATH`; without it, `/api/layout` returns 502 rather than failing at startup. Line
 endpoints are then rebound via an `AnchorStrategy` (default `"tala"`, which
 uses TALA's own edge endpoints to pick anchor faces and projects every
 significant interior polyline vertex onto its own handle; `"geometric"` and
@@ -79,6 +86,14 @@ diagram (`AutoLayoutActiveFile`); it strips the stored layout, reloads from
 the server, and is intentionally not undoable. Disabled when the active
 editor has no server binding.
 
+`NativeLayoutEngine` (engine key `"native"`) is an async engine scaffold that
+serializes the canvas via the same `toExport()` path, calls an injected
+`NativeLayoutSource` callback (HTTP-free), and applies the returned position map
+via `ManualLayoutEngine`. An empty map is a no-op. No D2/TALA dependency. The
+`/api/native-layout` endpoint is its current server-side counterpart (returns
+`{"layout":{}}` — no position math yet). See `OpenChart/CLAUDE.md` for engine
+internals and `server/CLAUDE.md` for endpoint contracts.
+
 ## Project Structure
 
 - `src/assets/scripts/OpenChart/` — the diagram engine (model, view, editor,
@@ -91,10 +106,20 @@ editor has no server binding.
   file-management commands (server save/load lives here).
 - `src/assets/scripts/Browser/` — browser-side utilities.
 - `src/assets/scripts/api/` — HTTP client for the Flask backend
-  (`DfdApiClient.ts`: list/create/get/save, minimal-format import/export, TALA
-  layout).
+  (`DfdApiClient.ts`: list/create/get/save, minimal-format import/export,
+  layout endpoints — `layoutDiagram` for TALA, `nativeLayout` for the native engine).
 - `src/assets/scripts/OpenChartFinder/` — search/index over diagram contents.
 - `src/assets/scripts/SegmentLayoutEngine/` — layout helpers.
+- `src/assets/scripts/LayoutEngineRegistry/` — neutral pure module exporting
+  `resolveLayoutEngine(key, {layoutDiagram, nativeLayout})` +
+  `LayoutEngineKey` + `DEFAULT_LAYOUT_ENGINE="tala"`. The active engine is
+  selected via `?layoutEngine=native|tala` (alias `new`→`tala`; absent/unknown
+  falls back to `"tala"`). `src/assets/scripts/LayoutHarness/` is a
+  **temporary, standalone** parity-development tool the app never imports —
+  it exercises the real engine pipeline headless via vitest and is deletable
+  in one commit alongside the `tala` key. The dev-only `POST
+  /api/layout-harness` endpoint shells it and returns `{engine, ms,
+  document}`; run under `npm run dev:all`.
 - `src/assets/scripts/StixToAttackFlow/` — vestigial STIX-import code carried
   over from upstream; not used for DFDs, but still present.
 - `src/assets/scripts/PointerTracker.ts` — shared pointer/input state.

@@ -17,8 +17,8 @@ import type { RenderSettings } from "../../RenderSettings";
 import type { DiagramObjectView, HitTarget } from "../../Views";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
 
-// Handle positions originate from TALA's `parseFloat`'d SVG vertices; snap
-// equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
+// Handle positions can originate from an auto-layout engine's fractional-pixel
+// vertices; snap equality to an epsilon so they classify as axis-aligned.
 const AXIS_EPSILON = 1e-6;
 
 /**
@@ -28,9 +28,9 @@ const AXIS_EPSILON = 1e-6;
  * Where {@link DynamicLine} parameterises an L- or Z-shape from a single
  * waypoint and computes the intermediate corners on every layout tick,
  * PolyLine draws `M src_anchor L handles[0] L handles[1] … L trg_anchor`
- * verbatim.  This is what lets TALA's multi-bend routes survive auto-layout
- * import: every TALA polyline vertex becomes a handle the renderer reads
- * straight back out (see `docs/implementation-plans/2026-04-23-polyline-face.md`).
+ * verbatim.  This is what lets the auto-layout engine's multi-bend routes
+ * survive import: every polyline vertex from the engine becomes a handle the
+ * renderer reads straight back out (see `docs/implementation-plans/2026-04-23-polyline-face.md`).
  *
  * Face selection is inferred from handle count rather than declared in the
  * theme — see `DiagramObjectViewFactory` and the auto-layout engine.  A line
@@ -90,8 +90,8 @@ export class PolyLine extends LineFace {
      *    looked up by searching `this.spans` for the entry whose flanking
      *    handles match `handles[i-1]` and `handles[i]` — a defensive O(k)
      *    scan that stays correct even if a diagonal segment was skipped during
-     *    span classification (which TALA never produces, but the classifier
-     *    guards against it).  If no matching span exists, the line view itself
+     *    span classification (which the auto-layout engine never produces, but
+     *    the classifier guards against it).  If no matching span exists, the line view itself
      *    is returned as a safe fallback.
      *
      * 3. End hitboxes (`i === 0` or `i === hitboxes.length - 1`) still return
@@ -143,8 +143,8 @@ export class PolyLine extends LineFace {
                         s => s.handleA === handleA && s.handleB === handleB
                     );
                     // If no span matches (diagonal segment skipped during
-                    // classification — defensive only, TALA never produces
-                    // diagonals), fall through to the line view.  Silent because
+                    // classification — defensive only, the auto-layout engine
+                    // never produces diagonals), fall through to the line view.  Silent because
                     // getObjectAt runs on every hover tick.
                     return span ?? this.view;
                 } else {
