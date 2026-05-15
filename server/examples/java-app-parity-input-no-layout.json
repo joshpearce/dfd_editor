@@ -1,0 +1,3202 @@
+{
+    "schema": "dfd_v1",
+    "theme": "dark_theme",
+    "objects": [
+        {
+            "id": "dfd",
+            "instance": "31cc250b-1463-4095-8423-75f4b6103942",
+            "properties": [
+                [
+                    "name",
+                    "default"
+                ],
+                [
+                    "description",
+                    "Modern Java web app threat model \u2014 built live via the tm CLI."
+                ],
+                [
+                    "author",
+                    "tm-cli demo"
+                ],
+                [
+                    "created",
+                    {
+                        "time": "2026-05-15T08:55:23.304Z",
+                        "zone": "America/New_York"
+                    }
+                ],
+                [
+                    "data_items",
+                    [
+                        [
+                            "28fa0d0e-0b46-505b-b825-4a5fc23692f9",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D1"
+                                ],
+                                [
+                                    "name",
+                                    "User Credentials"
+                                ],
+                                [
+                                    "description",
+                                    "Username + plaintext password supplied at sign-in."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "960a9a29-d024-5f09-9124-b24736385631",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D12"
+                                ],
+                                [
+                                    "name",
+                                    "Credit Card PAN"
+                                ],
+                                [
+                                    "description",
+                                    "Raw PAN entered at checkout."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "c96de0b7-5275-5454-b32d-59aade897508",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D13"
+                                ],
+                                [
+                                    "name",
+                                    "Stripe Payment Token"
+                                ],
+                                [
+                                    "description",
+                                    "Opaque tokenized card reference."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "315fce78-4c36-5428-bd7e-73397474e74f",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D14"
+                                ],
+                                [
+                                    "name",
+                                    "Stripe Charge Receipt"
+                                ],
+                                [
+                                    "description",
+                                    "Charge id, last4, amount, status."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "ca06ca5d-43bf-5f37-b2f2-5ba5f4399c71",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D25"
+                                ],
+                                [
+                                    "name",
+                                    "SES Send Receipt"
+                                ],
+                                [
+                                    "description",
+                                    "MessageId ack returned by SES."
+                                ],
+                                [
+                                    "classification",
+                                    "internal"
+                                ]
+                            ]
+                        ],
+                        [
+                            "cf1e4454-0658-50c7-a8b7-9294722f3c88",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D21"
+                                ],
+                                [
+                                    "name",
+                                    "Static Web Asset"
+                                ],
+                                [
+                                    "description",
+                                    "SPA bundle, CSS, images."
+                                ],
+                                [
+                                    "classification",
+                                    "public"
+                                ]
+                            ]
+                        ],
+                        [
+                            "3374f10f-1ef2-5050-b5be-a7df2ad1f87c",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D26"
+                                ],
+                                [
+                                    "name",
+                                    "Rendered HTML Page"
+                                ],
+                                [
+                                    "description",
+                                    "Server-rendered HTML."
+                                ],
+                                [
+                                    "classification",
+                                    "public"
+                                ]
+                            ]
+                        ],
+                        [
+                            "e9d2c528-e100-5d55-9836-39ae944671b1",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D5"
+                                ],
+                                [
+                                    "name",
+                                    "Session Cookie"
+                                ],
+                                [
+                                    "description",
+                                    "HttpOnly Secure SameSite=Lax cookie."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "0359519e-8904-5101-a33d-009129c28ca0",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D22"
+                                ],
+                                [
+                                    "name",
+                                    "API Request Payload"
+                                ],
+                                [
+                                    "description",
+                                    "JSON request body."
+                                ],
+                                [
+                                    "classification",
+                                    "internal"
+                                ]
+                            ]
+                        ],
+                        [
+                            "cb0f39bd-153b-54bc-8dd8-df866217226b",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D23"
+                                ],
+                                [
+                                    "name",
+                                    "API Response Payload"
+                                ],
+                                [
+                                    "description",
+                                    "JSON response body."
+                                ],
+                                [
+                                    "classification",
+                                    "internal"
+                                ]
+                            ]
+                        ],
+                        [
+                            "3357d883-f464-57d6-9cab-80f5c3e8bb74",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D3"
+                                ],
+                                [
+                                    "name",
+                                    "Session JWT"
+                                ],
+                                [
+                                    "description",
+                                    "Short-lived access token."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "2d33d063-923e-5599-82b0-2c0f9a869333",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D4"
+                                ],
+                                [
+                                    "name",
+                                    "Refresh Token"
+                                ],
+                                [
+                                    "description",
+                                    "Long-lived refresh token."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "2123ee97-1efe-5e78-b7b0-aa17830acaae",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D6"
+                                ],
+                                [
+                                    "name",
+                                    "Cognito ID Token"
+                                ],
+                                [
+                                    "description",
+                                    "OIDC ID token after a successful auth challenge."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "f2115684-f332-5aa6-aed7-24b1ad2fbcca",
+                            [
+                                [
+                                    "parent",
+                                    null
+                                ],
+                                [
+                                    "identifier",
+                                    "D20"
+                                ],
+                                [
+                                    "name",
+                                    "Transactional Email"
+                                ],
+                                [
+                                    "description",
+                                    "Rendered receipt or notification email body."
+                                ],
+                                [
+                                    "classification",
+                                    "pii"
+                                ]
+                            ]
+                        ],
+                        [
+                            "04c3c545-64ec-567a-ad60-d3aa335f7e1d",
+                            [
+                                [
+                                    "parent",
+                                    "cc638da7-a96b-569f-9494-51f4d9b57e88"
+                                ],
+                                [
+                                    "identifier",
+                                    "D17"
+                                ],
+                                [
+                                    "name",
+                                    "Rate Limit Counter"
+                                ],
+                                [
+                                    "description",
+                                    "Per-IP per-route counter with TTL."
+                                ],
+                                [
+                                    "classification",
+                                    "internal"
+                                ]
+                            ]
+                        ],
+                        [
+                            "f0f3341b-b191-51ec-9a72-1684562a741d",
+                            [
+                                [
+                                    "parent",
+                                    "cc638da7-a96b-569f-9494-51f4d9b57e88"
+                                ],
+                                [
+                                    "identifier",
+                                    "D18"
+                                ],
+                                [
+                                    "name",
+                                    "Cached Session State"
+                                ],
+                                [
+                                    "description",
+                                    "Serialized session blob keyed by session id."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "869857ae-c118-513f-b80d-8f1056e2d13b",
+                            [
+                                [
+                                    "parent",
+                                    "fe3ef076-00fa-51b5-a4a1-f9d98a07b567"
+                                ],
+                                [
+                                    "identifier",
+                                    "D2"
+                                ],
+                                [
+                                    "name",
+                                    "Password Hash"
+                                ],
+                                [
+                                    "description",
+                                    "bcrypt hash."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "d02d1534-d88b-5ca7-841a-26e08d7c5d32",
+                            [
+                                [
+                                    "parent",
+                                    "fe3ef076-00fa-51b5-a4a1-f9d98a07b567"
+                                ],
+                                [
+                                    "identifier",
+                                    "D7"
+                                ],
+                                [
+                                    "name",
+                                    "User Profile Record"
+                                ],
+                                [
+                                    "description",
+                                    "User profile record."
+                                ],
+                                [
+                                    "classification",
+                                    "pii"
+                                ]
+                            ]
+                        ],
+                        [
+                            "775432cd-bdbd-568b-9aff-ed923ec53e55",
+                            [
+                                [
+                                    "parent",
+                                    "fe3ef076-00fa-51b5-a4a1-f9d98a07b567"
+                                ],
+                                [
+                                    "identifier",
+                                    "D8"
+                                ],
+                                [
+                                    "name",
+                                    "Customer Email Address"
+                                ],
+                                [
+                                    "description",
+                                    "Customer email address."
+                                ],
+                                [
+                                    "classification",
+                                    "pii"
+                                ]
+                            ]
+                        ],
+                        [
+                            "80e49f42-bad1-5513-b57a-f73f1bc35134",
+                            [
+                                [
+                                    "parent",
+                                    "fe3ef076-00fa-51b5-a4a1-f9d98a07b567"
+                                ],
+                                [
+                                    "identifier",
+                                    "D9"
+                                ],
+                                [
+                                    "name",
+                                    "Shipping Address"
+                                ],
+                                [
+                                    "description",
+                                    "Shipping address."
+                                ],
+                                [
+                                    "classification",
+                                    "pii"
+                                ]
+                            ]
+                        ],
+                        [
+                            "1ad98408-2bb4-5d8f-8ec5-2a33d872233c",
+                            [
+                                [
+                                    "parent",
+                                    "fe3ef076-00fa-51b5-a4a1-f9d98a07b567"
+                                ],
+                                [
+                                    "identifier",
+                                    "D10"
+                                ],
+                                [
+                                    "name",
+                                    "Order Record"
+                                ],
+                                [
+                                    "description",
+                                    "Order record."
+                                ],
+                                [
+                                    "classification",
+                                    "internal"
+                                ]
+                            ]
+                        ],
+                        [
+                            "b0678992-cd74-5b2e-aa30-dfb8af8758a6",
+                            [
+                                [
+                                    "parent",
+                                    "fe3ef076-00fa-51b5-a4a1-f9d98a07b567"
+                                ],
+                                [
+                                    "identifier",
+                                    "D11"
+                                ],
+                                [
+                                    "name",
+                                    "Audit Log Entry"
+                                ],
+                                [
+                                    "description",
+                                    "Append-only timestamped action log."
+                                ],
+                                [
+                                    "classification",
+                                    "internal"
+                                ]
+                            ]
+                        ],
+                        [
+                            "e4f57766-1d98-557e-90f1-1905e9960c57",
+                            [
+                                [
+                                    "parent",
+                                    "cc53c10f-b1b0-5311-8bc7-72aeddde9e79"
+                                ],
+                                [
+                                    "identifier",
+                                    "D15"
+                                ],
+                                [
+                                    "name",
+                                    "Profile Photo"
+                                ],
+                                [
+                                    "description",
+                                    "User-uploaded avatar."
+                                ],
+                                [
+                                    "classification",
+                                    "pii"
+                                ]
+                            ]
+                        ],
+                        [
+                            "684ab2e1-3931-5f19-800a-dfb20396831f",
+                            [
+                                [
+                                    "parent",
+                                    "cc53c10f-b1b0-5311-8bc7-72aeddde9e79"
+                                ],
+                                [
+                                    "identifier",
+                                    "D16"
+                                ],
+                                [
+                                    "name",
+                                    "File Attachment"
+                                ],
+                                [
+                                    "description",
+                                    "Customer document."
+                                ],
+                                [
+                                    "classification",
+                                    "secret"
+                                ]
+                            ]
+                        ],
+                        [
+                            "1c431a39-d6e6-5743-bfe4-a4d414ccc30a",
+                            [
+                                [
+                                    "parent",
+                                    "fb0b8d1d-6881-5c4b-85ae-3dd2e5e6d8e9"
+                                ],
+                                [
+                                    "identifier",
+                                    "D19"
+                                ],
+                                [
+                                    "name",
+                                    "Async Job Message"
+                                ],
+                                [
+                                    "description",
+                                    "Job type + payload + correlation id."
+                                ],
+                                [
+                                    "classification",
+                                    "internal"
+                                ]
+                            ]
+                        ],
+                        [
+                            "39d7b2d6-532f-5fad-926b-4b54897ec708",
+                            [
+                                [
+                                    "parent",
+                                    "fb0b8d1d-6881-5c4b-85ae-3dd2e5e6d8e9"
+                                ],
+                                [
+                                    "identifier",
+                                    "D24"
+                                ],
+                                [
+                                    "name",
+                                    "SQS Send Receipt"
+                                ],
+                                [
+                                    "description",
+                                    "MessageId ack."
+                                ],
+                                [
+                                    "classification",
+                                    "internal"
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ],
+            "objects": [
+                "8984ecd3-0646-58da-b5ba-19d1a1226577",
+                "5babb0db-cdf8-58a0-96a9-e4daf2cd513e",
+                "26a6bcc1-16d1-5386-8d79-0115296887fc",
+                "4b903840-a4ad-55c5-b427-d1adfb2556a4",
+                "f88aa1e4-2661-5e30-816d-0ab74e75364a",
+                "46f40bf4-9099-57e4-9fa3-3e95790c9b69",
+                "1072d036-89e0-5841-aaa7-3b40ee287766",
+                "e591bf44-d89d-5aeb-95a5-30f0be03687e",
+                "9a9bde1a-d90f-56b4-8578-9b39fff1f03f",
+                "0b05b735-caf9-5216-a5d5-8adf129d7fa2",
+                "29852713-150b-54a0-baa0-67a43517f5ee",
+                "9f3a80fb-134d-589a-be5a-0dda032e8a6b",
+                "d9653a18-c756-531b-923e-222ac95f83c1",
+                "3aaf702e-d33f-56d8-b253-5e96974a07ab",
+                "c821f134-7f1c-542a-bc45-4c8b17bc660a",
+                "72d485a0-1fea-552b-a212-7afcd079f5b8",
+                "6b5a583e-7641-577c-9a93-02c2da1d1f00",
+                "f6ba4749-2193-51c1-9d9f-c895db302888",
+                "a04a7400-4900-5ac7-84f2-0e2eae67d96b"
+            ]
+        },
+        {
+            "id": "trust_boundary",
+            "instance": "8984ecd3-0646-58da-b5ba-19d1a1226577",
+            "properties": [
+                [
+                    "name",
+                    "Internet"
+                ],
+                [
+                    "description",
+                    "Untrusted public network \u2014 any client can originate traffic here."
+                ],
+                [
+                    "privilege_level",
+                    "internet"
+                ]
+            ],
+            "objects": [
+                "6d1314fe-5ffa-559e-9756-b252f28eaadd",
+                "a933c478-b926-544d-89ef-2b3a71dd731d"
+            ]
+        },
+        {
+            "id": "external_entity",
+            "instance": "6d1314fe-5ffa-559e-9756-b252f28eaadd",
+            "properties": [
+                [
+                    "name",
+                    "End User"
+                ],
+                [
+                    "description",
+                    "Customer browsing from a regular browser."
+                ],
+                [
+                    "entity_type",
+                    "user"
+                ],
+                [
+                    "out_of_scope",
+                    "false"
+                ]
+            ],
+            "anchors": {
+                "0": "2f749672-3cf2-4a47-b305-e211048e78b0",
+                "30": "ec2c4ad1-3a8a-4505-848d-ba1e5b7b0164",
+                "60": "8d83343e-d9c5-4bf2-a9be-2c9ff1172f88",
+                "90": "446c9b96-7d7d-4d82-9606-53a3dd50d299",
+                "120": "8aa83609-bc0b-46c1-93ec-c790ea5f7b16",
+                "150": "6ef07c0e-8fdc-4d7c-9c26-cf1352026a25",
+                "180": "d700fca5-b7ad-4ecf-b621-e8265283b338",
+                "210": "4beb345c-6f7d-43c8-9421-de9c7cfb5cf6",
+                "240": "5fa14fa1-7d44-482b-bca2-191e44d0111b",
+                "270": "f4ae49d1-691c-40a0-9b11-25be03ad932f",
+                "300": "7fdc4ca0-4d94-4655-8929-2d92dd592216",
+                "330": "e3bda979-f3c4-49f7-9070-16968f797bee"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "2f749672-3cf2-4a47-b305-e211048e78b0",
+            "latches": [
+                "37ed7cf3-0181-4290-822c-5d2f4ed24144"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "ec2c4ad1-3a8a-4505-848d-ba1e5b7b0164",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "8d83343e-d9c5-4bf2-a9be-2c9ff1172f88",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "446c9b96-7d7d-4d82-9606-53a3dd50d299",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "8aa83609-bc0b-46c1-93ec-c790ea5f7b16",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "6ef07c0e-8fdc-4d7c-9c26-cf1352026a25",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "d700fca5-b7ad-4ecf-b621-e8265283b338",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "4beb345c-6f7d-43c8-9421-de9c7cfb5cf6",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "5fa14fa1-7d44-482b-bca2-191e44d0111b",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "f4ae49d1-691c-40a0-9b11-25be03ad932f",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "7fdc4ca0-4d94-4655-8929-2d92dd592216",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "e3bda979-f3c4-49f7-9070-16968f797bee",
+            "latches": []
+        },
+        {
+            "id": "external_entity",
+            "instance": "a933c478-b926-544d-89ef-2b3a71dd731d",
+            "properties": [
+                [
+                    "name",
+                    "Stripe"
+                ],
+                [
+                    "description",
+                    "Third-party payment processor."
+                ],
+                [
+                    "entity_type",
+                    "service"
+                ],
+                [
+                    "out_of_scope",
+                    "true"
+                ]
+            ],
+            "anchors": {
+                "0": "2ea58ffb-77f8-488e-aca9-017ba19a2a0a",
+                "30": "fa8133d4-6404-4248-8e66-9426909e3f0d",
+                "60": "95ee6e04-5811-475a-9087-a53b799b5c7d",
+                "90": "4bb965ab-921c-4a60-87e3-511d387ad020",
+                "120": "966eaa0e-ba49-4998-8023-f9f212b0716d",
+                "150": "321cbcc4-5015-409e-8e39-47f90e7d896f",
+                "180": "9bf7dea4-f9c6-4f22-952c-7429c88389f3",
+                "210": "5454d811-5031-4d30-8ee3-852a0ae5d6eb",
+                "240": "1252afad-7c42-4813-b04d-9c33d653234f",
+                "270": "b42ee6fb-891a-45df-9356-3ad352305b29",
+                "300": "871323b6-f5df-45a6-bcb2-8f618f7534eb",
+                "330": "6a6b4252-58b6-414c-b957-1df22951ac10"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "2ea58ffb-77f8-488e-aca9-017ba19a2a0a",
+            "latches": [
+                "a541fc60-b60f-4b7b-9e0a-0f06e0d69744"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "fa8133d4-6404-4248-8e66-9426909e3f0d",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "95ee6e04-5811-475a-9087-a53b799b5c7d",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "4bb965ab-921c-4a60-87e3-511d387ad020",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "966eaa0e-ba49-4998-8023-f9f212b0716d",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "321cbcc4-5015-409e-8e39-47f90e7d896f",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "9bf7dea4-f9c6-4f22-952c-7429c88389f3",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "5454d811-5031-4d30-8ee3-852a0ae5d6eb",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "1252afad-7c42-4813-b04d-9c33d653234f",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "b42ee6fb-891a-45df-9356-3ad352305b29",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "871323b6-f5df-45a6-bcb2-8f618f7534eb",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "6a6b4252-58b6-414c-b957-1df22951ac10",
+            "latches": []
+        },
+        {
+            "id": "trust_boundary",
+            "instance": "5babb0db-cdf8-58a0-96a9-e4daf2cd513e",
+            "properties": [
+                [
+                    "name",
+                    "AWS Public Subnet"
+                ],
+                [
+                    "description",
+                    "Internet-facing edge of the VPC where TLS terminates and the ALB lives."
+                ],
+                [
+                    "privilege_level",
+                    "dmz"
+                ]
+            ],
+            "objects": [
+                "ec28063f-2602-5d8f-ae67-b9c332138468",
+                "fc679a18-53bd-5703-b33b-cacf305d8a2b"
+            ]
+        },
+        {
+            "id": "process",
+            "instance": "ec28063f-2602-5d8f-ae67-b9c332138468",
+            "properties": [
+                [
+                    "name",
+                    "Application Load Balancer"
+                ],
+                [
+                    "description",
+                    "Routes to ECS services by host/path."
+                ],
+                [
+                    "trust_level",
+                    "system"
+                ],
+                [
+                    "assumptions",
+                    []
+                ]
+            ],
+            "anchors": {
+                "0": "46a14e15-3d32-4f11-a907-3c328534570f",
+                "30": "c81a294a-802c-4e67-a875-74a4ee2aa582",
+                "60": "e38efa5c-040b-4473-a322-5e0e7a9e2dea",
+                "90": "710bcf03-6c5f-4b58-909b-5d9522c2b044",
+                "120": "7d67171b-d5d0-4c3a-ba4d-f4c3374b06a5",
+                "150": "515c27af-5dec-412f-9d5c-55cfaf2a9e8c",
+                "180": "482a46c6-bdcf-4ba2-af88-440886f1a2bd",
+                "210": "faa86f1e-a419-405d-857d-90524bf5aa34",
+                "240": "f769958b-bddd-44c0-b15c-fb692180d32f",
+                "270": "a80797ee-0194-438b-9ec6-beaf4a0c1b7c",
+                "300": "1d273e4a-b7f8-44f1-8017-b4b9cfa308a3",
+                "330": "f20f13a6-24d0-4d9b-88ba-3cfc34c6f642"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "46a14e15-3d32-4f11-a907-3c328534570f",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "c81a294a-802c-4e67-a875-74a4ee2aa582",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "e38efa5c-040b-4473-a322-5e0e7a9e2dea",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "710bcf03-6c5f-4b58-909b-5d9522c2b044",
+            "latches": [
+                "03fb8cbf-2831-4a69-8e15-433b9bbbd7dd"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "7d67171b-d5d0-4c3a-ba4d-f4c3374b06a5",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "515c27af-5dec-412f-9d5c-55cfaf2a9e8c",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "482a46c6-bdcf-4ba2-af88-440886f1a2bd",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "faa86f1e-a419-405d-857d-90524bf5aa34",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "f769958b-bddd-44c0-b15c-fb692180d32f",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "a80797ee-0194-438b-9ec6-beaf4a0c1b7c",
+            "latches": [
+                "83439776-1a05-4cd5-a411-d64f1ded36af"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "1d273e4a-b7f8-44f1-8017-b4b9cfa308a3",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "f20f13a6-24d0-4d9b-88ba-3cfc34c6f642",
+            "latches": []
+        },
+        {
+            "id": "process",
+            "instance": "fc679a18-53bd-5703-b33b-cacf305d8a2b",
+            "properties": [
+                [
+                    "name",
+                    "CloudFront CDN"
+                ],
+                [
+                    "description",
+                    "Edge cache and TLS termination for static assets and API routes."
+                ],
+                [
+                    "trust_level",
+                    "system"
+                ],
+                [
+                    "assumptions",
+                    []
+                ]
+            ],
+            "anchors": {
+                "0": "9c656d8c-d096-40a7-aea8-e6f3375f8959",
+                "30": "49181643-ba77-410e-88c4-44d83ba54f39",
+                "60": "39f3c5f3-9bc8-4284-9e77-9fe51a6b7899",
+                "90": "165a37a5-2428-4071-9f66-bce84f12f617",
+                "120": "738d48a9-0e21-47d7-8927-402d93a080ec",
+                "150": "69d11c9c-8fa4-4832-8d7c-5071e6e0a7f9",
+                "180": "5c4f35df-02cf-48e9-b8b4-58554482e786",
+                "210": "83202399-4f97-41ff-9505-c975f0241e8f",
+                "240": "74f40b49-ab47-49fe-8eff-cc934967e09e",
+                "270": "d36bd778-9785-4589-9cc4-e584dc0d6c06",
+                "300": "e7ae748b-7207-4c4c-9521-4318d67f4310",
+                "330": "5f6e6a56-816e-4a78-855d-3cfd92a5608c"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "9c656d8c-d096-40a7-aea8-e6f3375f8959",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "49181643-ba77-410e-88c4-44d83ba54f39",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "39f3c5f3-9bc8-4284-9e77-9fe51a6b7899",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "165a37a5-2428-4071-9f66-bce84f12f617",
+            "latches": [
+                "d3c091c3-9e0c-4e44-8371-601e6c2ed88b"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "738d48a9-0e21-47d7-8927-402d93a080ec",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "69d11c9c-8fa4-4832-8d7c-5071e6e0a7f9",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "5c4f35df-02cf-48e9-b8b4-58554482e786",
+            "latches": [
+                "e7b595c1-3bc6-4d33-a5fd-0192e1203b5e"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "83202399-4f97-41ff-9505-c975f0241e8f",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "74f40b49-ab47-49fe-8eff-cc934967e09e",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "d36bd778-9785-4589-9cc4-e584dc0d6c06",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "e7ae748b-7207-4c4c-9521-4318d67f4310",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "5f6e6a56-816e-4a78-855d-3cfd92a5608c",
+            "latches": []
+        },
+        {
+            "id": "trust_boundary",
+            "instance": "26a6bcc1-16d1-5386-8d79-0115296887fc",
+            "properties": [
+                [
+                    "name",
+                    "AWS Private Subnet"
+                ],
+                [
+                    "description",
+                    "Application tier \u2014 runs ECS Fargate and the in-VPC cache."
+                ],
+                [
+                    "privilege_level",
+                    "corporate"
+                ]
+            ],
+            "objects": [
+                "6d2285b2-a0b3-5799-9b02-a8c97c8b113b",
+                "cc638da7-a96b-569f-9494-51f4d9b57e88"
+            ]
+        },
+        {
+            "id": "container",
+            "instance": "6d2285b2-a0b3-5799-9b02-a8c97c8b113b",
+            "properties": [
+                [
+                    "name",
+                    "ECS Cluster"
+                ],
+                [
+                    "description",
+                    "Fargate cluster hosting the four Spring Boot services."
+                ]
+            ],
+            "objects": [
+                "0fb6153d-8534-5421-9a02-0ae813b85a09",
+                "631d8124-5094-53cd-9aa0-3ea6f0292931",
+                "aaf55b10-7514-5b7e-b2b6-0ca504e3a308",
+                "d41f7b88-bc42-583d-97d4-1bffb825b5c5"
+            ]
+        },
+        {
+            "id": "process",
+            "instance": "0fb6153d-8534-5421-9a02-0ae813b85a09",
+            "properties": [
+                [
+                    "name",
+                    "Spring Boot Web Frontend"
+                ],
+                [
+                    "description",
+                    "Serves the Vue SPA, proxies auth + API."
+                ],
+                [
+                    "trust_level",
+                    "authenticated"
+                ],
+                [
+                    "assumptions",
+                    [
+                        [
+                            "5787ea1db5ac3db35348439c2435b26a",
+                            "TLS terminates at the ALB, so the ALB\u2192Frontend hop is plaintext HTTP inside the VPC."
+                        ],
+                        [
+                            "de515302cd0c94e4d1e9451378055588",
+                            "Session cookies are HttpOnly+Secure+SameSite=Lax."
+                        ]
+                    ]
+                ]
+            ],
+            "anchors": {
+                "0": "d2e02ed7-158d-4c1d-878b-86cd0c34f1e6",
+                "30": "9ea94681-0ab2-4bff-9b3c-13bbeab603e0",
+                "60": "abbda334-fd16-490f-89f0-4b588c041ada",
+                "90": "daed63f6-dcf9-4ffe-9991-73c0a9c9b54c",
+                "120": "70f227b0-918f-4d2f-9710-4a61e1749d9c",
+                "150": "cf3ae3a1-120d-4f5f-bc83-2155c5d1a98d",
+                "180": "b9af5b66-e115-4614-969e-ba19b621a07b",
+                "210": "d30b9ba8-819b-4313-8110-4d9fb60b1efd",
+                "240": "7ff816d0-7b68-478c-8c60-6add4e24a464",
+                "270": "7f24a132-3be3-4c9c-ba38-39d5f48412c8",
+                "300": "eb4dba2b-10ce-4155-9af2-b7a3dbf7297f",
+                "330": "196a367a-c005-4097-bd37-44693cc51d0c"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "d2e02ed7-158d-4c1d-878b-86cd0c34f1e6",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "9ea94681-0ab2-4bff-9b3c-13bbeab603e0",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "abbda334-fd16-490f-89f0-4b588c041ada",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "daed63f6-dcf9-4ffe-9991-73c0a9c9b54c",
+            "latches": [
+                "fde81ccf-fddb-45a6-b0df-1ae4d3bec80e"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "70f227b0-918f-4d2f-9710-4a61e1749d9c",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "cf3ae3a1-120d-4f5f-bc83-2155c5d1a98d",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "b9af5b66-e115-4614-969e-ba19b621a07b",
+            "latches": [
+                "8c2c7eab-eb72-4377-ae87-bdb8d7a8767d"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "d30b9ba8-819b-4313-8110-4d9fb60b1efd",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "7ff816d0-7b68-478c-8c60-6add4e24a464",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "7f24a132-3be3-4c9c-ba38-39d5f48412c8",
+            "latches": [
+                "f67dd454-57e0-45b4-be97-9f80c86b0347"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "eb4dba2b-10ce-4155-9af2-b7a3dbf7297f",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "196a367a-c005-4097-bd37-44693cc51d0c",
+            "latches": []
+        },
+        {
+            "id": "process",
+            "instance": "631d8124-5094-53cd-9aa0-3ea6f0292931",
+            "properties": [
+                [
+                    "name",
+                    "Background Worker"
+                ],
+                [
+                    "description",
+                    "Polls SQS for async jobs (email, billing reconciliation)."
+                ],
+                [
+                    "trust_level",
+                    "authenticated"
+                ],
+                [
+                    "assumptions",
+                    []
+                ]
+            ],
+            "anchors": {
+                "0": "6ab3be22-d751-4074-ad20-7c630fc9fbb6",
+                "30": "88f398e9-8786-4e16-958c-4b234c91b7f8",
+                "60": "326892d3-51a2-4cb1-b94f-897d7c7151ca",
+                "90": "cd4f687e-9243-4046-bd36-c06f28f84a47",
+                "120": "81125a1d-d93d-4234-8540-2814c93401dc",
+                "150": "81fd627b-8498-430d-8dd8-a090ca2ba7de",
+                "180": "09d71b2c-cea2-4bdc-9018-ff7c5a9b053f",
+                "210": "3ad8e89f-5f37-4818-81db-cdff0188afc4",
+                "240": "4aa0159f-67e3-4146-ad38-5ff0deb82ee1",
+                "270": "b5a546c7-d8a3-4248-a8de-80ebcecdda35",
+                "300": "a41fbab3-b910-412d-af1b-e11e289604e4",
+                "330": "370e3929-04ec-434c-ad36-91e74ed2c12a"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "6ab3be22-d751-4074-ad20-7c630fc9fbb6",
+            "latches": [
+                "d06f3297-ab69-4913-b305-7fd629fba36e"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "88f398e9-8786-4e16-958c-4b234c91b7f8",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "326892d3-51a2-4cb1-b94f-897d7c7151ca",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "cd4f687e-9243-4046-bd36-c06f28f84a47",
+            "latches": [
+                "90baa6fb-851e-4162-a359-78c43e7c1215"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "81125a1d-d93d-4234-8540-2814c93401dc",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "81fd627b-8498-430d-8dd8-a090ca2ba7de",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "09d71b2c-cea2-4bdc-9018-ff7c5a9b053f",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "3ad8e89f-5f37-4818-81db-cdff0188afc4",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "4aa0159f-67e3-4146-ad38-5ff0deb82ee1",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "b5a546c7-d8a3-4248-a8de-80ebcecdda35",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "a41fbab3-b910-412d-af1b-e11e289604e4",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "370e3929-04ec-434c-ad36-91e74ed2c12a",
+            "latches": []
+        },
+        {
+            "id": "process",
+            "instance": "aaf55b10-7514-5b7e-b2b6-0ca504e3a308",
+            "properties": [
+                [
+                    "name",
+                    "Spring Boot REST API"
+                ],
+                [
+                    "description",
+                    "CRUD and business-logic endpoints."
+                ],
+                [
+                    "trust_level",
+                    "authenticated"
+                ],
+                [
+                    "assumptions",
+                    [
+                        [
+                            "8ce0dd547eace7f8198061967c9c84f3",
+                            "Every inbound request carries a JWT minted by the Auth Service."
+                        ],
+                        [
+                            "3bb740b1764775141e6a10a42c3e1232",
+                            "Outbound AWS calls use the task IAM role, not static keys."
+                        ]
+                    ]
+                ]
+            ],
+            "anchors": {
+                "0": "7cfc7919-dee3-4e53-9362-04d45aa1e35b",
+                "30": "92a5c0e4-b9d4-407d-be69-0eff54c81d11",
+                "60": "7e068a09-27a5-48f5-9e9d-24201c635d58",
+                "90": "d6a1adc5-4cec-4388-9dc1-96686fb02e62",
+                "120": "8bdf3e65-e7c8-4e2f-95a2-b1385ccd7006",
+                "150": "ef817e49-6b5f-4d09-86cb-a11f855765da",
+                "180": "cbf2042a-c36b-467a-afbc-70ded9d47c1d",
+                "210": "10f4f99b-8ab3-4550-9277-190f8143c77e",
+                "240": "869495b8-1d2a-4e7a-a652-40ddf28d92a1",
+                "270": "168b2388-4b6e-4366-8ab2-de9cc2aef85f",
+                "300": "8b575f34-cf01-44d6-a894-74f98ca62fcf",
+                "330": "4479ac6a-ec33-4d6f-b8a0-8a37d84f1cb2"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "7cfc7919-dee3-4e53-9362-04d45aa1e35b",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "92a5c0e4-b9d4-407d-be69-0eff54c81d11",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "7e068a09-27a5-48f5-9e9d-24201c635d58",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "d6a1adc5-4cec-4388-9dc1-96686fb02e62",
+            "latches": [
+                "fdd62dfc-6286-401b-86cc-62d0bed346dd"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "8bdf3e65-e7c8-4e2f-95a2-b1385ccd7006",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "ef817e49-6b5f-4d09-86cb-a11f855765da",
+            "latches": [
+                "2c7e0a74-9044-4e9b-92ba-eebcdbaeb21c"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "cbf2042a-c36b-467a-afbc-70ded9d47c1d",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "10f4f99b-8ab3-4550-9277-190f8143c77e",
+            "latches": [
+                "a5cf6ceb-0e2d-45cf-bc57-2839c008f881"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "869495b8-1d2a-4e7a-a652-40ddf28d92a1",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "168b2388-4b6e-4366-8ab2-de9cc2aef85f",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "8b575f34-cf01-44d6-a894-74f98ca62fcf",
+            "latches": [
+                "988946aa-7277-4c7f-b18d-5a80e82e435c"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "4479ac6a-ec33-4d6f-b8a0-8a37d84f1cb2",
+            "latches": [
+                "71384081-1b15-4020-8c7b-6d460e8d8d3f",
+                "9a1328fd-1fc8-44a1-8247-a1eb8faedebe"
+            ]
+        },
+        {
+            "id": "process",
+            "instance": "d41f7b88-bc42-583d-97d4-1bffb825b5c5",
+            "properties": [
+                [
+                    "name",
+                    "Auth Service"
+                ],
+                [
+                    "description",
+                    "Fronts Cognito, mints short-lived JWTs and runs password flows."
+                ],
+                [
+                    "trust_level",
+                    "admin"
+                ],
+                [
+                    "assumptions",
+                    []
+                ]
+            ],
+            "anchors": {
+                "0": "704874d3-8b87-4ad0-aee3-5e13d959e5e3",
+                "30": "5ed4e641-9d8c-43b7-8293-8c782f8607ab",
+                "60": "ec124c18-78d6-4dac-8a4a-7826f081c249",
+                "90": "e5459571-57fb-4994-aad7-742e4633514b",
+                "120": "9d71a584-87d1-40c4-b6fe-142da582551a",
+                "150": "d77d0d0d-5308-4185-b1fe-074eb8ddb810",
+                "180": "109eb6b7-8662-4769-aa3a-66469a498feb",
+                "210": "f4aa569a-c8ab-4260-83a4-5b6adfb4aae8",
+                "240": "cdaff6ea-335c-4157-a8f3-c0341b0922d8",
+                "270": "f5dcb1de-6f3b-4a7a-b6e0-bd13b6131239",
+                "300": "9be1618d-57cb-454c-b40e-5bba096a5467",
+                "330": "005ec415-3197-4146-abe7-a1b63fadaf4a"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "704874d3-8b87-4ad0-aee3-5e13d959e5e3",
+            "latches": [
+                "82c185df-1812-4de5-9c0e-cf3db16382be"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "5ed4e641-9d8c-43b7-8293-8c782f8607ab",
+            "latches": [
+                "d3d00afe-4af5-4ff9-b3e9-d0b44fb26a48"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "ec124c18-78d6-4dac-8a4a-7826f081c249",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "e5459571-57fb-4994-aad7-742e4633514b",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "9d71a584-87d1-40c4-b6fe-142da582551a",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "d77d0d0d-5308-4185-b1fe-074eb8ddb810",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "109eb6b7-8662-4769-aa3a-66469a498feb",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "f4aa569a-c8ab-4260-83a4-5b6adfb4aae8",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "cdaff6ea-335c-4157-a8f3-c0341b0922d8",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "f5dcb1de-6f3b-4a7a-b6e0-bd13b6131239",
+            "latches": [
+                "59a0700a-7000-49d5-b412-842d44cc7e0d"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "9be1618d-57cb-454c-b40e-5bba096a5467",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "005ec415-3197-4146-abe7-a1b63fadaf4a",
+            "latches": []
+        },
+        {
+            "id": "data_store",
+            "instance": "cc638da7-a96b-569f-9494-51f4d9b57e88",
+            "properties": [
+                [
+                    "name",
+                    "ElastiCache Redis"
+                ],
+                [
+                    "description",
+                    "Session cache + rate-limit counters volatile."
+                ],
+                [
+                    "storage_type",
+                    "cache"
+                ],
+                [
+                    "contains_pii",
+                    "false"
+                ],
+                [
+                    "encryption_at_rest",
+                    "true"
+                ]
+            ],
+            "anchors": {
+                "0": "a983f1bf-965c-4a96-a3cc-fa89b37f3697",
+                "30": "a7a0c61b-9e72-4c9b-9c11-12a1d012bf73",
+                "60": "87fef4b2-933f-4425-8d25-6dd588e14c9f",
+                "90": "6126d979-1067-4afc-9447-e11ea48c7e76",
+                "120": "72cabd6a-74a1-4f5d-87dd-74b0fe227d46",
+                "150": "7b1531b9-78eb-49df-aa24-eec0eca30f1e",
+                "180": "31b3507c-0824-4c1d-ad9c-a13e0fb1f449",
+                "210": "c2dc68ed-a0a0-4026-86c2-798d5a1f0c3c",
+                "240": "7abdd628-4af8-4a7a-a4c4-85f7b42126c3",
+                "270": "e69191cc-a43b-4be1-8ef5-bf68caa0a0dd",
+                "300": "40e165e9-4972-4e09-9acb-39978a5f82af",
+                "330": "2a4bbc80-a8a1-4ced-8880-ccf042cbc640"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "a983f1bf-965c-4a96-a3cc-fa89b37f3697",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "a7a0c61b-9e72-4c9b-9c11-12a1d012bf73",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "87fef4b2-933f-4425-8d25-6dd588e14c9f",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "6126d979-1067-4afc-9447-e11ea48c7e76",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "72cabd6a-74a1-4f5d-87dd-74b0fe227d46",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "7b1531b9-78eb-49df-aa24-eec0eca30f1e",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "31b3507c-0824-4c1d-ad9c-a13e0fb1f449",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "c2dc68ed-a0a0-4026-86c2-798d5a1f0c3c",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "7abdd628-4af8-4a7a-a4c4-85f7b42126c3",
+            "latches": [
+                "5e6bc3a6-a22f-4cab-8c65-839374e373ab"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "e69191cc-a43b-4be1-8ef5-bf68caa0a0dd",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "40e165e9-4972-4e09-9acb-39978a5f82af",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "2a4bbc80-a8a1-4ced-8880-ccf042cbc640",
+            "latches": []
+        },
+        {
+            "id": "trust_boundary",
+            "instance": "4b903840-a4ad-55c5-b427-d1adfb2556a4",
+            "properties": [
+                [
+                    "name",
+                    "AWS Data Tier"
+                ],
+                [
+                    "description",
+                    "Network-isolated durable storage subnet, no direct internet egress."
+                ],
+                [
+                    "privilege_level",
+                    "restricted"
+                ]
+            ],
+            "objects": [
+                "cc53c10f-b1b0-5311-8bc7-72aeddde9e79",
+                "fe3ef076-00fa-51b5-a4a1-f9d98a07b567"
+            ]
+        },
+        {
+            "id": "data_store",
+            "instance": "cc53c10f-b1b0-5311-8bc7-72aeddde9e79",
+            "properties": [
+                [
+                    "name",
+                    "S3 User Uploads"
+                ],
+                [
+                    "description",
+                    "Customer-supplied files, versioned, KMS-encrypted."
+                ],
+                [
+                    "storage_type",
+                    "bucket"
+                ],
+                [
+                    "contains_pii",
+                    "true"
+                ],
+                [
+                    "encryption_at_rest",
+                    "true"
+                ]
+            ],
+            "anchors": {
+                "0": "b5690cf8-bd1b-4a3b-9d4b-57f56fabaab1",
+                "30": "cb181f71-a880-425e-b384-921fbf2906cd",
+                "60": "2cd1b273-1460-4e13-a40f-266c2b2ec825",
+                "90": "6bcc9699-94cd-4f68-bee6-3830827b6930",
+                "120": "a68450cf-31b3-462b-9fea-2bc6e24d5fcc",
+                "150": "9b81d406-2f97-429f-be9c-d823797bec08",
+                "180": "9b402112-6339-4661-a04d-3e0962970e2e",
+                "210": "c668acb6-0c2a-4093-8fbe-b2205b96a7d0",
+                "240": "404839c5-14e7-4f36-b078-b529b99f6a79",
+                "270": "bb81ed67-5311-4d95-90ce-da4b85a2e7e6",
+                "300": "8c00566d-8d11-476b-a8d7-dc7a5a3f4f39",
+                "330": "aa593380-fba9-4d5c-a97a-7bee57d54b5d"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "b5690cf8-bd1b-4a3b-9d4b-57f56fabaab1",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "cb181f71-a880-425e-b384-921fbf2906cd",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "2cd1b273-1460-4e13-a40f-266c2b2ec825",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "6bcc9699-94cd-4f68-bee6-3830827b6930",
+            "latches": [
+                "ca609360-e54e-456a-aa66-84afd112a3f0"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "a68450cf-31b3-462b-9fea-2bc6e24d5fcc",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "9b81d406-2f97-429f-be9c-d823797bec08",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "9b402112-6339-4661-a04d-3e0962970e2e",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "c668acb6-0c2a-4093-8fbe-b2205b96a7d0",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "404839c5-14e7-4f36-b078-b529b99f6a79",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "bb81ed67-5311-4d95-90ce-da4b85a2e7e6",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "8c00566d-8d11-476b-a8d7-dc7a5a3f4f39",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "aa593380-fba9-4d5c-a97a-7bee57d54b5d",
+            "latches": []
+        },
+        {
+            "id": "data_store",
+            "instance": "fe3ef076-00fa-51b5-a4a1-f9d98a07b567",
+            "properties": [
+                [
+                    "name",
+                    "RDS PostgreSQL"
+                ],
+                [
+                    "description",
+                    "Primary relational store: accounts, orders, audit trail."
+                ],
+                [
+                    "storage_type",
+                    "database"
+                ],
+                [
+                    "contains_pii",
+                    "true"
+                ],
+                [
+                    "encryption_at_rest",
+                    "true"
+                ]
+            ],
+            "anchors": {
+                "0": "a9c58379-a7ba-4159-9367-f72d717ddbfc",
+                "30": "bdd282ad-b2b6-4b61-8d46-96aba2d87142",
+                "60": "11d4449e-16af-4912-8710-3da1cf9c83b5",
+                "90": "28552866-c7a9-4753-aeff-47143b6e0f87",
+                "120": "b10726e2-1dd6-47ef-8083-7c88afe28888",
+                "150": "8eaae1aa-790f-4b44-8c18-961c6f81914b",
+                "180": "50371bc8-d995-42ed-823f-1077353e8224",
+                "210": "6b1c795e-92f2-4b5f-9bc6-c04accb874a0",
+                "240": "16c6dc45-4fa9-40b7-b9eb-eee7bf0971f4",
+                "270": "66f94470-6405-4381-b73c-06bfe096c0e4",
+                "300": "7147aa06-795e-4a3d-adcd-de6d4fbb3978",
+                "330": "0a063e76-4163-4a59-ac7a-64f5224a3752"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "a9c58379-a7ba-4159-9367-f72d717ddbfc",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "bdd282ad-b2b6-4b61-8d46-96aba2d87142",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "11d4449e-16af-4912-8710-3da1cf9c83b5",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "28552866-c7a9-4753-aeff-47143b6e0f87",
+            "latches": [
+                "098d1c9f-cee5-4abd-81ba-bd3024a768bb"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "b10726e2-1dd6-47ef-8083-7c88afe28888",
+            "latches": [
+                "c8198195-b190-4341-9e5e-c71aa3c19a87"
+            ]
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "8eaae1aa-790f-4b44-8c18-961c6f81914b",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "50371bc8-d995-42ed-823f-1077353e8224",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "6b1c795e-92f2-4b5f-9bc6-c04accb874a0",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "16c6dc45-4fa9-40b7-b9eb-eee7bf0971f4",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "66f94470-6405-4381-b73c-06bfe096c0e4",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "7147aa06-795e-4a3d-adcd-de6d4fbb3978",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "0a063e76-4163-4a59-ac7a-64f5224a3752",
+            "latches": []
+        },
+        {
+            "id": "trust_boundary",
+            "instance": "f88aa1e4-2661-5e30-816d-0ab74e75364a",
+            "properties": [
+                [
+                    "name",
+                    "AWS Managed Services"
+                ],
+                [
+                    "description",
+                    "Regional AWS services (S3, SQS, SES, Cognito) reached over HTTPS with IAM auth."
+                ],
+                [
+                    "privilege_level",
+                    "corporate"
+                ]
+            ],
+            "objects": [
+                "6305ce3f-6a63-52b0-ae56-c8a25f228fd1",
+                "d85c1531-eac1-5942-bb5b-9e56a21d0aaa",
+                "fb0b8d1d-6881-5c4b-85ae-3dd2e5e6d8e9"
+            ]
+        },
+        {
+            "id": "process",
+            "instance": "6305ce3f-6a63-52b0-ae56-c8a25f228fd1",
+            "properties": [
+                [
+                    "name",
+                    "Amazon Cognito"
+                ],
+                [
+                    "description",
+                    "Our IdP \u2014 user pools and federated sign-in."
+                ],
+                [
+                    "trust_level",
+                    "admin"
+                ],
+                [
+                    "assumptions",
+                    []
+                ]
+            ],
+            "anchors": {
+                "0": "5de7090f-baa4-44ff-bd7f-d3214435333e",
+                "30": "fd9c9cc9-5a2e-48b6-bbf5-1686097eb292",
+                "60": "9259a105-440d-4146-af71-a0afd929adc1",
+                "90": "2dacb060-f718-4448-b0d7-9372e08768f8",
+                "120": "bca64489-f179-43c0-aafc-5064639092a2",
+                "150": "002f9558-d668-44e3-876e-711b2ce3a4b7",
+                "180": "d7eccd84-02e2-4a37-9946-f584fccfb160",
+                "210": "0b31b551-5755-4e26-8d67-522013adee53",
+                "240": "d1b21ebf-d6ec-4e98-beae-eb6a76757970",
+                "270": "37a19c12-3e52-4b68-a0ba-140fa2d6a292",
+                "300": "b3ee6f64-3e95-4111-9ec0-3be563c88821",
+                "330": "ba08dac2-c2c1-4f61-b689-a64b1df9f66e"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "5de7090f-baa4-44ff-bd7f-d3214435333e",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "fd9c9cc9-5a2e-48b6-bbf5-1686097eb292",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "9259a105-440d-4146-af71-a0afd929adc1",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "2dacb060-f718-4448-b0d7-9372e08768f8",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "bca64489-f179-43c0-aafc-5064639092a2",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "002f9558-d668-44e3-876e-711b2ce3a4b7",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "d7eccd84-02e2-4a37-9946-f584fccfb160",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "0b31b551-5755-4e26-8d67-522013adee53",
+            "latches": [
+                "3da86246-22df-4df9-bc08-9a2a4eb15ae0"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "d1b21ebf-d6ec-4e98-beae-eb6a76757970",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "37a19c12-3e52-4b68-a0ba-140fa2d6a292",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "b3ee6f64-3e95-4111-9ec0-3be563c88821",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "ba08dac2-c2c1-4f61-b689-a64b1df9f66e",
+            "latches": []
+        },
+        {
+            "id": "external_entity",
+            "instance": "d85c1531-eac1-5942-bb5b-9e56a21d0aaa",
+            "properties": [
+                [
+                    "name",
+                    "Amazon SES"
+                ],
+                [
+                    "description",
+                    "Transactional email."
+                ],
+                [
+                    "entity_type",
+                    "service"
+                ],
+                [
+                    "out_of_scope",
+                    "false"
+                ]
+            ],
+            "anchors": {
+                "0": "dee97926-8f2e-45a5-8106-547484bc8d7b",
+                "30": "67be6ab5-a4cc-4ffa-8ee8-e89241d01d33",
+                "60": "fbad96d7-97de-4f07-b9f5-40905bb5f90b",
+                "90": "84227aed-68f5-42e7-a7e6-252a702ce927",
+                "120": "854d3421-dd5c-4381-abba-ffe5dbe2ed6d",
+                "150": "ac8cbecf-5a1a-4afd-9661-5d51c9b0e15c",
+                "180": "75a35f1d-4f65-42d4-b54c-efb6b0c9a5fc",
+                "210": "27916768-76bb-4c4b-aa06-4e626cf27ec8",
+                "240": "b4271cb2-8481-451d-9adc-9082034aefed",
+                "270": "82261771-c898-46eb-b958-8eb0cc438961",
+                "300": "41271f13-0489-438a-8aea-d8b0c3d3db38",
+                "330": "fce4099a-4942-4b75-b45a-f2e2e055d1b0"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "dee97926-8f2e-45a5-8106-547484bc8d7b",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "67be6ab5-a4cc-4ffa-8ee8-e89241d01d33",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "fbad96d7-97de-4f07-b9f5-40905bb5f90b",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "84227aed-68f5-42e7-a7e6-252a702ce927",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "854d3421-dd5c-4381-abba-ffe5dbe2ed6d",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "ac8cbecf-5a1a-4afd-9661-5d51c9b0e15c",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "75a35f1d-4f65-42d4-b54c-efb6b0c9a5fc",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "27916768-76bb-4c4b-aa06-4e626cf27ec8",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "b4271cb2-8481-451d-9adc-9082034aefed",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "82261771-c898-46eb-b958-8eb0cc438961",
+            "latches": [
+                "fe52a455-88ab-43cf-a083-a37e50c3b582"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "41271f13-0489-438a-8aea-d8b0c3d3db38",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "fce4099a-4942-4b75-b45a-f2e2e055d1b0",
+            "latches": []
+        },
+        {
+            "id": "data_store",
+            "instance": "fb0b8d1d-6881-5c4b-85ae-3dd2e5e6d8e9",
+            "properties": [
+                [
+                    "name",
+                    "SQS Job Queue"
+                ],
+                [
+                    "description",
+                    "Async work handed off by the REST API."
+                ],
+                [
+                    "storage_type",
+                    "queue"
+                ],
+                [
+                    "contains_pii",
+                    "false"
+                ],
+                [
+                    "encryption_at_rest",
+                    "true"
+                ]
+            ],
+            "anchors": {
+                "0": "3ba4f816-070e-4ebb-b2c6-5820343eec44",
+                "30": "cbb871ae-441a-41f0-a408-e4545014876c",
+                "60": "71bbee7d-54c8-46b6-ba15-6a5f54ab7fb3",
+                "90": "41d47450-b891-41ba-9dbe-a706d6237ad0",
+                "120": "d5102a69-0fce-42ca-8012-a91474b5ff3b",
+                "150": "2bc5f200-d547-4981-af1d-da3b5f52f59f",
+                "180": "6096e981-f270-4e11-a88b-fa01bef82836",
+                "210": "c3439dfe-f5e7-4903-bd91-a59a649d65c8",
+                "240": "8c03a2e4-4a7d-4dde-bcdb-135739db00f0",
+                "270": "12091bea-3bf7-4188-b866-97f2d757af81",
+                "300": "aceef927-c1b5-4f48-89d2-0d70ff9b68d6",
+                "330": "74a6698e-db1e-48e4-9690-fe20ef9451d3"
+            }
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "3ba4f816-070e-4ebb-b2c6-5820343eec44",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "cbb871ae-441a-41f0-a408-e4545014876c",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "71bbee7d-54c8-46b6-ba15-6a5f54ab7fb3",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "41d47450-b891-41ba-9dbe-a706d6237ad0",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "d5102a69-0fce-42ca-8012-a91474b5ff3b",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "2bc5f200-d547-4981-af1d-da3b5f52f59f",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "6096e981-f270-4e11-a88b-fa01bef82836",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "c3439dfe-f5e7-4903-bd91-a59a649d65c8",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "8c03a2e4-4a7d-4dde-bcdb-135739db00f0",
+            "latches": [
+                "7f08a266-9f58-48e5-9c40-889f9d625672",
+                "e516b0e8-2589-454c-86b1-4e2f612cca39"
+            ]
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "12091bea-3bf7-4188-b866-97f2d757af81",
+            "latches": []
+        },
+        {
+            "id": "vertical_anchor",
+            "instance": "aceef927-c1b5-4f48-89d2-0d70ff9b68d6",
+            "latches": []
+        },
+        {
+            "id": "horizontal_anchor",
+            "instance": "74a6698e-db1e-48e4-9690-fe20ef9451d3",
+            "latches": []
+        },
+        {
+            "id": "data_flow",
+            "instance": "46f40bf4-9099-57e4-9fa3-3e95790c9b69",
+            "properties": [
+                [
+                    "name",
+                    "F1"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443"
+                ],
+                [
+                    "authenticated",
+                    "false"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "db44d3b7-0df4-4e05-be97-9210da9461e3",
+                            "28fa0d0e-0b46-505b-b825-4a5fc23692f9"
+                        ],
+                        [
+                            "d2121045-4b2c-45db-a10f-787793a5f61e",
+                            "960a9a29-d024-5f09-9124-b24736385631"
+                        ],
+                        [
+                            "b165c5be-f659-4054-9754-2d31464d0876",
+                            "e9d2c528-e100-5d55-9836-39ae944671b1"
+                        ],
+                        [
+                            "e98abdcc-462a-438c-8147-c70d19d121a5",
+                            "0359519e-8904-5101-a33d-009129c28ca0"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "7b8b54a9-9721-4080-9c2b-7d727d27cada",
+                            "3374f10f-1ef2-5050-b5be-a7df2ad1f87c"
+                        ],
+                        [
+                            "34104524-fdb6-4335-93d2-707be3c21ea6",
+                            "e9d2c528-e100-5d55-9836-39ae944671b1"
+                        ],
+                        [
+                            "12ac490a-585b-4043-a72f-d4ba6ac6b030",
+                            "04c3c545-64ec-567a-ad60-d3aa335f7e1d"
+                        ],
+                        [
+                            "1e6cfb70-0cfe-4ae6-9290-19aa0f29ad0c",
+                            "e4f57766-1d98-557e-90f1-1905e9960c57"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "37ed7cf3-0181-4290-822c-5d2f4ed24144",
+            "node2": "e7b595c1-3bc6-4d33-a5fd-0192e1203b5e",
+            "handles": [
+                "c6f87720-43e5-47b5-ad1a-891cff36adad"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "37ed7cf3-0181-4290-822c-5d2f4ed24144"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "e7b595c1-3bc6-4d33-a5fd-0192e1203b5e"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "c6f87720-43e5-47b5-ad1a-891cff36adad"
+        },
+        {
+            "id": "data_flow",
+            "instance": "1072d036-89e0-5841-aaa7-3b40ee287766",
+            "properties": [
+                [
+                    "name",
+                    "F2"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443"
+                ],
+                [
+                    "authenticated",
+                    "false"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "15d7d0ff-1fd2-4c7e-ae53-1143311efe9e",
+                            "3374f10f-1ef2-5050-b5be-a7df2ad1f87c"
+                        ],
+                        [
+                            "5f170eba-daac-4eab-b056-6c5aa6e45dd9",
+                            "04c3c545-64ec-567a-ad60-d3aa335f7e1d"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "9c79fc3c-fbd9-4c19-8813-f10b009b3413",
+                            "e9d2c528-e100-5d55-9836-39ae944671b1"
+                        ],
+                        [
+                            "4956031a-2a37-4b7e-b8cc-46b7ae0c4c00",
+                            "0359519e-8904-5101-a33d-009129c28ca0"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "83439776-1a05-4cd5-a411-d64f1ded36af",
+            "node2": "d3c091c3-9e0c-4e44-8371-601e6c2ed88b",
+            "handles": [
+                "5a52b706-5b15-4800-9c91-4b0a5bd314a4"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "83439776-1a05-4cd5-a411-d64f1ded36af"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "d3c091c3-9e0c-4e44-8371-601e6c2ed88b"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "5a52b706-5b15-4800-9c91-4b0a5bd314a4"
+        },
+        {
+            "id": "data_flow",
+            "instance": "e591bf44-d89d-5aeb-95a5-30f0be03687e",
+            "properties": [
+                [
+                    "name",
+                    "F3"
+                ],
+                [
+                    "protocol",
+                    "HTTP/80"
+                ],
+                [
+                    "authenticated",
+                    "false"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "false"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "f8722dfe-c8a2-4546-8a9d-6dd10ed1f975",
+                            "3374f10f-1ef2-5050-b5be-a7df2ad1f87c"
+                        ],
+                        [
+                            "ca10902c-e161-4bf8-905c-23625359142a",
+                            "e9d2c528-e100-5d55-9836-39ae944671b1"
+                        ],
+                        [
+                            "1533010d-a791-479e-961e-8ec46a31adbb",
+                            "04c3c545-64ec-567a-ad60-d3aa335f7e1d"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "a482220f-44ed-4587-9aaa-6cce52ae5609",
+                            "e9d2c528-e100-5d55-9836-39ae944671b1"
+                        ],
+                        [
+                            "921c5a32-15e6-4f6a-a0d8-4721d1c3e01e",
+                            "0359519e-8904-5101-a33d-009129c28ca0"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "8c2c7eab-eb72-4377-ae87-bdb8d7a8767d",
+            "node2": "03fb8cbf-2831-4a69-8e15-433b9bbbd7dd",
+            "handles": [
+                "82259d00-e806-4ae2-a0ef-13607bbe1761"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "8c2c7eab-eb72-4377-ae87-bdb8d7a8767d"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "03fb8cbf-2831-4a69-8e15-433b9bbbd7dd"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "82259d00-e806-4ae2-a0ef-13607bbe1761"
+        },
+        {
+            "id": "data_flow",
+            "instance": "9a9bde1a-d90f-56b4-8578-9b39fff1f03f",
+            "properties": [
+                [
+                    "name",
+                    "F4"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443 (mTLS)"
+                ],
+                [
+                    "authenticated",
+                    "false"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "68ddd216-8e0e-4393-9a52-865d75038798",
+                            "28fa0d0e-0b46-505b-b825-4a5fc23692f9"
+                        ],
+                        [
+                            "7e77dad1-18bc-459b-91ce-eb32d67c96f1",
+                            "e9d2c528-e100-5d55-9836-39ae944671b1"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "0d271f1f-32eb-40fc-b38e-ebeb495636f4",
+                            "e9d2c528-e100-5d55-9836-39ae944671b1"
+                        ],
+                        [
+                            "73494876-ab01-4306-bbf7-c6e81d7a72f6",
+                            "3357d883-f464-57d6-9cab-80f5c3e8bb74"
+                        ],
+                        [
+                            "ccd36060-4adc-4da6-89be-b54201d3c362",
+                            "2d33d063-923e-5599-82b0-2c0f9a869333"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "fde81ccf-fddb-45a6-b0df-1ae4d3bec80e",
+            "node2": "59a0700a-7000-49d5-b412-842d44cc7e0d",
+            "handles": [
+                "5b09d617-34de-4e06-9fef-a20f6c0d2c26"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "fde81ccf-fddb-45a6-b0df-1ae4d3bec80e"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "59a0700a-7000-49d5-b412-842d44cc7e0d"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "5b09d617-34de-4e06-9fef-a20f6c0d2c26"
+        },
+        {
+            "id": "data_flow",
+            "instance": "0b05b735-caf9-5216-a5d5-8adf129d7fa2",
+            "properties": [
+                [
+                    "name",
+                    "F5"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443 (IAM)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "582e124c-9642-4644-bff1-38315d4b1f27",
+                            "2123ee97-1efe-5e78-b7b0-aa17830acaae"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "ba41a5f5-3c92-47b3-8a7d-19e9654cea85",
+                            "28fa0d0e-0b46-505b-b825-4a5fc23692f9"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "3da86246-22df-4df9-bc08-9a2a4eb15ae0",
+            "node2": "d3d00afe-4af5-4ff9-b3e9-d0b44fb26a48",
+            "handles": [
+                "6702b6e6-87e6-4b7a-8178-d9ca54ef0ef2"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "3da86246-22df-4df9-bc08-9a2a4eb15ae0"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "d3d00afe-4af5-4ff9-b3e9-d0b44fb26a48"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "6702b6e6-87e6-4b7a-8178-d9ca54ef0ef2"
+        },
+        {
+            "id": "data_flow",
+            "instance": "29852713-150b-54a0-baa0-67a43517f5ee",
+            "properties": [
+                [
+                    "name",
+                    "F6"
+                ],
+                [
+                    "protocol",
+                    "PostgreSQL/5432 (TLS)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "9205272b-8f65-41fd-a0d2-561a22570856",
+                            "869857ae-c118-513f-b80d-8f1056e2d13b"
+                        ],
+                        [
+                            "79044d91-68f7-4ad5-8616-515c8fc1c9f0",
+                            "d02d1534-d88b-5ca7-841a-26e08d7c5d32"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "9cf29299-9024-42c8-afcd-1a2b61a31be0",
+                            "869857ae-c118-513f-b80d-8f1056e2d13b"
+                        ],
+                        [
+                            "ed8616bc-a37d-45c9-9e60-58becc4c0e4e",
+                            "d02d1534-d88b-5ca7-841a-26e08d7c5d32"
+                        ],
+                        [
+                            "1fac7af8-3a4f-4476-9cbb-e297d0351e62",
+                            "775432cd-bdbd-568b-9aff-ed923ec53e55"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "82c185df-1812-4de5-9c0e-cf3db16382be",
+            "node2": "098d1c9f-cee5-4abd-81ba-bd3024a768bb",
+            "handles": [
+                "052118ce-bcd3-4b62-b20c-428fa848e23b"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "82c185df-1812-4de5-9c0e-cf3db16382be"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "098d1c9f-cee5-4abd-81ba-bd3024a768bb"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "052118ce-bcd3-4b62-b20c-428fa848e23b"
+        },
+        {
+            "id": "data_flow",
+            "instance": "9f3a80fb-134d-589a-be5a-0dda032e8a6b",
+            "properties": [
+                [
+                    "name",
+                    "F7"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443 (mTLS)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "0fd75469-91f9-4458-865f-9a2ed74b20eb",
+                            "0359519e-8904-5101-a33d-009129c28ca0"
+                        ],
+                        [
+                            "ae42f85c-26a9-49e4-ba4e-60af9d3e8cd5",
+                            "3357d883-f464-57d6-9cab-80f5c3e8bb74"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "b9398097-3362-4967-b5bd-1aab28038228",
+                            "04c3c545-64ec-567a-ad60-d3aa335f7e1d"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "f67dd454-57e0-45b4-be97-9f80c86b0347",
+            "node2": "fdd62dfc-6286-401b-86cc-62d0bed346dd",
+            "handles": [
+                "db4d9aae-ee77-4000-98ca-8e4b1c3595b2"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "f67dd454-57e0-45b4-be97-9f80c86b0347"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "fdd62dfc-6286-401b-86cc-62d0bed346dd"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "db4d9aae-ee77-4000-98ca-8e4b1c3595b2"
+        },
+        {
+            "id": "data_flow",
+            "instance": "d9653a18-c756-531b-923e-222ac95f83c1",
+            "properties": [
+                [
+                    "name",
+                    "F8"
+                ],
+                [
+                    "protocol",
+                    "PostgreSQL/5432 (TLS)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "3b74b91e-9406-4050-9867-fd3f460910b2",
+                            "0359519e-8904-5101-a33d-009129c28ca0"
+                        ],
+                        [
+                            "be28b6b2-ca9f-4871-a096-33f8bd08c736",
+                            "d02d1534-d88b-5ca7-841a-26e08d7c5d32"
+                        ],
+                        [
+                            "60d8ecb8-bdf0-4769-b119-1845a42cf6f5",
+                            "80e49f42-bad1-5513-b57a-f73f1bc35134"
+                        ],
+                        [
+                            "1aced50a-9bef-4814-842e-3bb3cff7559e",
+                            "1ad98408-2bb4-5d8f-8ec5-2a33d872233c"
+                        ],
+                        [
+                            "b3639a1c-36aa-421f-a583-c9c76908c78e",
+                            "b0678992-cd74-5b2e-aa30-dfb8af8758a6"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "c89b5ae9-633c-4fc0-a13a-d5149e0dd010",
+                            "d02d1534-d88b-5ca7-841a-26e08d7c5d32"
+                        ],
+                        [
+                            "46b26dbf-51e9-4eb8-a515-8a160205cd44",
+                            "775432cd-bdbd-568b-9aff-ed923ec53e55"
+                        ],
+                        [
+                            "f3fa354b-535f-486e-8169-26e74467c285",
+                            "80e49f42-bad1-5513-b57a-f73f1bc35134"
+                        ],
+                        [
+                            "b25a4da7-7414-41aa-8aa7-8065e10ef0ff",
+                            "1ad98408-2bb4-5d8f-8ec5-2a33d872233c"
+                        ],
+                        [
+                            "146269af-8581-42b7-9e8c-78c099ee2ed3",
+                            "b0678992-cd74-5b2e-aa30-dfb8af8758a6"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "988946aa-7277-4c7f-b18d-5a80e82e435c",
+            "node2": "c8198195-b190-4341-9e5e-c71aa3c19a87",
+            "handles": [
+                "e5dae443-07cc-4c25-991a-74e705dee45a"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "988946aa-7277-4c7f-b18d-5a80e82e435c"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "c8198195-b190-4341-9e5e-c71aa3c19a87"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "e5dae443-07cc-4c25-991a-74e705dee45a"
+        },
+        {
+            "id": "data_flow",
+            "instance": "3aaf702e-d33f-56d8-b253-5e96974a07ab",
+            "properties": [
+                [
+                    "name",
+                    "F9"
+                ],
+                [
+                    "protocol",
+                    "Redis/6379 (TLS)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "6ecafdef-f2c0-4a89-99b3-526348acebae",
+                            "960a9a29-d024-5f09-9124-b24736385631"
+                        ],
+                        [
+                            "9baa7090-eca3-4d04-937f-461bd4e522f0",
+                            "b0678992-cd74-5b2e-aa30-dfb8af8758a6"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "db7bd3d9-7b01-482d-92a1-b63c93936296",
+                            "960a9a29-d024-5f09-9124-b24736385631"
+                        ],
+                        [
+                            "8e8e0328-b6f0-4190-a03d-866f1861ab93",
+                            "b0678992-cd74-5b2e-aa30-dfb8af8758a6"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "71384081-1b15-4020-8c7b-6d460e8d8d3f",
+            "node2": "5e6bc3a6-a22f-4cab-8c65-839374e373ab",
+            "handles": [
+                "6ef1b620-3dba-4b02-ad92-ef0c30df4334"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "71384081-1b15-4020-8c7b-6d460e8d8d3f"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "5e6bc3a6-a22f-4cab-8c65-839374e373ab"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "6ef1b620-3dba-4b02-ad92-ef0c30df4334"
+        },
+        {
+            "id": "data_flow",
+            "instance": "c821f134-7f1c-542a-bc45-4c8b17bc660a",
+            "properties": [
+                [
+                    "name",
+                    "F10"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443 (S3 SigV4)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "bd7a4997-187d-4cae-9519-1828ea7d6236",
+                            "e4f57766-1d98-557e-90f1-1905e9960c57"
+                        ],
+                        [
+                            "3f2e7c8e-c257-4f81-b9c7-c51b890f6302",
+                            "684ab2e1-3931-5f19-800a-dfb20396831f"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "b2c2d11e-a302-43fc-80cf-dae99dec82cf",
+                            "e4f57766-1d98-557e-90f1-1905e9960c57"
+                        ],
+                        [
+                            "09d1a2e8-14d6-428b-8159-f568a74a2c8f",
+                            "684ab2e1-3931-5f19-800a-dfb20396831f"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "9a1328fd-1fc8-44a1-8247-a1eb8faedebe",
+            "node2": "ca609360-e54e-456a-aa66-84afd112a3f0",
+            "handles": [
+                "49a0b9d8-c545-45e9-ad01-d7a1a3ba687a"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "9a1328fd-1fc8-44a1-8247-a1eb8faedebe"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "ca609360-e54e-456a-aa66-84afd112a3f0"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "49a0b9d8-c545-45e9-ad01-d7a1a3ba687a"
+        },
+        {
+            "id": "data_flow",
+            "instance": "72d485a0-1fea-552b-a212-7afcd079f5b8",
+            "properties": [
+                [
+                    "name",
+                    "F11"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443 (SQS SendMessage)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "a6010ecf-bd35-4d8c-b748-5446b90d710d",
+                            "c96de0b7-5275-5454-b32d-59aade897508"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "9da41865-2ace-4250-a071-db55f50839ff",
+                            "f0f3341b-b191-51ec-9a72-1684562a741d"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "2c7e0a74-9044-4e9b-92ba-eebcdbaeb21c",
+            "node2": "7f08a266-9f58-48e5-9c40-889f9d625672",
+            "handles": [
+                "60b15574-adb6-42cc-88ac-24f34cd901fe"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "2c7e0a74-9044-4e9b-92ba-eebcdbaeb21c"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "7f08a266-9f58-48e5-9c40-889f9d625672"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "60b15574-adb6-42cc-88ac-24f34cd901fe"
+        },
+        {
+            "id": "data_flow",
+            "instance": "6b5a583e-7641-577c-9a93-02c2da1d1f00",
+            "properties": [
+                [
+                    "name",
+                    "F12"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "fb921bfc-c4b1-4613-af6a-22a03773291a",
+                            "315fce78-4c36-5428-bd7e-73397474e74f"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "0000b926-541d-4c33-b4a2-82df923b31ca",
+                            "c96de0b7-5275-5454-b32d-59aade897508"
+                        ],
+                        [
+                            "312d5476-6695-437d-b0b4-806950bca8fd",
+                            "315fce78-4c36-5428-bd7e-73397474e74f"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "a541fc60-b60f-4b7b-9e0a-0f06e0d69744",
+            "node2": "a5cf6ceb-0e2d-45cf-bc57-2839c008f881",
+            "handles": [
+                "b8f791cb-07fd-42dd-889c-720b8baa4c17"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "a541fc60-b60f-4b7b-9e0a-0f06e0d69744"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "a5cf6ceb-0e2d-45cf-bc57-2839c008f881"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "b8f791cb-07fd-42dd-889c-720b8baa4c17"
+        },
+        {
+            "id": "data_flow",
+            "instance": "f6ba4749-2193-51c1-9d9f-c895db302888",
+            "properties": [
+                [
+                    "name",
+                    "F13"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443 (SQS ReceiveMessage)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "60741f89-fbaa-46c3-a38a-6bb033b66f47",
+                            "c96de0b7-5275-5454-b32d-59aade897508"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "d43ff2c8-fed7-4fc5-8ecc-09f6fea435c9",
+                            "c96de0b7-5275-5454-b32d-59aade897508"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "d06f3297-ab69-4913-b305-7fd629fba36e",
+            "node2": "e516b0e8-2589-454c-86b1-4e2f612cca39",
+            "handles": [
+                "bb968db8-10dd-4a19-b5dc-fa22ffc18dce"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "d06f3297-ab69-4913-b305-7fd629fba36e"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "e516b0e8-2589-454c-86b1-4e2f612cca39"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "bb968db8-10dd-4a19-b5dc-fa22ffc18dce"
+        },
+        {
+            "id": "data_flow",
+            "instance": "a04a7400-4900-5ac7-84f2-0e2eae67d96b",
+            "properties": [
+                [
+                    "name",
+                    "F14"
+                ],
+                [
+                    "protocol",
+                    "HTTPS/443 (SES SendEmail)"
+                ],
+                [
+                    "authenticated",
+                    "true"
+                ],
+                [
+                    "encrypted_in_transit",
+                    "true"
+                ],
+                [
+                    "node1_src_data_item_refs",
+                    [
+                        [
+                            "65fe6e19-c763-4865-90f3-115a7a7cbb9e",
+                            "315fce78-4c36-5428-bd7e-73397474e74f"
+                        ],
+                        [
+                            "4c16ab1a-5c57-4836-b4c2-3060a3f7046f",
+                            "775432cd-bdbd-568b-9aff-ed923ec53e55"
+                        ]
+                    ]
+                ],
+                [
+                    "node2_src_data_item_refs",
+                    [
+                        [
+                            "79918c5a-8e04-44f6-8ead-5e41caf02b3a",
+                            "1c431a39-d6e6-5743-bfe4-a4d414ccc30a"
+                        ]
+                    ]
+                ]
+            ],
+            "node1": "90baa6fb-851e-4162-a359-78c43e7c1215",
+            "node2": "fe52a455-88ab-43cf-a083-a37e50c3b582",
+            "handles": [
+                "bca304a2-1b0c-459a-ba0a-6148153623fe"
+            ]
+        },
+        {
+            "id": "generic_latch",
+            "instance": "90baa6fb-851e-4162-a359-78c43e7c1215"
+        },
+        {
+            "id": "generic_latch",
+            "instance": "fe52a455-88ab-43cf-a083-a37e50c3b582"
+        },
+        {
+            "id": "generic_handle",
+            "instance": "bca304a2-1b0c-459a-ba0a-6148153623fe"
+        }
+    ],
+    "camera": {
+        "x": 0,
+        "y": 0,
+        "k": 1
+    },
+    "name": "default"
+}
