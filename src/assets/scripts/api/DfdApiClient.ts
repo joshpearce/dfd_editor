@@ -1,3 +1,5 @@
+import type { PositionMap } from "@OpenChart/DiagramView/DiagramLayoutEngine";
+
 export type DiagramId = string;
 
 export interface DiagramSummary {
@@ -87,6 +89,37 @@ export async function layoutDiagram(source: string): Promise<string> {
     }
     const data = await response.json() as { svg: string };
     return data.svg;
+}
+
+/**
+ * Requests a native automatic layout for a serialized diagram document.
+ * @param doc
+ *  The serialized diagram document (any JSON-serializable value).
+ * @returns
+ *  The position map produced by the layout engine.
+ * @throws
+ *  If the request fails, with the backend's error message when available.
+ */
+export async function nativeLayout(doc: unknown): Promise<PositionMap> {
+    const response = await fetch("/api/native-layout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(doc)
+    });
+    if (!response.ok) {
+        let message = `native layout request failed: ${response.status}`;
+        try {
+            const body = await response.json() as { error?: string };
+            if (body.error) {
+                message = `native layout request failed: ${body.error}`;
+            }
+        } catch {
+            // response body unreadable — use the status-based message
+        }
+        throw new Error(message);
+    }
+    const data = await response.json() as { layout: PositionMap };
+    return data.layout;
 }
 
 /**
