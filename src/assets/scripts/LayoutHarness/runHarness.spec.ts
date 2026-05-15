@@ -108,63 +108,73 @@ async function nativeLayout(doc: unknown): Promise<PositionMap> {
 // ---------------------------------------------------------------------------
 // Harness entry — vitest is the TS/alias-resolving runtime here, not an
 // assertion suite.  The test body IS the harness work.
+//
+// Self-skip guard: the test is skipped (not failed) unless both
+// LAYOUT_HARNESS_JOB and LAYOUT_HARNESS_OUT are set, so it is inert in
+// the normal `npm run test:unit` run.  Flask sets those env vars before
+// shelling `npx vitest run <path>`, which is the only active execution path.
 // ---------------------------------------------------------------------------
 
+const HARNESS_ACTIVE =
+    Boolean(process.env.LAYOUT_HARNESS_JOB) && Boolean(process.env.LAYOUT_HARNESS_OUT);
+
 describe("layout-harness", () => {
-    it("runs the engine pipeline and writes {engine, ms, document} to LAYOUT_HARNESS_OUT", async () => {
-        const outPath = process.env.LAYOUT_HARNESS_OUT;
-        if (!outPath) {
-            throw new Error("LAYOUT_HARNESS_OUT env var is required");
-        }
+    it.skipIf(!HARNESS_ACTIVE)(
+        "runs the engine pipeline and writes {engine, ms, document} to LAYOUT_HARNESS_OUT",
+        async () => {
+            const outPath = process.env.LAYOUT_HARNESS_OUT;
+            if (!outPath) {
+                throw new Error("LAYOUT_HARNESS_OUT env var is required");
+            }
 
-        const jobJson = process.env.LAYOUT_HARNESS_JOB;
-        if (!jobJson) {
-            writeFileSync(outPath, JSON.stringify({ error: "LAYOUT_HARNESS_JOB env var is required" }));
-            throw new Error("LAYOUT_HARNESS_JOB env var is required");
-        }
+            const jobJson = process.env.LAYOUT_HARNESS_JOB;
+            if (!jobJson) {
+                writeFileSync(outPath, JSON.stringify({ error: "LAYOUT_HARNESS_JOB env var is required" }));
+                throw new Error("LAYOUT_HARNESS_JOB env var is required");
+            }
 
-        let job: { diagram: unknown, engine: string };
-        try {
-            job = JSON.parse(jobJson) as { diagram: unknown, engine: string };
-        } catch (e) {
-            const msg = `failed to parse LAYOUT_HARNESS_JOB: ${String(e)}`;
-            writeFileSync(outPath, JSON.stringify({ error: msg }));
-            throw new Error(msg);
-        }
+            let job: { diagram: unknown, engine: string };
+            try {
+                job = JSON.parse(jobJson) as { diagram: unknown, engine: string };
+            } catch (e) {
+                const msg = `failed to parse LAYOUT_HARNESS_JOB: ${String(e)}`;
+                writeFileSync(outPath, JSON.stringify({ error: msg }));
+                throw new Error(msg);
+            }
 
-        const { diagram, engine = "tala" } = job;
+            const { diagram, engine = "tala" } = job;
 
-        try {
+            try {
             // Parse the diagram if it was serialized as a string
-            const rawDoc: unknown = typeof diagram === "string"
-                ? JSON.parse(diagram)
-                : structuredClone(diagram as object);
+                const rawDoc: unknown = typeof diagram === "string"
+                    ? JSON.parse(diagram)
+                    : structuredClone(diagram as object);
 
-            // Run the same pipeline as loadExistingFile — but directly via
-            // the pure leaf primitives, importing nothing from
-            // Application/Commands or Pinia or Vue.
-            //
-            // filePreprocessor is optional in AppConfiguration; when absent,
-            // treat the raw doc as already in the expected shape.
-            const processed: DiagramViewExport = Configuration.filePreprocessor
-                ? Configuration.filePreprocessor.create().process(rawDoc as DiagramViewExport)
-                : rawDoc as DiagramViewExport;
+                // Run the same pipeline as loadExistingFile — but directly via
+                // the pure leaf primitives, importing nothing from
+                // Application/Commands or Pinia or Vue.
+                //
+                // filePreprocessor is optional in AppConfiguration; when absent,
+                // treat the raw doc as already in the expected shape.
+                const processed: DiagramViewExport = Configuration.filePreprocessor
+                    ? Configuration.filePreprocessor.create().process(rawDoc as DiagramViewExport)
+                    : rawDoc as DiagramViewExport;
 
-            const theme = await ThemeLoader.load(Configuration.themes[0]); // LightTheme — the app default
-            const factory = new DiagramObjectViewFactory(Configuration.schema, theme);
-            const viewFile = new DiagramViewFile(factory, processed);
+                const theme = await ThemeLoader.load(Configuration.themes[0]); // LightTheme — the app default
+                const factory = new DiagramObjectViewFactory(Configuration.schema, theme);
+                const viewFile = new DiagramViewFile(factory, processed);
 
-            const t0 = performance.now();
-            await viewFile.runLayout(resolveLayoutEngine(engine, { layoutDiagram, nativeLayout }));
-            const ms = performance.now() - t0;
+                const t0 = performance.now();
+                await viewFile.runLayout(resolveLayoutEngine(engine, { layoutDiagram, nativeLayout }));
+                const ms = performance.now() - t0;
 
-            const document = viewFile.toExport();
+                const document = viewFile.toExport();
 
-            writeFileSync(outPath, JSON.stringify({ engine, ms, document }));
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            writeFileSync(outPath, JSON.stringify({ error: msg }));
-            throw err; // rethrow so vitest exits non-zero → Flask maps to 502
-        }
-    });
+                writeFileSync(outPath, JSON.stringify({ engine, ms, document }));
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                writeFileSync(outPath, JSON.stringify({ error: msg }));
+                throw err; // rethrow so vitest exits non-zero → Flask maps to 502
+            }
+        });
 });
