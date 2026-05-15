@@ -339,6 +339,9 @@ def layout_harness():
         except (OSError, json.JSONDecodeError) as e:
             return jsonify({"error": f"failed to read harness output: {e}"}), 502
 
+        if not isinstance(parsed, dict):
+            return jsonify({"error": "harness output was not a JSON object"}), 502
+
         if "error" in parsed:
             return jsonify({"error": parsed["error"]}), 502
 

@@ -142,7 +142,7 @@ describe("layout-harness", () => {
                 throw new Error(msg);
             }
 
-            const { diagram, engine = "tala" } = job;
+            const { diagram, engine } = job;
 
             try {
             // Parse the diagram if it was serialized as a string
@@ -160,7 +160,7 @@ describe("layout-harness", () => {
                     ? Configuration.filePreprocessor.create().process(rawDoc as DiagramViewExport)
                     : rawDoc as DiagramViewExport;
 
-                const theme = await ThemeLoader.load(Configuration.themes[0]); // LightTheme — the app default
+                const theme = await ThemeLoader.load(Configuration.themes[0]); // themes[0] (LightTheme); layout geometry is theme-independent (Light/Dark differ only in color), so this is a deliberate harness simplification — the app's runtime default is dark_theme
                 const factory = new DiagramObjectViewFactory(Configuration.schema, theme);
                 const viewFile = new DiagramViewFile(factory, processed);
 
