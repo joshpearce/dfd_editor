@@ -1,3 +1,4 @@
+// pattern: Functional Core
 import { NewAutoLayoutEngine, NativeLayoutEngine } from "@OpenChart/DiagramView/DiagramLayoutEngine";
 import type { LayoutSource, NativeLayoutSource, AsyncDiagramLayoutEngine } from "@OpenChart/DiagramView/DiagramLayoutEngine";
 
