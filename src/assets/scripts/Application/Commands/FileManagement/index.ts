@@ -3,8 +3,10 @@ import { Device } from "@/assets/scripts/Browser";
 import { DoNothing } from "../index.commands";
 import { AppCommand } from "../index.commands";
 import { stripExtension } from "@OpenChart/Utilities";
-import { DiagramObjectViewFactory, DiagramViewFile, NewAutoLayoutEngine } from "@OpenChart/DiagramView";
-import { createDiagram, getDiagram, importMinimalDiagram, saveDiagram, layoutDiagram } from "@/assets/scripts/api/DfdApiClient";
+import { DiagramObjectViewFactory, DiagramViewFile } from "@OpenChart/DiagramView";
+import { createDiagram, getDiagram, importMinimalDiagram, saveDiagram, layoutDiagram, nativeLayout } from "@/assets/scripts/api/DfdApiClient";
+import { resolveLayoutEngine, DEFAULT_LAYOUT_ENGINE } from "@/assets/scripts/LayoutEngineRegistry";
+import type { LayoutEngineKey } from "@/assets/scripts/LayoutEngineRegistry";
 import {
     AutoLayoutActiveFile,
     BindEditorToServer,
@@ -69,11 +71,10 @@ export async function loadExistingFile(
     // Run layout
     if (!jsonFile.layout) {
         try {
-            // Anchor strategy defaults to "tala" (use TALA's SVG edge
-            // endpoints to pick anchor faces).  Pass "geometric" or "none" as
-            // the second constructor argument to change the strategy; see
-            // AnchorStrategy in NewAutoLayoutEngine.ts.
-            await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
+            // The layout engine is selected at runtime via the `?layoutEngine`
+            // query string (via {@link selectedLayoutEngineKey}), defaulting to
+            // {@link DEFAULT_LAYOUT_ENGINE} when absent or unrecognized.
+            await viewFile.runLayout(resolveLayoutEngine(selectedLayoutEngineKey(), { layoutDiagram, nativeLayout }));
         } catch (err) {
             // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
             console.error("auto-layout failed, continuing without layout:", err);
@@ -121,8 +122,8 @@ export async function loadFileFromServer(
     const contents = await getDiagram(id);
     const loadCmd = await loadExistingFile(context, contents, id);
     // If the stored file had no layout, auto-layout just ran inside
-    // loadExistingFile.  Persist the result so subsequent opens skip TALA
-    // (cheaper) and the rebind-chosen anchor / handle positions stay stable
+    // loadExistingFile.  Persist the result so subsequent opens skip
+    // re-running auto-layout and the anchor / handle positions stay stable
     // across sessions instead of being recomputed every load.
     const hadStoredLayout = Boolean(
         (JSON.parse(contents) as DiagramViewExport).layout
@@ -161,6 +162,24 @@ async function getObjectFactory(
     return new DiagramObjectViewFactory(schema, theme);
 }
 
+/**
+ * Resolves the layout-engine key from the URL query string
+ * (`?layoutEngine=native|tala`; the alias `new` maps to `tala`).  An absent
+ * or unrecognized value falls back to {@link DEFAULT_LAYOUT_ENGINE}.
+ *
+ * Browser-only — it reads `location.search`.  It is deliberately kept here
+ * with the app wiring (NOT in the neutral LayoutEngineRegistry module) so a
+ * query string cannot structurally reach the standalone parity harness: the
+ * harness never imports this file.
+ */
+function selectedLayoutEngineKey(): LayoutEngineKey {
+    const param = new URLSearchParams(location.search).get("layoutEngine");
+    const normalized = param === "new" ? "tala" : param;
+    return normalized === "tala" || normalized === "native"
+        ? normalized
+        : DEFAULT_LAYOUT_ENGINE;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //  2. Import Files  //////////////////////////////////////////////////////////
@@ -194,9 +213,8 @@ export async function importExistingFile(
     // Run layout
     if (!jsonFile.layout) {
         try {
-            // Anchor strategy defaults to "tala"; see AnchorStrategy in
-            // NewAutoLayoutEngine.ts to switch to "geometric" or "none".
-            await viewFile.runLayout(new NewAutoLayoutEngine(layoutDiagram));
+            // Engine selected at runtime; see loadExistingFile call site above.
+            await viewFile.runLayout(resolveLayoutEngine(selectedLayoutEngineKey(), { layoutDiagram, nativeLayout }));
         } catch (err) {
             // TODO(layout-failure-ux): wire to user-visible notification when the app gains a toast system
             console.error("auto-layout failed, continuing without layout:", err);
@@ -427,7 +445,7 @@ export function saveActiveFileToServer(
 }
 
 /**
- * Re-runs TALA on the active file by reloading it from the server with its
+ * Re-runs auto-layout on the active file by reloading it from the server with its
  * stored layout stripped. Wholesale-replaces the active editor, which clears
  * the undo/redo history as a side effect. No-op when the active editor has
  * no server binding. Prompts the user for confirmation before proceeding.
