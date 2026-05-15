@@ -1,6 +1,6 @@
 # OpenChart (Diagram Engine — Forked)
 
-Last verified: 2026-05-08
+Last verified: 2026-05-15
 
 ## Purpose
 
@@ -80,6 +80,15 @@ abandoned; treat this directory as first-party code.
   by `Latch.link`) don't collapse to (0, 0).
 - Content beats container in hit priority so clicks on a child inside a
   group hit the child, not the group (`cbc8d9d`).
+
+## Parity Harness
+
+A standalone parity-development tool lives at
+`src/assets/scripts/LayoutHarness/` (temporary — the app never imports it).
+It exercises the real engine pipeline headless via vitest (preprocessor →
+factory → `DiagramViewFile` → `runLayout` → `toExport`) and is the iteration
+target for developing `NativeLayoutEngine` toward parity with
+`NewAutoLayoutEngine`.  Deletable in one commit alongside the `tala` path.
 
 ## Key Files / Subdirs
 

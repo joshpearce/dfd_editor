@@ -95,6 +95,16 @@ editor has no server binding.
   layout).
 - `src/assets/scripts/OpenChartFinder/` — search/index over diagram contents.
 - `src/assets/scripts/SegmentLayoutEngine/` — layout helpers.
+- `src/assets/scripts/LayoutEngineRegistry/` — neutral pure module exporting
+  `resolveLayoutEngine(key, {layoutDiagram, nativeLayout})` +
+  `LayoutEngineKey` + `DEFAULT_LAYOUT_ENGINE="tala"`. The active engine is
+  selected via `?layoutEngine=native|tala` (alias `new`→`tala`; absent/unknown
+  falls back to `"tala"`). `src/assets/scripts/LayoutHarness/` is a
+  **temporary, standalone** parity-development tool the app never imports —
+  it exercises the real engine pipeline headless via vitest and is deletable
+  in one commit alongside the `tala` key. The dev-only `POST
+  /api/layout-harness` endpoint shells it and returns `{engine, ms,
+  document}`; run under `npm run dev:all`.
 - `src/assets/scripts/StixToAttackFlow/` — vestigial STIX-import code carried
   over from upstream; not used for DFDs, but still present.
 - `src/assets/scripts/PointerTracker.ts` — shared pointer/input state.
