@@ -25,6 +25,9 @@ abandoned; treat this directory as first-party code.
   siblings `D2Bridge` (canvas ↔ D2 text + TALA-SVG parsing) and
   `AnchorRebind` (`pickCardinalAnchor` / `pickNearestAnchor` /
   `rebindLatchToAnchor` — line endpoint rebinding after layout);
+  `NativeLayoutEngine` (async, implements `AsyncDiagramLayoutEngine`, takes a
+  `NativeLayoutSource` callback at construction, serializes via the same
+  `toExport()` path → `ManualLayoutEngine`, empty map ⇒ no-op, HTTP-free);
   `AnchorStrategy` (`"none"` / `"geometric"` / `"tala"`, default
   `"tala"`); `DiagramLayoutEngine` (sync interface) and
   `AsyncDiagramLayoutEngine` (async interface); `computeFitCamera`
