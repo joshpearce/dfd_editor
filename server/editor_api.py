@@ -247,7 +247,9 @@ def layout():
     return jsonify({"error": error_msg}), 502
 
 
+# ---------------------------------------------------------------------------
 # Native layout (scaffold — no position math yet)
+# ---------------------------------------------------------------------------
 
 
 @editor_api.route("/api/native-layout", methods=["POST"])
