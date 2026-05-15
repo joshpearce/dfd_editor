@@ -1,6 +1,6 @@
 # Flask Backend
 
-Last verified: 2026-05-08
+Last verified: 2026-05-15
 
 ## Purpose
 Hosts DFD diagram files for the browser editor: "API creates diagram,
@@ -71,6 +71,10 @@ drive the same diagram operations over plain HTTP:
     sets `D2_LAYOUT=tala`. Override from the shell
     (`D2_LAYOUT=dagre npm run dev:flask`) to sweep engines without editing
     code.
+  - `POST /api/native-layout` — accepts any JSON body, returns
+    `{"layout": {}}` with 200; 400 on non-JSON. Scaffold for the forthcoming
+    `NativeLayoutEngine`; requires no external binary and does no layout math
+    yet.
   - **Agent API** at `/api/agent/*` (parallel surface for external
     non-MCP clients; see `agent_api.py`):
     - `GET  /api/agent/schema` — `Diagram.model_json_schema()`.

@@ -245,3 +245,19 @@ def layout():
         return jsonify({"svg": result.stdout})
     error_msg = result.stderr.strip() or "d2 exited with non-zero status"
     return jsonify({"error": error_msg}), 502
+
+
+# Native layout (scaffold — no position math yet)
+
+
+@editor_api.route("/api/native-layout", methods=["POST"])
+def native_layout():
+    """Accept any JSON body and return an empty position map.
+
+    Scaffold for the forthcoming ``NativeLayoutEngine``; performs no position
+    math.  Unlike ``/api/layout`` this route requires no external binary.
+    """
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "request body must be valid JSON"}), 400
+    return jsonify({"layout": {}})
