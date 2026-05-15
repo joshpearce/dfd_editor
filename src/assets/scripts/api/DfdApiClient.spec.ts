@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { nativeLayout } from "./DfdApiClient";
 
 type FetchResponse = {
@@ -31,7 +31,7 @@ describe("nativeLayout", () => {
             expect.objectContaining({
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(doc),
+                body: JSON.stringify(doc)
             })
         );
     });
@@ -40,7 +40,7 @@ describe("nativeLayout", () => {
         const fetchMock = makeFetch({
             ok: false,
             status: 502,
-            json: async () => ({ error: "boom from backend" }),
+            json: async () => ({ error: "boom from backend" })
         });
         vi.stubGlobal("fetch", fetchMock);
 
@@ -53,7 +53,7 @@ describe("nativeLayout", () => {
         const fetchMock = makeFetch({
             ok: false,
             status: 500,
-            json: async () => { throw new Error("not json"); },
+            json: async () => { throw new Error("not json"); }
         });
         vi.stubGlobal("fetch", fetchMock);
 
