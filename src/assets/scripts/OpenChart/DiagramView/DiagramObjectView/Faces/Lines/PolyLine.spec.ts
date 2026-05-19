@@ -12,6 +12,7 @@ import {
 import type { GenericLineInternalState } from "./GenericLineInternalState";
 import { PolyLineSpanView } from "./PolyLineSpanView";
 import type { DiagramObjectViewFactory } from "@OpenChart/DiagramView";
+import { AXIS_EPSILON } from "./LineLayoutStrategies";
 
 /**
  * A scoped lens that extends `GenericLineInternalState` with the
@@ -629,6 +630,282 @@ describe("PolyLine", () => {
             const node2MarkerY = line.node2.y + 1;
             const hitNode2 = line.face.getObjectAt(node2MarkerX, node2MarkerY);
             expect(hitNode2).toBe(line.node2);
+        });
+
+    });
+
+    ///////////////////////////////////////////////////////////////////////////
+    //  issue #19 — end-segment orthogonality on endpoint move  ///////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+    /**
+     * Standard 3-handle orthogonal fixture used across S2 tests.
+     *
+     * Layout (all segments axis-aligned, correction is a no-op on first layout):
+     *
+     *   node1  = (0,   50)  — H-aligned with handles[0] (same y)
+     *   h[0]   = (100, 50)  — h[0]→h[1]: same y=50  → H span
+     *   h[1]   = (200, 50)  — h[1]→h[2]: same x=200 → V span
+     *   h[2]   = (200, 150)
+     *   node2  = (200, 400) — V-aligned with handles[2] (same x)
+     *
+     * Calling calculateLayout() on this unmodified fixture is a no-op on
+     * both end elbows — this is the TALA-route parity condition.
+     */
+    async function createS2Fixture(): Promise<LineView> {
+        const factory = await createLinesTestingFactory();
+        const line = factory.createNewDiagramObject("data_flow", LineView);
+        for (let i = 1; i < 3; i++) {
+            line.addHandle(factory.createNewDiagramObject("generic_handle", HandleView));
+        }
+        line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+
+        line.node1.moveTo(0, 50);
+        line.node2.moveTo(200, 400);
+        (line.handles[0] as HandleView).face.moveTo(100, 50);
+        (line.handles[1] as HandleView).face.moveTo(200, 50);
+        (line.handles[2] as HandleView).face.moveTo(200, 150);
+        line.calculateLayout();
+
+        return line;
+    }
+
+    describe("issue #19 — end-segment orthogonality on endpoint move", () => {
+
+        it("moving the SOURCE endpoint off-axis corrects handles[0] and the H span still exists", async () => {
+            // Initial route:
+            //   node1=(0,50) — H-aligned with h[0]=(100,50): same y → no correction needed.
+            //   h[0]→h[1]: (100,50)→(200,50) same y → H neighbor.
+            //   h[1]→h[2]: (200,50)→(200,150) same x → V span.
+            //
+            // Move node1 to (50, 100) — now diagonal to h[0]=(100,50):
+            //   dx = 50-100 = -50, dy = 100-50 = 50 → both nonzero → diagonal.
+            //
+            // Neighbor for src end = h[1]=(200,50).
+            // h[0]→h[1]: dx=100, dy=0 → H neighbor.
+            // H neighbor rule: end segment must be V → snap elbow.x = endpoint.x = 50.
+            // Corrected h[0] = (50, 50). h[0].y stays 50.
+            //
+            // Post-correction end segment: src(50,100)→h[0](50,50): same x=50 → V-aligned.
+            // Post-correction h[0]→h[1]: (50,50)→(200,50): same y=50 → H span still exists.
+            const line = await createS2Fixture();
+            const face = line.face as unknown as PolyLineInternalState;
+
+            // Move source endpoint off-axis (diagonal to h[0]).
+            line.node1.moveTo(50, 100);
+
+            // After calculateLayout, h[0] should be snapped to (50, 50).
+            // src(50,100) → h[0](50,50): |dx|=0 (same x) → V-aligned.
+            expect(line.handles[0].x).toBe(50);   // snapped: elbow.x = endpoint.x = 50
+            expect(line.handles[0].y).toBe(50);   // y unchanged
+
+            // Verify end segment is axis-aligned: same x (|dx| < AXIS_EPSILON).
+            expect(Math.abs(line.node1.x - line.handles[0].x)).toBeLessThan(AXIS_EPSILON);
+
+            // A PolyLineSpanView must exist for the h[0]→h[1] interior segment.
+            // h[0]=(50,50), h[1]=(200,50): same y → H span.
+            const h0Span = face.spans.find(s => s.handleA === line.handles[0]);
+            expect(h0Span).toBeInstanceOf(PolyLineSpanView);
+            expect(h0Span!.axis).toBe("H");
+
+            // Interior handle h[1] and h[2] must be untouched.
+            expect(line.handles[1].x).toBe(200);
+            expect(line.handles[1].y).toBe(50);
+            expect(line.handles[2].x).toBe(200);
+            expect(line.handles[2].y).toBe(150);
+
+            // Second endpoint move — simulate another block drag.
+            // Move node1 further to (80, 120): still diagonal to h[0]=(50,50).
+            //   dx = 80-50 = 30, dy = 120-50 = 70 → both nonzero → diagonal.
+            // H neighbor rule again: snap elbow.x = 80.
+            // Corrected h[0] = (80, 50).
+            // End segment: src(80,120)→h[0](80,50): same x → V-aligned.
+            line.node1.moveTo(80, 120);
+
+            expect(line.handles[0].x).toBe(80);   // snapped: elbow.x = endpoint.x = 80
+            expect(line.handles[0].y).toBe(50);
+            expect(Math.abs(line.node1.x - line.handles[0].x)).toBeLessThan(AXIS_EPSILON);
+
+            const h0SpanAfter = face.spans.find(s => s.handleA === line.handles[0]);
+            expect(h0SpanAfter).toBeInstanceOf(PolyLineSpanView);
+        });
+
+        it("moving the TARGET endpoint off-axis corrects handles[2] and the V span still exists", async () => {
+            // Initial route:
+            //   node2=(200,400) — V-aligned with h[2]=(200,150): same x → no correction.
+            //   h[1]→h[2]: (200,50)→(200,150) same x → V neighbor for trg end.
+            //
+            // Move node2 to (300, 300) — now diagonal to h[2]=(200,150):
+            //   dx = 300-200 = 100, dy = 300-150 = 150 → both nonzero → diagonal.
+            //
+            // Neighbor for trg end = h[1]=(200,50).
+            // h[2]→h[1]: dx=0, dy=-100 → V neighbor.
+            // V neighbor rule: end segment must be H → snap elbow.y = endpoint.y = 300.
+            // Corrected h[2] = (200, 300). h[2].x stays 200.
+            //
+            // Post-correction end segment: trg(300,300)→h[2](200,300): same y=300 → H-aligned.
+            // Post-correction h[1]→h[2]: (200,50)→(200,300): same x → V span still exists.
+            const line = await createS2Fixture();
+            const face = line.face as unknown as PolyLineInternalState;
+
+            line.node2.moveTo(300, 300);
+
+            // h[2] corrected to (200, 300).
+            expect(line.handles[2].x).toBe(200);  // x unchanged
+            expect(line.handles[2].y).toBe(300);  // snapped: elbow.y = endpoint.y = 300
+
+            // End segment is axis-aligned: same y (|dy| < AXIS_EPSILON).
+            expect(Math.abs(line.node2.y - line.handles[2].y)).toBeLessThan(AXIS_EPSILON);
+
+            // A PolyLineSpanView must exist for the h[1]→h[2] interior segment.
+            // h[1]=(200,50), h[2]=(200,300): same x → V span.
+            const h2Span = face.spans.find(s => s.handleB === line.handles[2]);
+            expect(h2Span).toBeInstanceOf(PolyLineSpanView);
+            expect(h2Span!.axis).toBe("V");
+
+            // Interior handles h[0] and h[1] must be untouched.
+            expect(line.handles[0].x).toBe(100);
+            expect(line.handles[0].y).toBe(50);
+            expect(line.handles[1].x).toBe(200);
+            expect(line.handles[1].y).toBe(50);
+        });
+
+        it("H/V alternation invariant holds after a source endpoint move", async () => {
+            // For the 3-handle H-V fixture, the interior spans are always H then V
+            // (h[0]→h[1] H, h[1]→h[2] V).  After moving node1 off-axis, h[0] is
+            // snapped so h[0]→h[1] stays H.  The corrected end segment (src→h[0])
+            // is V-aligned — its axis (V) must differ from the adjacent span's axis (H).
+            //
+            // Hand-trace:
+            //   After moving node1 to (50,100): h[0]=(50,50), h[1]=(200,50).
+            //   h[0]→h[1]: dy=0 → H.   src→h[0]: dx=0 → V.   V ≠ H ✓.
+            const line = await createS2Fixture();
+            const face = line.face as unknown as PolyLineInternalState;
+
+            line.node1.moveTo(50, 100);
+
+            // Both interior spans must be classified.
+            expect(face.spans).toHaveLength(2);
+
+            const span0 = face.spans[0]; // h[0]→h[1]
+            const span1 = face.spans[1]; // h[1]→h[2]
+
+            // span0 must be H (same y between h[0]=(50,50) and h[1]=(200,50)).
+            expect(span0.axis).toBe("H");
+            // span1 must be V (same x between h[1]=(200,50) and h[2]=(200,150)).
+            expect(span1.axis).toBe("V");
+
+            // The corrected end segment src(50,100)→h[0](50,50) is V-aligned.
+            // Its axis (V) must differ from span0's axis (H) — alternation holds.
+            const endSegmentIsV = Math.abs(line.node1.x - line.handles[0].x) < AXIS_EPSILON;
+            expect(endSegmentIsV).toBe(true);
+            expect(span0.axis).not.toBe("V"); // H ≠ V: axis of end-segment vs its neighbor
+        });
+
+        it("handle count is unchanged after endpoint moves (policy A: snap-elbow, no insert)", async () => {
+            // Policy A never inserts handles — only snaps the existing end elbow.
+            // Assert that handle count stays at 3 regardless of how many times
+            // we move an endpoint.
+            const line = await createS2Fixture();
+
+            const countBefore = line.handles.length;
+            expect(countBefore).toBe(3);
+
+            // Multiple endpoint moves on both sides.
+            line.node1.moveTo(50, 100);
+            expect(line.handles.length).toBe(countBefore);
+
+            line.node2.moveTo(300, 300);
+            expect(line.handles.length).toBe(countBefore);
+
+            line.node1.moveTo(10, 200);
+            line.node2.moveTo(400, 400);
+            expect(line.handles.length).toBe(countBefore);
+        });
+
+        it("TALA no-op: already-orthogonal routes are not perturbed by calculateLayout (even twice)", async () => {
+            // Plan acceptance bullet: "TALA-generated routes are already orthogonal,
+            // so the helper is a no-op on them — assert this explicitly."
+            //
+            // The S2 fixture has orthogonal end segments from the start:
+            //   node1=(0,50) H-aligned with h[0]=(100,50): same y → dx≠0, dy=0
+            //     → already axis-aligned (|dy|<AXIS_EPSILON) → no-op.
+            //   node2=(200,400) V-aligned with h[2]=(200,150): same x → dx=0, dy≠0
+            //     → already axis-aligned (|dx|<AXIS_EPSILON) → no-op.
+            //
+            // Every handle position must be byte-identical before and after
+            // calling calculateLayout() once and then a second time.
+            const line = await createS2Fixture();
+
+            // Snapshot all handle positions after the first calculateLayout (run in
+            // createS2Fixture).
+            const snapshot = line.handles.map(h => ({ x: h.x, y: h.y }));
+
+            // First extra calculateLayout — must be a no-op.
+            line.calculateLayout();
+            for (let i = 0; i < line.handles.length; i++) {
+                expect(line.handles[i].x).toBe(snapshot[i].x);
+                expect(line.handles[i].y).toBe(snapshot[i].y);
+            }
+
+            // Second extra calculateLayout — idempotent, still no-op.
+            line.calculateLayout();
+            for (let i = 0; i < line.handles.length; i++) {
+                expect(line.handles[i].x).toBe(snapshot[i].x);
+                expect(line.handles[i].y).toBe(snapshot[i].y);
+            }
+        });
+
+        it("both endpoints diagonal simultaneously: both end elbows corrected, both end-spans exist, handle count unchanged", async () => {
+            // Move BOTH endpoints off-axis in a single step, then call
+            // calculateLayout() (which triggers automatically on each moveTo).
+            //
+            // Source move to (50, 100):
+            //   h[0]=(100,50), neighbor h[1]=(200,50) → H neighbor.
+            //   H rule: snap h[0].x = src.x = 50 → h[0]=(50,50).
+            //   End segment: src(50,100)→h[0](50,50): same x → V-aligned.
+            //
+            // Target move to (300, 300):
+            //   h[2]=(200,150), neighbor h[1]=(200,50) → V neighbor.
+            //   V rule: snap h[2].y = trg.y = 300 → h[2]=(200,300).
+            //   End segment: trg(300,300)→h[2](200,300): same y → H-aligned.
+            //
+            // Interior h[1]=(200,50) must be untouched.
+            // handle count must remain 3.
+            const line = await createS2Fixture();
+            const face = line.face as unknown as PolyLineInternalState;
+
+            const countBefore = line.handles.length;
+
+            // Move both endpoints off-axis.
+            line.node1.moveTo(50, 100);
+            line.node2.moveTo(300, 300);
+
+            // Source end correction: h[0] snapped to (50, 50).
+            expect(line.handles[0].x).toBe(50);
+            expect(line.handles[0].y).toBe(50);
+            expect(Math.abs(line.node1.x - line.handles[0].x)).toBeLessThan(AXIS_EPSILON);
+
+            // Target end correction: h[2] snapped to (200, 300).
+            expect(line.handles[2].x).toBe(200);
+            expect(line.handles[2].y).toBe(300);
+            expect(Math.abs(line.node2.y - line.handles[2].y)).toBeLessThan(AXIS_EPSILON);
+
+            // Interior h[1] untouched.
+            expect(line.handles[1].x).toBe(200);
+            expect(line.handles[1].y).toBe(50);
+
+            // Both end-adjacent spans must exist.
+            const srcSpan = face.spans.find(s => s.handleA === line.handles[0]);
+            expect(srcSpan).toBeInstanceOf(PolyLineSpanView);
+            expect(srcSpan!.axis).toBe("H"); // h[0](50,50)→h[1](200,50): same y → H
+
+            const trgSpan = face.spans.find(s => s.handleB === line.handles[2]);
+            expect(trgSpan).toBeInstanceOf(PolyLineSpanView);
+            expect(trgSpan!.axis).toBe("V"); // h[1](200,50)→h[2](200,300): same x → V
+
+            // Handle count unchanged: policy A, no insertion.
+            expect(line.handles.length).toBe(countBefore);
         });
 
     });
