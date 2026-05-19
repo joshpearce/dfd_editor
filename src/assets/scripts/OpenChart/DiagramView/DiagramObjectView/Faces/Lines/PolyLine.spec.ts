@@ -632,6 +632,91 @@ describe("PolyLine", () => {
             expect(hitNode2).toBe(line.node2);
         });
 
+        // -----------------------------------------------------------------
+        // issue #16 — unanchored span resolution
+        // -----------------------------------------------------------------
+        //
+        // Before the Step-1 fix, the `else` branch in getObjectAt returned
+        // `this.view` for every hitbox hit when isAnchored() was false.
+        // These cases verify the unified path resolves interior segments and
+        // dead-zone clicks correctly on a fully unanchored PolyLine (both
+        // latches unlinked, isAnchored() === false).
+        //
+        // Fixture: `createPolyLineWithHandles` without `createAnchoredFixture`.
+        //   node1  = (0,   50)  — H-aligned with handles[0]
+        //   h[0]   = (100, 50)  — h[0]→h[1]: same y=50 → H span
+        //   h[1]   = (200, 50)  — h[1]→h[2]: same x=200 → V span
+        //   h[2]   = (200, 150)
+        //   node2  = (200, 400) — V-aligned with handles[2]
+        //
+        // Both latches remain unlinked throughout.
+
+        it("#16: unanchored interior H-segment hit returns the H PolyLineSpanView", async () => {
+            // H span (hitboxes[1], h[0]→h[1]): midpoint (150, 50) is strictly
+            // inside the hitbox.  Before the fix this returned `this.view`
+            // (the line); after the fix it must return the PolyLineSpanView.
+            const line = await createPolyLineWithHandles([
+                [100, 50],
+                [200, 50],
+                [200, 150]
+            ]);
+            // Verify the fixture is fully unanchored.
+            expect(line.node1.isLinked()).toBe(false);
+            expect(line.node2.isLinked()).toBe(false);
+
+            const face = line.face as unknown as PolyLineInternalState;
+            expect(face.spans).toHaveLength(2);
+
+            const hit = line.face.getObjectAt(150, 50);
+            expect(hit).toBeInstanceOf(PolyLineSpanView);
+            expect(hit).toBe(face.spans[0]);
+            expect(face.spans[0].axis).toBe("H");
+        });
+
+        it("#16: unanchored interior V-segment hit returns the V PolyLineSpanView", async () => {
+            // V span (hitboxes[2], h[1]→h[2]): midpoint (200, 100) is strictly
+            // inside the hitbox.  Before the fix this returned `this.view`.
+            const line = await createPolyLineWithHandles([
+                [100, 50],
+                [200, 50],
+                [200, 150]
+            ]);
+            expect(line.node1.isLinked()).toBe(false);
+            expect(line.node2.isLinked()).toBe(false);
+
+            const face = line.face as unknown as PolyLineInternalState;
+
+            const hit = line.face.getObjectAt(200, 100);
+            expect(hit).toBeInstanceOf(PolyLineSpanView);
+            expect(hit).toBe(face.spans[1]);
+            expect(face.spans[1].axis).toBe("V");
+        });
+
+        it("#16: unanchored interior-handle dead-zone resolves to the adjacent span", async () => {
+            // A click at the interior handle's marker-dot position (handles[1]
+            // at (200, 50), marker offset +1 → (201, 51)) must resolve to the
+            // adjacent span, not undefined, even when the line is unanchored.
+            // Before the fix the else branch never ran the dead-zone loop so
+            // this would have fallen through to the hitbox scan which also missed.
+            const line = await createPolyLineWithHandles([
+                [100, 50],
+                [200, 50],
+                [200, 150]
+            ]);
+            expect(line.node1.isLinked()).toBe(false);
+            expect(line.node2.isLinked()).toBe(false);
+
+            const face = line.face as unknown as PolyLineInternalState;
+
+            // handles[1] is at (200, 50); marker centre at (201, 51).
+            const h1MarkerX = (line.handles[1] as HandleView).x + 1;
+            const h1MarkerY = (line.handles[1] as HandleView).y + 1;
+            const hit = line.face.getObjectAt(h1MarkerX, h1MarkerY);
+            expect(hit).toBeInstanceOf(PolyLineSpanView);
+            // Dead-zone prefers the span whose handleB === handles[1] → spans[0] (H).
+            expect(hit).toBe(face.spans[0]);
+        });
+
     });
 
     ///////////////////////////////////////////////////////////////////////////
