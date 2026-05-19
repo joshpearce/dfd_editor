@@ -147,13 +147,22 @@ abandoned; treat this directory as first-party code.
   barrel (and its canvas-dependent FontStore) into the engine layer.
 - Line face is **runtime-selected** by handle count, not declared in
   the theme: `DiagramObjectViewFactory.inferLineFaces([roots])` walks
-  every `LineView` in the subtree and swaps to `PolyLine` when
-  `handles.length >= 2`, or back to `DynamicLine` otherwise.  Called
-  by `DiagramViewFile` constructor (after import, before the first
-  `calculateLayout`) and by `DiagramViewFile.runLayout` (after the
-  async layout engine returns) so saved files round-trip and TALA
-  routes survive auto-layout.  `restyleDiagramObject` is also
-  PolyLine-aware so theme switches don't silently downgrade
+  every `LineView` in the subtree and, for each line whose face must
+  change (PolyLine when `handles.length >= 2`, else DynamicLine),
+  **returns a `SwapLineFace` command** (issue #15) — it performs **zero**
+  face mutation itself.  `DiagramViewFile`'s two callers — constructor
+  (after import, before the first `calculateLayout`) and `runLayout`
+  (after the async layout engine returns) — `execute()` each returned
+  command bare (no editor/undo stack exists at either site, so net
+  behavior is identical to the old inline `replaceFace`).  `SwapLineFace`
+  (`Commands/View/SwapLineFace.ts`) snapshots `keptHandles` + their
+  positions on construct; `undo()` re-adds any handles a post-swap
+  `DynamicLine.calculateLayout` dropped via `dropHandles(1)` and restores
+  positions through `handle.face.moveTo` (not `handle.moveTo` — avoids
+  the cascade), then swaps the face back; `merge()` returns `null`.  The
+  command is the reusable undo primitive #17 (interactive bend
+  add/delete) will route through `beginCommandStream`.  `restyleDiagramObject`
+  is also PolyLine-aware so theme switches don't silently downgrade
   multi-handle lines.
 - `LineLayoutStrategies.ts` two-elbow layouts apply cap offsets toward
   the handle (via `axisCapTowards`), not toward the opposite endpoint.

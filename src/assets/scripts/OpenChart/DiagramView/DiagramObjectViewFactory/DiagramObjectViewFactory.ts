@@ -8,6 +8,7 @@ import {
     GroupFace, GroupView, HandlePoint, HandleView,
     LatchPoint, LatchView, LineGridCanvas, LineView, PolyLine, TextBlock
 } from "../DiagramObjectView";
+import { SwapLineFace } from "@OpenChart/DiagramEditor/Commands/View/SwapLineFace";
 import type { FaceDesign } from "./FaceDesign";
 import type { Constructor } from "@OpenChart/Utilities";
 import type { DiagramTheme } from "./DiagramTheme";
@@ -480,15 +481,25 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
      * design — themes never declare PolyLine directly, so the design carries
      * a `LineStyle` regardless of which face the line ends up using.
      *
+     * Returns one {@link SwapLineFace} command per line whose face must
+     * change.  **No face mutation occurs inside this method** — callers are
+     * responsible for executing the returned commands.  Callers that do not
+     * need undo support (e.g. `DiagramViewFile` constructor and `runLayout`,
+     * which both run against an empty undo stack) call `cmd.execute()` bare.
+     * Interactive callers (e.g. future bend-delete from #17) should route
+     * the commands through the editor's command stream instead.
+     *
      * Use this after any operation that mutates the handle list outside the
      * normal editor commands (auto-layout import, file load).  Idempotent —
-     * a line whose face already matches the inference result is left alone.
+     * a line whose face already matches the inference result produces no
+     * command (returns empty array for that line).
      *
      * Lines whose template design is not a line face (defensive) are
      * skipped silently.
      */
-    public inferLineFaces(roots: DiagramObjectView[]): void {
+    public inferLineFaces(roots: DiagramObjectView[]): SwapLineFace[] {
         const grid = this.theme.grid;
+        const commands: SwapLineFace[] = [];
         for (const object of traversePostfix(roots)) {
             if (!(object instanceof LineView)) {
                 continue;
@@ -513,8 +524,9 @@ export class DiagramObjectViewFactory extends DiagramObjectFactory {
             const newFace = wantsPolyLine
                 ? new PolyLine(design.style, grid)
                 : new DynamicLine(design.style, grid);
-            object.replaceFace(newFace);
+            commands.push(new SwapLineFace(object, object.face, newFace));
         }
+        return commands;
     }
 
 }

@@ -48,7 +48,11 @@ export class DiagramViewFile extends DiagramModelFile {
         // the face swapped here — without it, DynamicLine.calculateLayout
         // would immediately call view.dropHandles(1) and discard every
         // bend past index 0.  See DiagramObjectViewFactory.inferLineFaces.
-        this.factory.inferLineFaces([this.canvas]);
+        // The undo stack does not exist yet at this point, so commands are
+        // executed bare (no command stream routing).
+        for (const cmd of this.factory.inferLineFaces([this.canvas])) {
+            cmd.execute();
+        }
         // Calculate layout
         this.canvas.calculateLayout();
         // Run layout engine
@@ -92,7 +96,12 @@ export class DiagramViewFile extends DiagramModelFile {
      */
     public async runLayout(layout: AsyncDiagramLayoutEngine): Promise<void> {
         await layout.run([this.canvas]);
-        this.factory.inferLineFaces([this.canvas]);
+        // Reconcile faces after layout — the engine may have added handles.
+        // Executed bare: runLayout is reached only via AutoLayoutActiveFile,
+        // which deliberately clears undo history (no command stream here).
+        for (const cmd of this.factory.inferLineFaces([this.canvas])) {
+            cmd.execute();
+        }
         this.canvas.calculateLayout();
     }
 

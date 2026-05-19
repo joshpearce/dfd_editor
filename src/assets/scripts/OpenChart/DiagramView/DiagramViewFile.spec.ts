@@ -63,7 +63,9 @@ describe("DiagramViewFile — import-time PolyLine inference", () => {
             line.handles[i].face.moveTo(positions[i][0], positions[i][1]);
         }
 
-        factory.inferLineFaces([canvas]);
+        for (const cmd of factory.inferLineFaces([canvas])) {
+            cmd.execute();
+        }
         expect(line.face).toBeInstanceOf(PolyLine);
         expect(line.handles.length).toBe(3);
 
