@@ -103,55 +103,46 @@ export class PolyLine extends LineFace {
         if (obj) {
             return obj;
         }
-        if (this.isAnchored()) {
-            // Dead-zone fix: clicks within the visible handle-dot radius of an
-            // interior handle resolve to an adjacent span, not to undefined.
-            // Strict-inequality hitboxes leave a ~1px gap at each H/V corner
-            // that sits inside the visible dot area; catch those here before the
-            // main hitbox scan.
-            for (let h = 0; h < this.view.handles.length; h++) {
-                const handle = this.view.handles[h];
-                if (DiagramFace.isInsideMarkerDot(handle.x, handle.y, x, y, handle.face.radius)) {
-                    // Prefer the span whose handleB === handle (the segment
-                    // ending at this handle), falling back to the span starting
-                    // at it.  Deterministic: iteration order reads forward.
-                    const span =
-                        this.spans.find(s => s.handleB === handle) ??
-                        this.spans.find(s => s.handleA === handle);
-                    if (span) { return span; }
-                }
+        // Dead-zone fix: clicks within the visible handle-dot radius of an
+        // interior handle resolve to an adjacent span, not to undefined.
+        // Strict-inequality hitboxes leave a ~1px gap at each H/V corner
+        // that sits inside the visible dot area; catch those here before the
+        // main hitbox scan.
+        for (let h = 0; h < this.view.handles.length; h++) {
+            const handle = this.view.handles[h];
+            if (DiagramFace.isInsideMarkerDot(handle.x, handle.y, x, y, handle.face.radius)) {
+                // Prefer the span whose handleB === handle (the segment
+                // ending at this handle), falling back to the span starting
+                // at it.  Deterministic: iteration order reads forward.
+                const span =
+                    this.spans.find(s => s.handleB === handle) ??
+                    this.spans.find(s => s.handleA === handle);
+                if (span) { return span; }
             }
-
-            for (let i = 0; i < this.hitboxes.length; i++) {
-                if (!isInsideRegion(x, y, this.hitboxes[i])) {
-                    continue;
-                }
-                if (0 < i && i < this.hitboxes.length - 1) {
-                    // Interior hitbox: resolve to the span for this segment.
-                    // Defensive lookup: find the span whose flanking handles
-                    // match handles[i-1] and handles[i].  This stays correct
-                    // even when a diagonal segment was skipped in span
-                    // classification (no span for that gap), in which case we
-                    // fall through to the line view as a safe fallback.
-                    const handleA = this.view.handles[i - 1];
-                    const handleB = this.view.handles[i];
-                    const span = this.spans.find(
-                        s => s.handleA === handleA && s.handleB === handleB
-                    );
-                    // If no span matches (diagonal segment skipped during
-                    // classification — defensive only, TALA never produces
-                    // diagonals), fall through to the line view.  Silent because
-                    // getObjectAt runs on every hover tick.
-                    return span ?? this.view;
-                } else {
-                    return this.view;
-                }
+        }
+        for (let i = 0; i < this.hitboxes.length; i++) {
+            if (!isInsideRegion(x, y, this.hitboxes[i])) {
+                continue;
             }
-        } else {
-            for (const hitbox of this.hitboxes) {
-                if (isInsideRegion(x, y, hitbox)) {
-                    return this.view;
-                }
+            if (0 < i && i < this.hitboxes.length - 1) {
+                // Interior hitbox: resolve to the span for this segment.
+                // Defensive lookup: find the span whose flanking handles
+                // match handles[i-1] and handles[i].  This stays correct
+                // even when a diagonal segment was skipped in span
+                // classification (no span for that gap), in which case we
+                // fall through to the line view as a safe fallback.
+                const handleA = this.view.handles[i - 1];
+                const handleB = this.view.handles[i];
+                const span = this.spans.find(
+                    s => s.handleA === handleA && s.handleB === handleB
+                );
+                // If no span matches (diagonal segment skipped during
+                // classification — defensive only, TALA never produces
+                // diagonals), fall through to the line view.  Silent because
+                // getObjectAt runs on every hover tick.
+                return span ?? this.view;
+            } else {
+                return this.view;
             }
         }
         return undefined;
