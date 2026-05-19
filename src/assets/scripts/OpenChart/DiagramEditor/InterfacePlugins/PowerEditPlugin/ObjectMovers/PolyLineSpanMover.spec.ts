@@ -443,4 +443,121 @@ describe("PowerEditPlugin span dispatch + cursor map", () => {
         expect(spanAtV.axis).toBe("V");
     });
 
+    // -------------------------------------------------------------------------
+    // issue #16 — unanchored end-to-end span-drag
+    // -------------------------------------------------------------------------
+
+    /**
+     * Builds the standard 3-handle PolyLine on the editor canvas WITHOUT
+     * linking node1 to a block anchor (isAnchored() === false throughout).
+     *
+     * This mirrors `createCanvasFixture` except for the omitted
+     * `line.node1.link(blockAnchor)` call, verifying that the unified
+     * `getObjectAt` path resolves spans regardless of anchor state.
+     *
+     * Node positions follow the same convention as `createFixture` (the mover
+     * unit-test fixture) to ensure end-elbow corrections are no-ops after a
+     * span drag:
+     *   node1  = (100,  0)  — V-aligned with handles[0] x=100 (same x)
+     *   h[0]   = (100, 50)  — h[0]→h[1]: same y=50  → H span
+     *   h[1]   = (200, 50)  — h[1]→h[2]: same x=200 → V span
+     *   h[2]   = (200, 150)
+     *   node2  = (400, 150) — H-aligned with handles[2] y=150 (same y)
+     *
+     * After the H span drags handles[0] and handles[1] vertically by dy:
+     *   node1.x (100) === handles[0].x (100) → V-aligned → no correction.
+     *   node2.y (150) === handles[2].y (150) → H-aligned → no correction.
+     *
+     * Both latches are unlinked; isAnchored() === false.
+     */
+    async function createUnanchoredCanvasFixture(): Promise<{
+        editor: DiagramViewEditor;
+        plugin: TestablePowerEditPlugin;
+        canvas: CanvasView;
+        line: LineView;
+        spans: PolyLineSpanView[];
+    }> {
+        const { editor, plugin, canvas } = createTestableEditor(factory);
+
+        const line = factory.createNewDiagramObject("data_flow", LineView);
+
+        for (let i = 1; i < 3; i++) {
+            const h = factory.createNewDiagramObject("generic_handle", HandleView);
+            line.addHandle(h);
+        }
+
+        line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+
+        // V-aligned node1 (same x as handles[0]) and H-aligned node2 (same y as
+        // handles[2]) — ensures end-elbow correction is a no-op both initially
+        // and after any span drag.
+        line.node1.moveTo(100, 0);
+        line.node2.moveTo(400, 150);
+
+        (line.handles[0] as HandleView).face.moveTo(100, 50);
+        (line.handles[1] as HandleView).face.moveTo(200, 50);
+        (line.handles[2] as HandleView).face.moveTo(200, 150);
+
+        // NOTE: node1.link() is intentionally omitted — isAnchored() === false.
+        //       Before the #16 fix, getObjectAt would have returned this.view for
+        //       interior hitbox clicks instead of PolyLineSpanView.
+
+        canvas.addObject(line);
+        line.calculateLayout();
+
+        const spans = (line.face as unknown as PolyLineInternalState).spans;
+        return { editor, plugin, canvas, line, spans };
+    }
+
+    it("#16: fully unanchored PolyLine completes span-drag end-to-end, emitting moveObjectsBy for both flanking handles with axis-locking", async () => {
+        // Full path: getObjectAt → PolyLineSpanMover capture → moveSubject →
+        // assert MoveObjectsBy is emitted for [handleA, handleB] with axis-locked delta.
+        //
+        // H span (spans[0]): handles[0] at (100,50) and handles[1] at (200,50).
+        // A drag delta of (5, 3) must be axis-locked to (0, 3) — dx zeroed because
+        // the span is horizontal.
+        //
+        // This is the spec-level verification of PolyLineSpanMover's
+        // anchor-indifference: the mover reads only span.handleA, span.handleB,
+        // span.axis — never endpoint/latch geometry.
+        const { editor, plugin, line, spans } = await createUnanchoredCanvasFixture();
+
+        // Confirm the fixture is truly unanchored.
+        expect(line.node1.isLinked()).toBe(false);
+        expect(line.node2.isLinked()).toBe(false);
+
+        // Confirm getObjectAt resolves the H-span interior midpoint to a PolyLineSpanView.
+        // (150, 50) is strictly inside hitboxes[1]: minX=100 maxX=200, minY=40 maxY=60.
+        const resolved = line.face.getObjectAt(150, 50);
+        expect(resolved).toBeInstanceOf(PolyLineSpanView);
+        expect(resolved).toBe(spans[0]);
+        expect(spans[0].axis).toBe("H");
+
+        const h0Before = [line.handles[0].x, line.handles[0].y];
+        const h1Before = [line.handles[1].x, line.handles[1].y];
+        const h2Before = [line.handles[2].x, line.handles[2].y];
+
+        const span = spans[0]; // H span
+        const spy = spyCommandExecutor();
+        const builder: MoverBuilder = (execute) => plugin.dispatchSpan(execute, span);
+
+        // Single-tick drag: delta (5, 3).  H span axis-locks dx → (0, 3).
+        driveDrag(editor, builder, [[0, 0], [5, 3]], spy);
+
+        // handles[0] and [1] move only vertically (dy=3, dx=0).
+        expect(line.handles[0].x).toBe(h0Before[0]);
+        expect(line.handles[0].y).toBe(h0Before[1] + 3);
+        expect(line.handles[1].x).toBe(h1Before[0]);
+        expect(line.handles[1].y).toBe(h1Before[1] + 3);
+
+        // handles[2] is untouched.
+        expect([line.handles[2].x, line.handles[2].y]).toEqual(h2Before);
+
+        // Exactly one MoveObjectsBy command; no RestoreGroupBounds (parent is canvas).
+        const moveCommands = spy.commands.filter(cmd => cmd instanceof MoveObjectsBy);
+        const restoreCommands = spy.commands.filter(cmd => cmd instanceof RestoreGroupBounds);
+        expect(restoreCommands).toHaveLength(0);
+        expect(moveCommands).toHaveLength(1);
+    });
+
 });
