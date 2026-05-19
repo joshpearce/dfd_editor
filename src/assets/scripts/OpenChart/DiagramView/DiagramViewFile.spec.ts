@@ -39,12 +39,29 @@ describe("DiagramViewFile — import-time PolyLine inference", () => {
         // Position the reference handle and add two more.  Mark each as
         // user-set so the export's PositionMap includes their coords —
         // matching what the auto-layout engine does in production.
+        //
+        // Handle positions are chosen so both end segments are axis-aligned
+        // with the line's latches (which default to (0,0)).  This makes the
+        // issue-#19 end-elbow correction a no-op on the reloaded line, so
+        // positions survive the round-trip unchanged.
+        //
+        //   node1 = (0, 0) (default latch position, unset)
+        //   handles[0] = (100, 0)  — H-aligned with node1 (same y=0)
+        //   handles[1] = (200, 100) — interior
+        //   handles[2] = (200, 50)  — V-aligned with node2 (same x=200, node2 at (200,0) default)
+        //
+        // Actually node2 default is also (0,0); align node2 with handles[2]:
+        //   node2 = (200, 0) → handles[2] at (200, 50) shares x=200 (V-aligned).
+        //   node1 = (0, 0)   → handles[0] at (100, 0) shares y=0 (H-aligned).
+        line.node1.moveTo(0, 0);
+        line.node2.moveTo(200, 0);
+
         line.addHandle(factory.createNewDiagramObject("generic_handle", HandleView));
         line.addHandle(factory.createNewDiagramObject("generic_handle", HandleView));
         const positions: Array<[number, number]> = [
+            [100, 0],
             [100, 50],
-            [200, 100],
-            [300, 50]
+            [200, 50]
         ];
         for (let i = 0; i < positions.length; i++) {
             line.handles[i].userSetPosition = PositionSetByUser.True;
@@ -72,12 +89,13 @@ describe("DiagramViewFile — import-time PolyLine inference", () => {
         expect(reloadedLine).toBeDefined();
         expect(reloadedLine!.face).toBeInstanceOf(PolyLine);
         expect(reloadedLine!.handles.length).toBe(3);
-        // Handle positions survive the round-trip.
+        // Handle positions survive the round-trip (end segments are orthogonal,
+        // so the issue-#19 correction is a no-op).
         expect(reloadedLine!.handles[0].x).toBe(100);
-        expect(reloadedLine!.handles[0].y).toBe(50);
-        expect(reloadedLine!.handles[1].x).toBe(200);
-        expect(reloadedLine!.handles[1].y).toBe(100);
-        expect(reloadedLine!.handles[2].x).toBe(300);
+        expect(reloadedLine!.handles[0].y).toBe(0);
+        expect(reloadedLine!.handles[1].x).toBe(100);
+        expect(reloadedLine!.handles[1].y).toBe(50);
+        expect(reloadedLine!.handles[2].x).toBe(200);
         expect(reloadedLine!.handles[2].y).toBe(50);
     });
 

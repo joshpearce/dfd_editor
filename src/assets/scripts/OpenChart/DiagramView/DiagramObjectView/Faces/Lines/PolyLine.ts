@@ -8,7 +8,7 @@ import {
     drawBoundingRegion,
     isInsideRegion
 } from "@OpenChart/Utilities";
-import { AXIS_EPSILON, runMultiElbowLayout } from "./LineLayoutStrategies";
+import { AXIS_EPSILON, orthogonalizeEndElbow, runMultiElbowLayout } from "./LineLayoutStrategies";
 import { PolyLineSpanView } from "./PolyLineSpanView";
 import type { LineStyle } from "../Styles";
 import type { BoundingBox } from "../BoundingBox";
@@ -173,6 +173,57 @@ export class PolyLine extends LineFace {
         // Cache the two end latches so getObjectAt can reuse the same array
         // instead of allocating [node1, node2] on every hit-test call.
         this.latchEndpoints = [src, trg];
+
+        // --- Policy A: snap-elbow end-segment orthogonality (issue #19) -------
+        //
+        // When an attached block moves, the two end elbows (handles[0] and
+        // handles[n-1]) may no longer be axis-aligned with their endpoint.
+        // Project each end elbow onto the endpoint's row or column so the
+        // end segment is H or V before the span-classification loop runs —
+        // otherwise the diagonal segment produces no PolyLineSpanView (the
+        // original issue-#19 symptom).
+        //
+        // We use handle.face.moveTo (not handle.moveTo) to write positions
+        // at the face layer, bypassing the LineView.handleUpdate → dropHandles
+        // cascade that high-level moveTo triggers (see OpenChart CLAUDE.md,
+        // "TALA handle-steering" gotcha).
+        //
+        // n === 1 (single handle): the source and target ends share the same
+        // handle, so we apply the source correction first, then the target
+        // correction.  The target correction's neighbor is src (the opposite
+        // endpoint), which may fight the source correction on a true-diagonal
+        // route — but that is the documented best-effort for a single handle.
+        // The span classifier already tolerates a residual diagonal by skipping
+        // it (issue #18 owns any remaining off-axis segments).
+        {
+            const n = handles.length;
+
+            // Source end: endpoint = src, elbow = handles[0],
+            // neighbor = handles[1] if it exists, else trg.
+            const srcElbow = handles[0];
+            const srcNeighbor = n > 1 ? handles[1] : trg;
+            const corrSrc = orthogonalizeEndElbow(src, srcElbow, srcNeighbor);
+            if (
+                Math.abs(corrSrc.x - srcElbow.x) >= AXIS_EPSILON ||
+                Math.abs(corrSrc.y - srcElbow.y) >= AXIS_EPSILON
+            ) {
+                srcElbow.face.moveTo(corrSrc.x, corrSrc.y);
+            }
+
+            // Target end: endpoint = trg, elbow = handles[n-1],
+            // neighbor = handles[n-2] if it exists, else src.
+            const trgElbow = handles[n - 1];
+            const trgNeighbor = n > 1 ? handles[n - 2] : src;
+            const corrTrg = orthogonalizeEndElbow(trg, trgElbow, trgNeighbor);
+            if (
+                Math.abs(corrTrg.x - trgElbow.x) >= AXIS_EPSILON ||
+                Math.abs(corrTrg.y - trgElbow.y) >= AXIS_EPSILON
+            ) {
+                trgElbow.face.moveTo(corrTrg.x, corrTrg.y);
+            }
+        }
+        // --- end issue #19 correction -----------------------------------------
+
         const vertices = this.points.flatMap(p => [p.x, p.y]);
 
         runMultiElbowLayout(this.view, this as unknown as GenericLineInternalState, vertices);
