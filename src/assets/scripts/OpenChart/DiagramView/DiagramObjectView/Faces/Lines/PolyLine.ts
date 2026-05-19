@@ -8,7 +8,7 @@ import {
     drawBoundingRegion,
     isInsideRegion
 } from "@OpenChart/Utilities";
-import { runMultiElbowLayout } from "./LineLayoutStrategies";
+import { AXIS_EPSILON, runMultiElbowLayout } from "./LineLayoutStrategies";
 import { PolyLineSpanView } from "./PolyLineSpanView";
 import type { LineStyle } from "../Styles";
 import type { BoundingBox } from "../BoundingBox";
@@ -16,10 +16,6 @@ import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
 import type { DiagramObjectView, HitTarget } from "../../Views";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
-
-// Handle positions originate from TALA's `parseFloat`'d SVG vertices; snap
-// equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
-const AXIS_EPSILON = 1e-6;
 
 /**
  * A {@link LineFace} that renders an arbitrary-vertex polyline whose interior
