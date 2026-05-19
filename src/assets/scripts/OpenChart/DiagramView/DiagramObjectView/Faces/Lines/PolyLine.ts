@@ -14,7 +14,7 @@ import type { LineStyle } from "../Styles";
 import type { BoundingBox } from "../BoundingBox";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
-import type { DiagramObjectView, HitTarget } from "../../Views";
+import type { DiagramObjectView, HandleView, HitTarget, LatchView } from "../../Views";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
 
 /**
@@ -175,53 +175,7 @@ export class PolyLine extends LineFace {
         this.latchEndpoints = [src, trg];
 
         // --- Policy A: snap-elbow end-segment orthogonality (issue #19) -------
-        //
-        // When an attached block moves, the two end elbows (handles[0] and
-        // handles[n-1]) may no longer be axis-aligned with their endpoint.
-        // Project each end elbow onto the endpoint's row or column so the
-        // end segment is H or V before the span-classification loop runs —
-        // otherwise the diagonal segment produces no PolyLineSpanView (the
-        // original issue-#19 symptom).
-        //
-        // We use handle.face.moveTo (not handle.moveTo) to write positions
-        // at the face layer, bypassing the LineView.handleUpdate → dropHandles
-        // cascade that high-level moveTo triggers (see OpenChart CLAUDE.md,
-        // "TALA handle-steering" gotcha).
-        //
-        // n === 1 (single handle): the source and target ends share the same
-        // handle, so we apply the source correction first, then the target
-        // correction.  The target correction's neighbor is src (the opposite
-        // endpoint), which may fight the source correction on a true-diagonal
-        // route — but that is the documented best-effort for a single handle.
-        // The span classifier already tolerates a residual diagonal by skipping
-        // it (issue #18 owns any remaining off-axis segments).
-        {
-            const n = handles.length;
-
-            // Source end: endpoint = src, elbow = handles[0],
-            // neighbor = handles[1] if it exists, else trg.
-            const srcElbow = handles[0];
-            const srcNeighbor = n > 1 ? handles[1] : trg;
-            const corrSrc = orthogonalizeEndElbow(src, srcElbow, srcNeighbor);
-            if (
-                Math.abs(corrSrc.x - srcElbow.x) >= AXIS_EPSILON ||
-                Math.abs(corrSrc.y - srcElbow.y) >= AXIS_EPSILON
-            ) {
-                srcElbow.face.moveTo(corrSrc.x, corrSrc.y);
-            }
-
-            // Target end: endpoint = trg, elbow = handles[n-1],
-            // neighbor = handles[n-2] if it exists, else src.
-            const trgElbow = handles[n - 1];
-            const trgNeighbor = n > 1 ? handles[n - 2] : src;
-            const corrTrg = orthogonalizeEndElbow(trg, trgElbow, trgNeighbor);
-            if (
-                Math.abs(corrTrg.x - trgElbow.x) >= AXIS_EPSILON ||
-                Math.abs(corrTrg.y - trgElbow.y) >= AXIS_EPSILON
-            ) {
-                trgElbow.face.moveTo(corrTrg.x, corrTrg.y);
-            }
-        }
+        this.orthogonalizeEndElbows(src, trg, handles);
         // --- end issue #19 correction -----------------------------------------
 
         const vertices = this.points.flatMap(p => [p.x, p.y]);
@@ -251,6 +205,51 @@ export class PolyLine extends LineFace {
         this.boundingBox.y = this.boundingBox.yMid;
 
         return true;
+    }
+
+    /**
+     * Applies Policy A end-segment orthogonality correction (issue #19):
+     * snaps each end elbow onto the adjacent endpoint's row or column so
+     * that every end segment is H or V before the span-classification loop.
+     *
+     * Positions are written via `handle.face.moveTo` (face-layer path) to
+     * bypass the `LineView.handleUpdate → dropHandles` cascade that the
+     * high-level `handle.moveTo` would trigger (see OpenChart CLAUDE.md).
+     *
+     * `n === 1` (single handle): source and target ends share the same
+     * handle.  The source correction is applied first; the target correction
+     * then uses `src` as its neighbor.  On a true-diagonal single-handle
+     * route the two corrections may conflict — this is the documented
+     * best-effort; issue #18 owns any residual off-axis segments.
+     *
+     * @param src      The source latch.
+     * @param trg      The target latch.
+     * @param handles  The line's interior handles (at least one).
+     */
+    private orthogonalizeEndElbows(
+        src: LatchView,
+        trg: LatchView,
+        handles: ReadonlyArray<HandleView>
+    ): void {
+        const n = handles.length;
+
+        // Source end: endpoint = src, elbow = handles[0],
+        // neighbor = handles[1] if it exists, else trg.
+        const srcElbow = handles[0];
+        const srcNeighbor = n > 1 ? handles[1] : trg;
+        const corrSrc = orthogonalizeEndElbow(src, srcElbow, srcNeighbor);
+        if (corrSrc !== null) {
+            srcElbow.face.moveTo(corrSrc.x, corrSrc.y);
+        }
+
+        // Target end: endpoint = trg, elbow = handles[n-1],
+        // neighbor = handles[n-2] if it exists, else src.
+        const trgElbow = handles[n - 1];
+        const trgNeighbor = n > 1 ? handles[n - 2] : src;
+        const corrTrg = orthogonalizeEndElbow(trg, trgElbow, trgNeighbor);
+        if (corrTrg !== null) {
+            trgElbow.face.moveTo(corrTrg.x, corrTrg.y);
+        }
     }
 
     public renderTo(

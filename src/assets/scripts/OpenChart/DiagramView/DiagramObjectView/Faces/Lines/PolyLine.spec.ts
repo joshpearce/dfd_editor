@@ -856,6 +856,70 @@ describe("PolyLine", () => {
             }
         });
 
+        it("n === 1 (single handle): source correction applied first, target uses updated elbow as neighbor — documented best-effort", async () => {
+            // A PolyLine with exactly ONE handle is constructed by swapping in the
+            // PolyLine face directly (no extra handles added).  PolyLine is normally
+            // only instantiated for lines with handles.length >= 2 (inferred by
+            // DiagramObjectViewFactory), but the face swap path itself has no guard
+            // so the n === 1 branch in orthogonalizeEndElbows is reachable and
+            // its contract is pinned here.
+            //
+            // Fixture positions (all diagonal — correction is needed on both ends):
+            //   src    = (0,   0)
+            //   h[0]   = (100, 50)
+            //   trg    = (200, 150)
+            //
+            // --- Source correction ---
+            //   endpoint=src=(0,0), elbow=(100,50), neighbor=trg=(200,150)
+            //   dx=-100, dy=-50 → both nonzero → diagonal endpoint.
+            //   neighbor: ndx=100, ndy=100 → diagonal → fallback.
+            //   |dx|=100 >= |dy|=50 → horizontal end: result={x:elbow.x, y:endpoint.y}=(100,0).
+            //   h[0] moved to (100, 0).
+            //
+            // --- Target correction (reads h[0] at its post-src-correction position) ---
+            //   endpoint=trg=(200,150), elbow=(100,0), neighbor=src=(0,0).
+            //   dx=100, dy=150 → both nonzero → diagonal endpoint.
+            //   neighbor: ndx=-100, ndy=0 → neighborIsH (ndy=0, |ndx|>=AXIS_EPSILON).
+            //   H neighbor rule: end segment must be V → snap elbow.x=endpoint.x=200.
+            //   result={x:200, y:0}.
+            //   h[0] moved to (200, 0).
+            //
+            // Final h[0] = (200, 0).
+            //   src(0,0) → h[0](200,0): same y=0 → H-aligned ✓
+            //   trg(200,150) → h[0](200,0): same x=200 → V-aligned ✓
+            //
+            // Both ends are axis-aligned with the single handle — the documented
+            // best-effort for the n === 1 case holds.
+
+            const factory = await createLinesTestingFactory();
+            const line = factory.createNewDiagramObject("data_flow", LineView);
+
+            // Do NOT add extra handles: the factory gives exactly one handle.
+            line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
+            expect(line.handles.length).toBe(1);
+
+            // Diagonal positions for all three points.
+            line.node1.moveTo(0, 0);
+            line.node2.moveTo(200, 150);
+            (line.handles[0] as HandleView).face.moveTo(100, 50);
+
+            // Run layout — this applies orthogonalizeEndElbows with n=1.
+            line.calculateLayout();
+
+            // h[0] must be at (200, 0): source snap → (100,0), target snap → (200,0).
+            expect(line.handles[0].x).toBe(200);
+            expect(line.handles[0].y).toBe(0);
+
+            // End segment from source: src(0,0)→h[0](200,0): same y=0 → H-aligned.
+            expect(Math.abs(line.node1.y - line.handles[0].y)).toBeLessThan(AXIS_EPSILON);
+
+            // End segment from target: trg(200,150)→h[0](200,0): same x=200 → V-aligned.
+            expect(Math.abs(line.node2.x - line.handles[0].x)).toBeLessThan(AXIS_EPSILON);
+
+            // Handle count unchanged (policy A, no insertion).
+            expect(line.handles.length).toBe(1);
+        });
+
         it("both endpoints diagonal simultaneously: both end elbows corrected, both end-spans exist, handle count unchanged", async () => {
             // Move BOTH endpoints off-axis in a single step, then call
             // calculateLayout() (which triggers automatically on each moveTo).

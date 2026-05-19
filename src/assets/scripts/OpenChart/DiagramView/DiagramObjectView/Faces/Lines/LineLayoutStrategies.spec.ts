@@ -28,8 +28,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },   // elbow
                 { x: 200, y: 100 }    // H neighbor (same y)
             );
-            expect(result.x).toBeCloseTo(50,  9);   // snapped to endpoint.x
-            expect(result.y).toBeCloseTo(100, 9);   // elbow.y unchanged
+            expect(result!.x).toBeCloseTo(50,  9);   // snapped to endpoint.x
+            expect(result!.y).toBeCloseTo(100, 9);   // elbow.y unchanged
         });
 
         it("H neighbor: diagonal endpoint (|dy|>|dx|) → end segment becomes V (snap result.x = endpoint.x)", () => {
@@ -39,8 +39,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 { x: 250, y: 100 }
             );
-            expect(result.x).toBeCloseTo(80,  9);
-            expect(result.y).toBeCloseTo(100, 9);
+            expect(result!.x).toBeCloseTo(80,  9);
+            expect(result!.y).toBeCloseTo(100, 9);
         });
 
         it("H neighbor: endpoint moved primarily in Y → end segment becomes V (snap result.x = endpoint.x)", () => {
@@ -50,8 +50,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 { x: 300, y: 100 }
             );
-            expect(result.x).toBeCloseTo(85,  9);
-            expect(result.y).toBeCloseTo(100, 9);
+            expect(result!.x).toBeCloseTo(85,  9);
+            expect(result!.y).toBeCloseTo(100, 9);
         });
 
         it("V neighbor: diagonal endpoint (|dy|>|dx|) → end segment becomes H (snap result.y = endpoint.y)", () => {
@@ -61,8 +61,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 { x: 100, y: 300 }    // V neighbor (same x)
             );
-            expect(result.x).toBeCloseTo(100, 9);   // elbow.x unchanged
-            expect(result.y).toBeCloseTo(200, 9);   // snapped to endpoint.y
+            expect(result!.x).toBeCloseTo(100, 9);   // elbow.x unchanged
+            expect(result!.y).toBeCloseTo(200, 9);   // snapped to endpoint.y
         });
 
         it("V neighbor: diagonal endpoint (|dx|>|dy|) → end segment becomes H (snap result.y = endpoint.y)", () => {
@@ -72,8 +72,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 { x: 100, y: 250 }
             );
-            expect(result.x).toBeCloseTo(100, 9);
-            expect(result.y).toBeCloseTo(140, 9);
+            expect(result!.x).toBeCloseTo(100, 9);
+            expect(result!.y).toBeCloseTo(140, 9);
         });
 
         it("V neighbor: endpoint moved primarily in X → end segment becomes H (snap result.y = endpoint.y)", () => {
@@ -83,8 +83,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 { x: 100, y: 300 }
             );
-            expect(result.x).toBeCloseTo(100, 9);
-            expect(result.y).toBeCloseTo(115, 9);
+            expect(result!.x).toBeCloseTo(100, 9);
+            expect(result!.y).toBeCloseTo(115, 9);
         });
 
         it("degenerate neighbor-snap: endpoint already aligned with H neighbor on Y → elbow coincides with neighbor", () => {
@@ -99,8 +99,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },   // elbow
                 { x: 50,  y: 100 }    // H neighbor (same y as elbow; same x as endpoint)
             );
-            expect(result.x).toBeCloseTo(50,  9);   // coincident with neighbor.x
-            expect(result.y).toBeCloseTo(100, 9);   // elbow.y unchanged (elbow→neighbor degenerate)
+            expect(result!.x).toBeCloseTo(50,  9);   // coincident with neighbor.x
+            expect(result!.y).toBeCloseTo(100, 9);   // elbow.y unchanged (elbow→neighbor degenerate)
         });
 
     });
@@ -123,8 +123,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 null
             );
-            expect(result.y).toBeCloseTo(95,  9);   // endpoint.y
-            expect(result.x).toBeCloseTo(100, 9);   // elbow.x unchanged
+            expect(result!.y).toBeCloseTo(95,  9);   // endpoint.y
+            expect(result!.x).toBeCloseTo(100, 9);   // elbow.x unchanged
         });
 
         it("|dy| > |dx|, null neighbor → vertical end segment (snap result.x = endpoint.x)", () => {
@@ -134,8 +134,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 null
             );
-            expect(result.x).toBeCloseTo(95,  9);   // endpoint.x
-            expect(result.y).toBeCloseTo(100, 9);   // elbow.y unchanged
+            expect(result!.x).toBeCloseTo(95,  9);   // endpoint.x
+            expect(result!.y).toBeCloseTo(100, 9);   // elbow.y unchanged
         });
 
         it("|dx| === |dy|, null neighbor → horizontal end segment (>= rule)", () => {
@@ -145,8 +145,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 null
             );
-            expect(result.y).toBeCloseTo(50,  9);   // endpoint.y
-            expect(result.x).toBeCloseTo(100, 9);   // elbow.x unchanged
+            expect(result!.y).toBeCloseTo(50,  9);   // endpoint.y
+            expect(result!.x).toBeCloseTo(100, 9);   // elbow.x unchanged
         });
 
     });
@@ -162,8 +162,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 { x: 200, y: 200 }   // diagonal neighbor → fallback
             );
-            expect(result.y).toBeCloseTo(95,  9);
-            expect(result.x).toBeCloseTo(100, 9);
+            expect(result!.y).toBeCloseTo(95,  9);
+            expect(result!.x).toBeCloseTo(100, 9);
         });
 
         it("|dy| > |dx|, diagonal neighbor → vertical end segment", () => {
@@ -172,8 +172,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 { x: 200, y: 200 }   // diagonal neighbor → fallback
             );
-            expect(result.x).toBeCloseTo(95,  9);
-            expect(result.y).toBeCloseTo(100, 9);
+            expect(result!.x).toBeCloseTo(95,  9);
+            expect(result!.y).toBeCloseTo(100, 9);
         });
 
         it("|dy|>|dx|, near-vertical (not V) neighbor → displacement fallback picks vertical, not H-snap", () => {
@@ -189,8 +189,8 @@ describe("orthogonalizeEndElbow", () => {
                 { x: 100, y: 100 },
                 { x: 105, y: 200 }   // near-vertical but |ndx|=5 >= AXIS_EPSILON → NOT V
             );
-            expect(result.x).toBeCloseTo(95,  9);   // endpoint.x (vertical snap)
-            expect(result.y).toBeCloseTo(100, 9);   // elbow.y unchanged
+            expect(result!.x).toBeCloseTo(95,  9);   // endpoint.x (vertical snap)
+            expect(result!.y).toBeCloseTo(100, 9);   // elbow.y unchanged
         });
 
     });
@@ -202,25 +202,13 @@ describe("orthogonalizeEndElbow", () => {
 
     describe("axis-alignment guarantee", () => {
 
-        // For any input, the returned point must be axis-aligned with the
+        // For snap cases the returned point must be axis-aligned with the
         // endpoint: result.x === endpoint.x OR result.y === endpoint.y
-        // (within AXIS_EPSILON).  This holds for both snap paths and no-ops.
+        // (within AXIS_EPSILON).  Already-aligned no-op cases return null
+        // (section 4) — the elbow is already aligned by definition, so null
+        // is the correct signal and no coordinate check is needed here.
 
         it.each([
-            // endpoint moved in X only (already H-aligned → no-op, still aligned)
-            {
-                label: "endpoint moved in X, H neighbor (already H-aligned no-op)",
-                endpoint: { x: 50,  y: 100 },
-                elbow:    { x: 100, y: 100 },
-                neighbor: { x: 200, y: 100 } as { x: number, y: number } | null
-            },
-            // endpoint moved in Y only (already V-aligned → no-op, still aligned)
-            {
-                label: "endpoint moved in Y, V neighbor (already V-aligned no-op)",
-                endpoint: { x: 100, y: 200 },
-                elbow:    { x: 100, y: 100 },
-                neighbor: { x: 100, y: 300 } as { x: number, y: number } | null
-            },
             // diagonal endpoint → snap path, null neighbor
             {
                 label: "diagonal endpoint, null neighbor",
@@ -242,10 +230,11 @@ describe("orthogonalizeEndElbow", () => {
                 elbow:    { x: 100, y: 100 },
                 neighbor: { x: 100, y: 250 } as { x: number, y: number } | null
             }
-        ])("$label → result is axis-aligned with endpoint", ({ endpoint, elbow, neighbor }) => {
+        ])("$label → result is non-null and axis-aligned with endpoint", ({ endpoint, elbow, neighbor }) => {
             const result = orthogonalizeEndElbow(endpoint, elbow, neighbor);
-            const alignedX = Math.abs(result.x - endpoint.x) < AXIS_EPSILON;
-            const alignedY = Math.abs(result.y - endpoint.y) < AXIS_EPSILON;
+            expect(result).not.toBeNull();
+            const alignedX = Math.abs(result!.x - endpoint.x) < AXIS_EPSILON;
+            const alignedY = Math.abs(result!.y - endpoint.y) < AXIS_EPSILON;
             expect(alignedX || alignedY).toBe(true);
         });
 
@@ -259,48 +248,39 @@ describe("orthogonalizeEndElbow", () => {
     describe("already-axis-aligned no-op", () => {
 
         // When the end segment is already H or V aligned with the endpoint,
-        // the returned object must have the same x/y as the original elbow
-        // AND be a fresh object (not the same reference as elbow).
+        // the helper returns null — the single source of truth for "no
+        // correction needed".  Callers check for null rather than re-checking
+        // the coordinates against AXIS_EPSILON.
 
-        it("already H-aligned (endpoint.y === elbow.y), null neighbor → elbow coords unchanged", () => {
+        it("already H-aligned (endpoint.y === elbow.y), null neighbor → returns null", () => {
             const elbow = { x: 100, y: 100 };
             const result = orthogonalizeEndElbow({ x: 50, y: 100 }, elbow, null);
-            expect(result.x).toBe(elbow.x);
-            expect(result.y).toBe(elbow.y);
-            expect(result).not.toBe(elbow);
+            expect(result).toBeNull();
         });
 
-        it("already V-aligned (endpoint.x === elbow.x), null neighbor → elbow coords unchanged", () => {
+        it("already V-aligned (endpoint.x === elbow.x), null neighbor → returns null", () => {
             const elbow = { x: 100, y: 100 };
             const result = orthogonalizeEndElbow({ x: 100, y: 50 }, elbow, null);
-            expect(result.x).toBe(elbow.x);
-            expect(result.y).toBe(elbow.y);
-            expect(result).not.toBe(elbow);
+            expect(result).toBeNull();
         });
 
-        it("already H-aligned, H neighbor → elbow coords unchanged (TALA round-trip no-op)", () => {
+        it("already H-aligned, H neighbor → returns null (TALA round-trip no-op)", () => {
             const elbow = { x: 100, y: 100 };
             const result = orthogonalizeEndElbow({ x: 50, y: 100 }, elbow, { x: 200, y: 100 });
-            expect(result.x).toBe(elbow.x);
-            expect(result.y).toBe(elbow.y);
-            expect(result).not.toBe(elbow);
+            expect(result).toBeNull();
         });
 
-        it("already V-aligned, V neighbor → elbow coords unchanged (TALA round-trip no-op)", () => {
+        it("already V-aligned, V neighbor → returns null (TALA round-trip no-op)", () => {
             const elbow = { x: 100, y: 100 };
             const result = orthogonalizeEndElbow({ x: 100, y: 50 }, elbow, { x: 100, y: 300 });
-            expect(result.x).toBe(elbow.x);
-            expect(result.y).toBe(elbow.y);
-            expect(result).not.toBe(elbow);
+            expect(result).toBeNull();
         });
 
-        it("within AXIS_EPSILON of H-aligned (sub-pixel TALA float) → elbow coords unchanged", () => {
+        it("within AXIS_EPSILON of H-aligned (sub-pixel TALA float) → returns null", () => {
             const elbow = { x: 100, y: 100 };
             // endpoint.y is within half AXIS_EPSILON of elbow.y → treated as aligned
             const result = orthogonalizeEndElbow({ x: 50, y: 100 + AXIS_EPSILON * 0.5 }, elbow, null);
-            expect(result.x).toBe(elbow.x);
-            expect(result.y).toBe(elbow.y);
-            expect(result).not.toBe(elbow);
+            expect(result).toBeNull();
         });
 
     });
@@ -353,10 +333,11 @@ describe("orthogonalizeEndElbow", () => {
             expect(elbow.y).toBe(elbowYBefore);
         });
 
-        it("returns a distinct object reference from elbow in every case", () => {
+        it("returns a fresh object reference (not elbow) when a snap is needed", () => {
+            // The no-op path now returns null (tested in section 4), so only
+            // snap paths are verified here — each must return a distinct object,
+            // never the same reference as the elbow argument.
             const subcases = [
-                // already-aligned (no-op path)
-                { endpoint: { x: 50, y: 100 }, elbow: { x: 100, y: 100 }, neighbor: null },
                 // snap path, null neighbor
                 { endpoint: { x: 50, y: 160 }, elbow: { x: 100, y: 100 }, neighbor: null },
                 // snap path, H neighbor
@@ -367,6 +348,7 @@ describe("orthogonalizeEndElbow", () => {
 
             for (const c of subcases) {
                 const result = orthogonalizeEndElbow(c.endpoint, c.elbow, c.neighbor);
+                expect(result).not.toBeNull();
                 expect(result).not.toBe(c.elbow);
             }
         });

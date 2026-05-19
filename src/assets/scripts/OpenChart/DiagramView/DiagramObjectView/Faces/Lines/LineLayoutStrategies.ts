@@ -454,20 +454,25 @@ export function runMultiElbowLayout(
  * @param neighbor  The vertex beyond the elbow (the next handle, or the far
  *                   endpoint if the elbow is the only interior vertex), or null
  *                   if there is no meaningful neighbor.
- * @returns         The corrected elbow position `{ x, y }`. Always a fresh
+ * @returns         The corrected elbow position `{ x, y }`, or `null` if the
+ *                   end segment is already axis-aligned (the TALA no-op case).
+ *                   When a non-null value is returned it is always a fresh
  *                   object — the `elbow` argument is never mutated.
  */
 export function orthogonalizeEndElbow(
     endpoint: { x: number, y: number },
     elbow: { x: number, y: number },
     neighbor: { x: number, y: number } | null
-): { x: number, y: number } {
+): { x: number, y: number } | null {
     const dx = endpoint.x - elbow.x;
     const dy = endpoint.y - elbow.y;
 
-    // Already axis-aligned — return unchanged (TALA no-op case).
+    // Already axis-aligned on either axis — no correction needed (TALA no-op
+    // case).  The OR is intentional: if the end segment is within AXIS_EPSILON
+    // of H or V on either axis, the span classifier will still accept it, so
+    // we leave the elbow unchanged rather than applying a sub-pixel nudge.
     if (Math.abs(dx) < AXIS_EPSILON || Math.abs(dy) < AXIS_EPSILON) {
-        return { x: elbow.x, y: elbow.y };
+        return null;
     }
 
     // Determine target axis from the elbow→neighbor segment's existing axis,
