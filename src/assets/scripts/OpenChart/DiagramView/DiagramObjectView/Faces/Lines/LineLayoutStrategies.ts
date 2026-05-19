@@ -442,6 +442,12 @@ export function runMultiElbowLayout(
  *   horizontal: `elbow.y = endpoint.y`; else vertical: `elbow.x = endpoint.x`.
  * - If the end segment is already axis-aligned (within `AXIS_EPSILON`), the
  *   elbow is returned unchanged — this is the TALA-route no-op case.
+ * - **Degenerate neighbor-snap:** when the endpoint is already aligned with the
+ *   neighbor on the chosen axis (e.g. H neighbor at the same y as the endpoint),
+ *   the resulting elbow position is coincident with the neighbor and the
+ *   `elbow→neighbor` segment degenerates to zero length. This is correct per the
+ *   axis-preservation rule; de-duplication of coincident vertices is the caller's
+ *   responsibility (Step 2 / #18).
  *
  * @param endpoint  The moved endpoint (latch) position.
  * @param elbow     The current adjacent interior handle position.

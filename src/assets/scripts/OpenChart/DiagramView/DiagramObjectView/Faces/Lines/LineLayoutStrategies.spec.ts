@@ -87,6 +87,22 @@ describe("orthogonalizeEndElbow", () => {
             expect(result.y).toBeCloseTo(115, 9);
         });
 
+        it("degenerate neighbor-snap: endpoint already aligned with H neighbor on Y → elbow coincides with neighbor", () => {
+            // endpoint.y (160) !== elbow.y (100), so the end segment is not aligned.
+            // H neighbor at {x:50, y:100} (same y as elbow) → neighborIsH → snap elbow.x = endpoint.x.
+            // Resulting elbow = {x:50, y:100} which is coincident with the neighbor.
+            // The elbow→neighbor segment degenerates to zero length; de-duplication is
+            // the caller's responsibility (Step 2 / #18). This is the documented
+            // degenerate case — pinned here so Step 2 has an explicit contract to rely on.
+            const result = orthogonalizeEndElbow(
+                { x: 50,  y: 160 },   // endpoint: y differs from elbow.y
+                { x: 100, y: 100 },   // elbow
+                { x: 50,  y: 100 }    // H neighbor (same y as elbow; same x as endpoint)
+            );
+            expect(result.x).toBeCloseTo(50,  9);   // coincident with neighbor.x
+            expect(result.y).toBeCloseTo(100, 9);   // elbow.y unchanged (elbow→neighbor degenerate)
+        });
+
     });
 
 
@@ -160,6 +176,23 @@ describe("orthogonalizeEndElbow", () => {
             expect(result.y).toBeCloseTo(100, 9);
         });
 
+        it("|dy|>|dx|, near-vertical (not V) neighbor → displacement fallback picks vertical, not H-snap", () => {
+            // neighbor {x:105, y:200}: ndx=5 >= AXIS_EPSILON so NOT classified V.
+            // Falls through to displacement fallback.
+            // dx=-5, dy=-50 → |dy|>|dx| → vertical end segment:
+            //   result = {x: endpoint.x, y: elbow.y} = {x:95, y:100}.
+            // A wrong V-misclassification would return {x:elbow.x, y:endpoint.y}
+            //   = {x:100, y:50} — a clearly different outcome, so this case
+            //   DISTINGUISHES "correct fallback" from "incorrect V-branch".
+            const result = orthogonalizeEndElbow(
+                { x: 95,  y: 50  },
+                { x: 100, y: 100 },
+                { x: 105, y: 200 }   // near-vertical but |ndx|=5 >= AXIS_EPSILON → NOT V
+            );
+            expect(result.x).toBeCloseTo(95,  9);   // endpoint.x (vertical snap)
+            expect(result.y).toBeCloseTo(100, 9);   // elbow.y unchanged
+        });
+
     });
 
 
@@ -173,56 +206,47 @@ describe("orthogonalizeEndElbow", () => {
         // endpoint: result.x === endpoint.x OR result.y === endpoint.y
         // (within AXIS_EPSILON).  This holds for both snap paths and no-ops.
 
-        it("all non-degenerate inputs produce a result axis-aligned with the endpoint", () => {
-            const inputs: Array<{
-                label: string;
-                endpoint: { x: number, y: number };
-                elbow: { x: number, y: number };
-                neighbor: { x: number, y: number } | null;
-            }> = [
-                // endpoint moved in X only (already H-aligned → no-op, still aligned)
-                {
-                    label: "endpoint moved in X, H neighbor (already H-aligned no-op)",
-                    endpoint: { x: 50,  y: 100 },
-                    elbow:    { x: 100, y: 100 },
-                    neighbor: { x: 200, y: 100 }
-                },
-                // endpoint moved in Y only (already V-aligned → no-op, still aligned)
-                {
-                    label: "endpoint moved in Y, V neighbor (already V-aligned no-op)",
-                    endpoint: { x: 100, y: 200 },
-                    elbow:    { x: 100, y: 100 },
-                    neighbor: { x: 100, y: 300 }
-                },
-                // diagonal endpoint → snap path, null neighbor
-                {
-                    label: "diagonal endpoint, null neighbor",
-                    endpoint: { x: 60,  y: 160 },
-                    elbow:    { x: 100, y: 100 },
-                    neighbor: null
-                },
-                // diagonal endpoint → H neighbor overrides fallback
-                {
-                    label: "diagonal endpoint, H neighbor",
-                    endpoint: { x: 60,  y: 160 },
-                    elbow:    { x: 100, y: 100 },
-                    neighbor: { x: 250, y: 100 }
-                },
-                // diagonal endpoint → V neighbor overrides fallback
-                {
-                    label: "diagonal endpoint, V neighbor",
-                    endpoint: { x: 60,  y: 160 },
-                    elbow:    { x: 100, y: 100 },
-                    neighbor: { x: 100, y: 250 }
-                }
-            ];
-
-            for (const { label: _label, endpoint, elbow, neighbor } of inputs) {
-                const result = orthogonalizeEndElbow(endpoint, elbow, neighbor);
-                const alignedX = Math.abs(result.x - endpoint.x) < AXIS_EPSILON;
-                const alignedY = Math.abs(result.y - endpoint.y) < AXIS_EPSILON;
-                expect(alignedX || alignedY).toBe(true);
+        it.each([
+            // endpoint moved in X only (already H-aligned → no-op, still aligned)
+            {
+                label: "endpoint moved in X, H neighbor (already H-aligned no-op)",
+                endpoint: { x: 50,  y: 100 },
+                elbow:    { x: 100, y: 100 },
+                neighbor: { x: 200, y: 100 } as { x: number, y: number } | null
+            },
+            // endpoint moved in Y only (already V-aligned → no-op, still aligned)
+            {
+                label: "endpoint moved in Y, V neighbor (already V-aligned no-op)",
+                endpoint: { x: 100, y: 200 },
+                elbow:    { x: 100, y: 100 },
+                neighbor: { x: 100, y: 300 } as { x: number, y: number } | null
+            },
+            // diagonal endpoint → snap path, null neighbor
+            {
+                label: "diagonal endpoint, null neighbor",
+                endpoint: { x: 60,  y: 160 },
+                elbow:    { x: 100, y: 100 },
+                neighbor: null as { x: number, y: number } | null
+            },
+            // diagonal endpoint → H neighbor overrides fallback
+            {
+                label: "diagonal endpoint, H neighbor",
+                endpoint: { x: 60,  y: 160 },
+                elbow:    { x: 100, y: 100 },
+                neighbor: { x: 250, y: 100 } as { x: number, y: number } | null
+            },
+            // diagonal endpoint → V neighbor overrides fallback
+            {
+                label: "diagonal endpoint, V neighbor",
+                endpoint: { x: 60,  y: 160 },
+                elbow:    { x: 100, y: 100 },
+                neighbor: { x: 100, y: 250 } as { x: number, y: number } | null
             }
+        ])("$label → result is axis-aligned with endpoint", ({ endpoint, elbow, neighbor }) => {
+            const result = orthogonalizeEndElbow(endpoint, elbow, neighbor);
+            const alignedX = Math.abs(result.x - endpoint.x) < AXIS_EPSILON;
+            const alignedY = Math.abs(result.y - endpoint.y) < AXIS_EPSILON;
+            expect(alignedX || alignedY).toBe(true);
         });
 
     });
