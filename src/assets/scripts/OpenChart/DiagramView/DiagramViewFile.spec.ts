@@ -41,18 +41,13 @@ describe("DiagramViewFile — import-time PolyLine inference", () => {
         // matching what the auto-layout engine does in production.
         //
         // Handle positions are chosen so both end segments are axis-aligned
-        // with the line's latches (which default to (0,0)).  This makes the
-        // issue-#19 end-elbow correction a no-op on the reloaded line, so
-        // positions survive the round-trip unchanged.
+        // with the line's latches, making the issue-#19 end-elbow correction
+        // a no-op on the reloaded line so all three handle positions survive
+        // the round-trip unchanged.
         //
-        //   node1 = (0, 0) (default latch position, unset)
-        //   handles[0] = (100, 0)  — H-aligned with node1 (same y=0)
-        //   handles[1] = (200, 100) — interior
-        //   handles[2] = (200, 50)  — V-aligned with node2 (same x=200, node2 at (200,0) default)
-        //
-        // Actually node2 default is also (0,0); align node2 with handles[2]:
-        //   node2 = (200, 0) → handles[2] at (200, 50) shares x=200 (V-aligned).
-        //   node1 = (0, 0)   → handles[0] at (100, 0) shares y=0 (H-aligned).
+        //   node1 = (0, 0)     → handles[0] = (100, 0): shared y=0 (H-aligned)
+        //   handles[1] = (100, 50): interior turn
+        //   node2 = (200, 0)   → handles[2] = (200, 50): shared x=200 (V-aligned)
         line.node1.moveTo(0, 0);
         line.node2.moveTo(200, 0);
 

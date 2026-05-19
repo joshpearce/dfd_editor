@@ -647,9 +647,11 @@ describe("findUnlinkedObjectAt — PolyLineSpanView pass-through (H1 regression)
 
         line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
 
-        // Orthogonal node positions so end-elbow correction is a no-op:
-        //   node1 = (0, 50)   H-aligned with handles[0] y=50
-        //   node2 = (200, 400) V-aligned with handles[2] x=200
+        // node1 is linked to the block anchor (block at (50,50)) a few lines
+        // below, so its effective source position comes from that anchor.
+        // The linked anchor leaves the source end segment axis-aligned for
+        // this fixture's geometry, making the issue-#19 correction a no-op.
+        // node2 = (200, 400) is V-aligned with handles[2] x=200 (no-op there too).
         line.node1.moveTo(0, 50);
         line.node2.moveTo(200, 400);
 
