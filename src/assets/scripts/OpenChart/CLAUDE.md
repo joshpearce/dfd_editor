@@ -1,6 +1,6 @@
 # OpenChart (Diagram Engine — Forked)
 
-Last verified: 2026-05-08
+Last verified: 2026-05-19
 
 ## Purpose
 
@@ -169,3 +169,12 @@ abandoned; treat this directory as first-party code.
   the delta perpendicular to the segment's axis (`"H"` → vertical only,
   `"V"` → horizontal only) so the H/V alternation invariant is preserved.
   End segments and latches behave as before (`DynamicLine` parity).
+  **End-segment orthogonality is maintained on endpoint move (issue #19,
+  Policy A — snap-elbow):** `PolyLine.calculateLayout` calls
+  `orthogonalizeEndElbow` (`LineLayoutStrategies.ts`) for both ends before
+  the span-classification loop; it snaps the adjacent elbow onto the
+  endpoint's row or column (whichever keeps the next segment's axis
+  intact) via `handle.face.moveTo`, leaving already-orthogonal routes
+  unchanged — so TALA-generated handles are a true no-op and auto-layout
+  fidelity is unaffected.  #18's scope is now "residual off-axis segments
+  only" (sources other than endpoint move).
