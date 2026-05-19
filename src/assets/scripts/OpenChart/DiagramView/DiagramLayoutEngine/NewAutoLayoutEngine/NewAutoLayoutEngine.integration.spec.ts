@@ -85,7 +85,9 @@ describe("NewAutoLayoutEngine ↔ view-layer contract (real LineView)", () => {
         line.handles[0].face.moveTo(100, 50);
         line.handles[1].face.moveTo(200, 100);
 
-        factory.inferLineFaces([line]);
+        for (const cmd of factory.inferLineFaces([line])) {
+            cmd.execute();
+        }
         line.calculateLayout();
 
         expect(line.face).toBeInstanceOf(PolyLine);

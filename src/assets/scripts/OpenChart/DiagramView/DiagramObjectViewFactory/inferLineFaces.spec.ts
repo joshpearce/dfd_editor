@@ -4,6 +4,10 @@
  * Tests for `DiagramObjectViewFactory.inferLineFaces` — the post-processing
  * pass that reconciles line faces against handle counts after auto-layout
  * or file import.
+ *
+ * Step 2 contract: `inferLineFaces` returns `SwapLineFace[]` and performs
+ * **zero** face mutation itself.  Callers must call `cmd.execute()` to
+ * apply the swap.
  */
 
 import { describe, it, expect } from "vitest";
@@ -19,6 +23,7 @@ import {
 import {
     createLinesTestingFactory
 } from "../DiagramObjectView/Faces/Lines/Lines.testing";
+import { SwapLineFace } from "@OpenChart/DiagramEditor/Commands/View/SwapLineFace";
 
 async function buildLineWithHandleCount(n: number): Promise<{
     line: LineView;
@@ -37,45 +42,87 @@ async function buildLineWithHandleCount(n: number): Promise<{
 
 describe("DiagramObjectViewFactory.inferLineFaces", () => {
 
-    it("upgrades DynamicLine → PolyLine when a line has 2+ handles", async () => {
+    // -------------------------------------------------------------------------
+    // Step 2 contract: inferLineFaces returns commands, does NOT mutate faces.
+    // -------------------------------------------------------------------------
+
+    it("returns a SwapLineFace command (not yet applied) when a 2-handle line needs upgrading", async () => {
+        const { line, factory } = await buildLineWithHandleCount(2);
+        expect(line.face).toBeInstanceOf(DynamicLine);
+        const faceBefore = line.face;
+
+        const cmds = factory.inferLineFaces([line]);
+
+        // Face NOT yet changed — no mutation inside inferLineFaces.
+        expect(line.face).toBe(faceBefore);
+        expect(line.face).toBeInstanceOf(DynamicLine);
+
+        // Exactly one command returned for this line.
+        expect(cmds).toHaveLength(1);
+        expect(cmds[0]).toBeInstanceOf(SwapLineFace);
+    });
+
+    it("face mutation occurs only after cmd.execute()", async () => {
         const { line, factory } = await buildLineWithHandleCount(2);
         expect(line.face).toBeInstanceOf(DynamicLine);
 
-        factory.inferLineFaces([line]);
+        const cmds = factory.inferLineFaces([line]);
+        expect(line.face).toBeInstanceOf(DynamicLine); // still un-mutated
+
+        cmds[0].execute();
 
         expect(line.face).toBeInstanceOf(PolyLine);
     });
 
-    it("leaves DynamicLine alone when a line has 1 handle", async () => {
+    it("upgrades DynamicLine → PolyLine when a line has 2+ handles (after execute)", async () => {
+        const { line, factory } = await buildLineWithHandleCount(2);
+        expect(line.face).toBeInstanceOf(DynamicLine);
+
+        for (const cmd of factory.inferLineFaces([line])) {
+            cmd.execute();
+        }
+
+        expect(line.face).toBeInstanceOf(PolyLine);
+    });
+
+    it("returns an empty array (no-op) when a line has 1 handle", async () => {
         const { line, factory } = await buildLineWithHandleCount(1);
         expect(line.face).toBeInstanceOf(DynamicLine);
         const originalFace = line.face;
 
-        factory.inferLineFaces([line]);
+        const cmds = factory.inferLineFaces([line]);
 
+        expect(cmds).toHaveLength(0);
         expect(line.face).toBe(originalFace);
         expect(line.face).toBeInstanceOf(DynamicLine);
     });
 
-    it("downgrades PolyLine → DynamicLine when handle count falls below 2", async () => {
+    it("downgrades PolyLine → DynamicLine when handle count falls below 2 (after execute)", async () => {
         const { line, factory } = await buildLineWithHandleCount(2);
-        factory.inferLineFaces([line]);
+        for (const cmd of factory.inferLineFaces([line])) {
+            cmd.execute();
+        }
         expect(line.face).toBeInstanceOf(PolyLine);
 
         line.dropHandles(1);
-        factory.inferLineFaces([line]);
+        for (const cmd of factory.inferLineFaces([line])) {
+            cmd.execute();
+        }
 
         expect(line.face).toBeInstanceOf(DynamicLine);
     });
 
-    it("is idempotent — a second call after the first is a no-op", async () => {
+    it("is idempotent — a second call after the first returns an empty command array", async () => {
         const { line, factory } = await buildLineWithHandleCount(3);
-        factory.inferLineFaces([line]);
+        for (const cmd of factory.inferLineFaces([line])) {
+            cmd.execute();
+        }
         const polyFace = line.face;
         expect(polyFace).toBeInstanceOf(PolyLine);
 
-        factory.inferLineFaces([line]);
-
+        // Second call: face already matches → no commands.
+        const cmds = factory.inferLineFaces([line]);
+        expect(cmds).toHaveLength(0);
         expect(line.face).toBe(polyFace);
     });
 
@@ -86,7 +133,9 @@ describe("DiagramObjectViewFactory.inferLineFaces", () => {
         // Demotion would trigger view.dropHandles(1) on the next layout
         // tick and erase the user's bends.
         const { line, factory } = await buildLineWithHandleCount(2);
-        factory.inferLineFaces([line]);
+        for (const cmd of factory.inferLineFaces([line])) {
+            cmd.execute();
+        }
         expect(line.face).toBeInstanceOf(PolyLine);
 
         // Apply restyle directly — same path applyTheme uses.
@@ -167,7 +216,7 @@ describe("DiagramObjectViewFactory.inferLineFaces", () => {
         expect(line.node2.y).toBe(node2PosBefore.y);
     });
 
-    it("traverses lines nested under a group inside a canvas root", async () => {
+    it("traverses lines nested under a group inside a canvas root (after execute)", async () => {
         // Build a real canvas → group → line subtree so the test
         // exercises the postfix-traversal path that runLayout uses
         // via [this.canvas].  A flat siblings-of-roots test would not
@@ -189,7 +238,9 @@ describe("DiagramObjectViewFactory.inferLineFaces", () => {
 
         expect(line.face).toBeInstanceOf(DynamicLine);
 
-        factory.inferLineFaces([canvas]);
+        for (const cmd of factory.inferLineFaces([canvas])) {
+            cmd.execute();
+        }
 
         expect(line.face).toBeInstanceOf(PolyLine);
     });

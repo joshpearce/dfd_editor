@@ -11,3 +11,4 @@ export * from "./UserSetObjectPosition";
 export * from "./SetTangibility";
 export * from "./RemoveSelectedChildren";
 export * from "./RouteLinesThroughBlock";
+export * from "./SwapLineFace";
