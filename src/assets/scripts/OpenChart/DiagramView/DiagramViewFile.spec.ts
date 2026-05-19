@@ -39,12 +39,24 @@ describe("DiagramViewFile — import-time PolyLine inference", () => {
         // Position the reference handle and add two more.  Mark each as
         // user-set so the export's PositionMap includes their coords —
         // matching what the auto-layout engine does in production.
+        //
+        // Handle positions are chosen so both end segments are axis-aligned
+        // with the line's latches, making the issue-#19 end-elbow correction
+        // a no-op on the reloaded line so all three handle positions survive
+        // the round-trip unchanged.
+        //
+        //   node1 = (0, 0)     → handles[0] = (100, 0): shared y=0 (H-aligned)
+        //   handles[1] = (100, 50): interior turn
+        //   node2 = (200, 0)   → handles[2] = (200, 50): shared x=200 (V-aligned)
+        line.node1.moveTo(0, 0);
+        line.node2.moveTo(200, 0);
+
         line.addHandle(factory.createNewDiagramObject("generic_handle", HandleView));
         line.addHandle(factory.createNewDiagramObject("generic_handle", HandleView));
         const positions: Array<[number, number]> = [
+            [100, 0],
             [100, 50],
-            [200, 100],
-            [300, 50]
+            [200, 50]
         ];
         for (let i = 0; i < positions.length; i++) {
             line.handles[i].userSetPosition = PositionSetByUser.True;
@@ -72,12 +84,13 @@ describe("DiagramViewFile — import-time PolyLine inference", () => {
         expect(reloadedLine).toBeDefined();
         expect(reloadedLine!.face).toBeInstanceOf(PolyLine);
         expect(reloadedLine!.handles.length).toBe(3);
-        // Handle positions survive the round-trip.
+        // Handle positions survive the round-trip (end segments are orthogonal,
+        // so the issue-#19 correction is a no-op).
         expect(reloadedLine!.handles[0].x).toBe(100);
-        expect(reloadedLine!.handles[0].y).toBe(50);
-        expect(reloadedLine!.handles[1].x).toBe(200);
-        expect(reloadedLine!.handles[1].y).toBe(100);
-        expect(reloadedLine!.handles[2].x).toBe(300);
+        expect(reloadedLine!.handles[0].y).toBe(0);
+        expect(reloadedLine!.handles[1].x).toBe(100);
+        expect(reloadedLine!.handles[1].y).toBe(50);
+        expect(reloadedLine!.handles[2].x).toBe(200);
         expect(reloadedLine!.handles[2].y).toBe(50);
     });
 

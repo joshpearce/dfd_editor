@@ -85,26 +85,35 @@ async function createFixture(factory: DiagramObjectViewFactory): Promise<{
 
     const line = factory.createNewDiagramObject("data_flow", LineView);
 
-    line.node1.moveTo(0, 0);
-    line.node2.moveTo(400, 400);
-
     // Add two extra handles so the total count is 3.
     for (let i = 1; i < 3; i++) {
         const handle = factory.createNewDiagramObject("generic_handle", HandleView);
         line.addHandle(handle);
     }
 
-    // Swap to PolyLine before positioning; once PolyLine is the active face
-    // handle.moveTo cascades through PolyLine.calculateLayout which does not
-    // drop handles (unlike DynamicLine.calculateLayout).
+    // Swap to PolyLine before positioning.
     line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
 
-    // Position the three handles at axis-aligned coordinates.
-    (line.handles[0] as HandleView).moveTo(100, 50);
-    (line.handles[1] as HandleView).moveTo(200, 50);
-    (line.handles[2] as HandleView).moveTo(200, 150);
+    // Orthogonal node positions so end-elbow correction is a no-op both
+    // initially and after span-drag:
+    //   node1 = (100, 0)  — V-aligned with handles[0] x=100 (same x, no dx)
+    //   node2 = (400, 150) — H-aligned with handles[2] y=150 (same y, no dy)
+    //
+    // This is necessary because the H span drag moves handles[0] vertically
+    // (dx=0) and the V span drag moves handles[2] horizontally (dy=0).  If
+    // node1.x != handles[0].x or node2.y != handles[2].y, the correction
+    // in PolyLine.calculateLayout would fire mid-drag and reposition an end
+    // elbow that the mover just moved, invalidating the delta assertions.
+    line.node1.moveTo(100, 0);
+    line.node2.moveTo(400, 150);
 
-    // Final layout pass: guarantees spans are populated.
+    // Position handles via face.moveTo (no cascade) so calculateLayout
+    // runs once at the end with all positions set.
+    (line.handles[0] as HandleView).face.moveTo(100, 50);
+    (line.handles[1] as HandleView).face.moveTo(200, 50);
+    (line.handles[2] as HandleView).face.moveTo(200, 150);
+
+    // Single layout pass: guarantees spans are populated.
     line.calculateLayout();
 
     const face = line.face as unknown as PolyLineInternalState;
@@ -323,8 +332,6 @@ describe("PowerEditPlugin span dispatch + cursor map", () => {
         const { editor, plugin, canvas } = createTestableEditor(factory);
 
         const line = factory.createNewDiagramObject("data_flow", LineView);
-        line.node1.moveTo(0, 0);
-        line.node2.moveTo(400, 400);
 
         for (let i = 1; i < 3; i++) {
             const h = factory.createNewDiagramObject("generic_handle", HandleView);
@@ -333,9 +340,17 @@ describe("PowerEditPlugin span dispatch + cursor map", () => {
 
         line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
 
-        (line.handles[0] as HandleView).moveTo(100, 50);
-        (line.handles[1] as HandleView).moveTo(200, 50);
-        (line.handles[2] as HandleView).moveTo(200, 150);
+        // Orthogonal node positions so end-elbow correction is a no-op:
+        //   node1 = (0, 50)   — H-aligned with handles[0] y=50
+        //   node2 = (200, 400) — V-aligned with handles[2] x=200
+        line.node1.moveTo(0, 50);
+        line.node2.moveTo(200, 400);
+
+        // Position handles via face.moveTo (no cascade) so calculateLayout
+        // runs once at the end with all positions set.
+        (line.handles[0] as HandleView).face.moveTo(100, 50);
+        (line.handles[1] as HandleView).face.moveTo(200, 50);
+        (line.handles[2] as HandleView).face.moveTo(200, 150);
 
         // Link node1 to a block anchor → activates the anchored/span-aware
         // branch of PolyLine.getObjectAt so interior hitbox clicks return spans.

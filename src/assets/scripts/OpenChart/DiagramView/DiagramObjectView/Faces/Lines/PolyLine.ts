@@ -8,18 +8,14 @@ import {
     drawBoundingRegion,
     isInsideRegion
 } from "@OpenChart/Utilities";
-import { runMultiElbowLayout } from "./LineLayoutStrategies";
+import { AXIS_EPSILON, orthogonalizeEndElbow, runMultiElbowLayout } from "./LineLayoutStrategies";
 import { PolyLineSpanView } from "./PolyLineSpanView";
 import type { LineStyle } from "../Styles";
 import type { BoundingBox } from "../BoundingBox";
 import type { ViewportRegion } from "../../ViewportRegion";
 import type { RenderSettings } from "../../RenderSettings";
-import type { DiagramObjectView, HitTarget } from "../../Views";
+import type { DiagramObjectView, HandleView, HitTarget, LatchView } from "../../Views";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
-
-// Handle positions originate from TALA's `parseFloat`'d SVG vertices; snap
-// equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
-const AXIS_EPSILON = 1e-6;
 
 /**
  * A {@link LineFace} that renders an arbitrary-vertex polyline whose interior
@@ -177,6 +173,11 @@ export class PolyLine extends LineFace {
         // Cache the two end latches so getObjectAt can reuse the same array
         // instead of allocating [node1, node2] on every hit-test call.
         this.latchEndpoints = [src, trg];
+
+        // --- Policy A: snap-elbow end-segment orthogonality (issue #19) -------
+        this.orthogonalizeEndElbows(src, trg, handles);
+        // --- end issue #19 correction -----------------------------------------
+
         const vertices = this.points.flatMap(p => [p.x, p.y]);
 
         runMultiElbowLayout(this.view, this as unknown as GenericLineInternalState, vertices);
@@ -204,6 +205,51 @@ export class PolyLine extends LineFace {
         this.boundingBox.y = this.boundingBox.yMid;
 
         return true;
+    }
+
+    /**
+     * Applies Policy A end-segment orthogonality correction (issue #19):
+     * snaps each end elbow onto the adjacent endpoint's row or column so
+     * that every end segment is H or V before the span-classification loop.
+     *
+     * Positions are written via `handle.face.moveTo` (face-layer path) to
+     * bypass the `LineView.handleUpdate → dropHandles` cascade that the
+     * high-level `handle.moveTo` would trigger (see OpenChart CLAUDE.md).
+     *
+     * `n === 1` (single handle): source and target ends share the same
+     * handle.  The source correction is applied first; the target correction
+     * then uses `src` as its neighbor.  On a true-diagonal single-handle
+     * route the two corrections may conflict — this is the documented
+     * best-effort; issue #18 owns any residual off-axis segments.
+     *
+     * @param src      The source latch.
+     * @param trg      The target latch.
+     * @param handles  The line's interior handles (at least one).
+     */
+    private orthogonalizeEndElbows(
+        src: LatchView,
+        trg: LatchView,
+        handles: ReadonlyArray<HandleView>
+    ): void {
+        const n = handles.length;
+
+        // Source end: endpoint = src, elbow = handles[0],
+        // neighbor = handles[1] if it exists, else trg.
+        const srcElbow = handles[0];
+        const srcNeighbor = n > 1 ? handles[1] : trg;
+        const corrSrc = orthogonalizeEndElbow(src, srcElbow, srcNeighbor);
+        if (corrSrc !== null) {
+            srcElbow.face.moveTo(corrSrc.x, corrSrc.y);
+        }
+
+        // Target end: endpoint = trg, elbow = handles[n-1],
+        // neighbor = handles[n-2] if it exists, else src.
+        const trgElbow = handles[n - 1];
+        const trgNeighbor = n > 1 ? handles[n - 2] : src;
+        const corrTrg = orthogonalizeEndElbow(trg, trgElbow, trgNeighbor);
+        if (corrTrg !== null) {
+            trgElbow.face.moveTo(corrTrg.x, corrTrg.y);
+        }
     }
 
     public renderTo(

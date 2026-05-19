@@ -11,6 +11,10 @@ import { ListProperty } from "@OpenChart/DiagramModel";
 import type { LineView } from "../../Views";
 import type { GenericLineInternalState } from "./GenericLineInternalState";
 
+// Handle positions originate from TALA's `parseFloat`'d SVG vertices; snap
+// equality to an epsilon so fractional-pixel outputs classify as axis-aligned.
+export const AXIS_EPSILON = 1e-6;
+
 /**
  * Applies a horizontal two-elbow layout to a line.
  * @param view
@@ -415,6 +419,90 @@ export function runMultiElbowLayout(
         t, face.style.borderRadius
     );
 
+}
+
+/**
+ * Returns the corrected position of the elbow adjacent to a moved endpoint so
+ * that the endpoint→elbow segment is axis-aligned, choosing the snap axis that
+ * preserves the elbow→neighbor segment's existing axis (H/V alternation).
+ *
+ * Policy A (snap-elbow, plan.md): the elbow slides onto the endpoint's row or
+ * column. No handle insertion. Pure — caller writes the result to model state.
+ *
+ * Axis-selection rules:
+ * - If `elbow → neighbor` is currently horizontal (`|elbow.y − neighbor.y| <
+ *   AXIS_EPSILON`), the next segment is H, so the end segment must be V →
+ *   snap `elbow.x = endpoint.x` (keep `elbow.y`).
+ * - If `elbow → neighbor` is currently vertical (`|elbow.x − neighbor.x| <
+ *   AXIS_EPSILON`), the next segment is V, so the end segment must be H →
+ *   snap `elbow.y = endpoint.y` (keep `elbow.x`).
+ * - **Fallback** (neighbor is null, or elbow→neighbor is diagonal/degenerate):
+ *   snap on the axis of the larger endpoint→elbow displacement — if
+ *   `|endpoint.x − elbow.x| >= |endpoint.y − elbow.y|` make the end segment
+ *   horizontal: `elbow.y = endpoint.y`; else vertical: `elbow.x = endpoint.x`.
+ * - If the end segment is already axis-aligned (within `AXIS_EPSILON`), the
+ *   elbow is returned unchanged — this is the TALA-route no-op case.
+ * - **Degenerate neighbor-snap:** when the endpoint is already aligned with the
+ *   neighbor on the chosen axis (e.g. H neighbor at the same y as the endpoint),
+ *   the resulting elbow position is coincident with the neighbor and the
+ *   `elbow→neighbor` segment degenerates to zero length. This is correct per the
+ *   axis-preservation rule; de-duplication of coincident vertices is the caller's
+ *   responsibility (Step 2 / #18).
+ *
+ * @param endpoint  The moved endpoint (latch) position.
+ * @param elbow     The current adjacent interior handle position.
+ * @param neighbor  The vertex beyond the elbow (the next handle, or the far
+ *                   endpoint if the elbow is the only interior vertex), or null
+ *                   if there is no meaningful neighbor.
+ * @returns         The corrected elbow position `{ x, y }`, or `null` if the
+ *                   end segment is already axis-aligned (the TALA no-op case).
+ *                   When a non-null value is returned it is always a fresh
+ *                   object — the `elbow` argument is never mutated.
+ */
+export function orthogonalizeEndElbow(
+    endpoint: { x: number, y: number },
+    elbow: { x: number, y: number },
+    neighbor: { x: number, y: number } | null
+): { x: number, y: number } | null {
+    const dx = endpoint.x - elbow.x;
+    const dy = endpoint.y - elbow.y;
+
+    // Already axis-aligned on either axis — no correction needed (TALA no-op
+    // case).  The OR is intentional: if the end segment is within AXIS_EPSILON
+    // of H or V on either axis, the span classifier will still accept it, so
+    // we leave the elbow unchanged rather than applying a sub-pixel nudge.
+    if (Math.abs(dx) < AXIS_EPSILON || Math.abs(dy) < AXIS_EPSILON) {
+        return null;
+    }
+
+    // Determine target axis from the elbow→neighbor segment's existing axis,
+    // if the neighbor is available and the segment is clearly H or V.
+    if (neighbor !== null) {
+        const ndx = neighbor.x - elbow.x;
+        const ndy = neighbor.y - elbow.y;
+        const neighborIsH = Math.abs(ndy) < AXIS_EPSILON && Math.abs(ndx) >= AXIS_EPSILON;
+        const neighborIsV = Math.abs(ndx) < AXIS_EPSILON && Math.abs(ndy) >= AXIS_EPSILON;
+
+        if (neighborIsH) {
+            // Next segment is H → end segment must be V: snap elbow.x = endpoint.x.
+            return { x: endpoint.x, y: elbow.y };
+        }
+        if (neighborIsV) {
+            // Next segment is V → end segment must be H: snap elbow.y = endpoint.y.
+            return { x: elbow.x, y: endpoint.y };
+        }
+    }
+
+    // Fallback: neighbor is null or elbow→neighbor is diagonal/degenerate.
+    // Snap on the axis of the larger endpoint→elbow displacement so the
+    // visibly longer end segment becomes the straight one.
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        // Larger displacement on X → make end segment horizontal.
+        return { x: elbow.x, y: endpoint.y };
+    } else {
+        // Larger displacement on Y → make end segment vertical.
+        return { x: endpoint.x, y: elbow.y };
+    }
 }
 
 /**

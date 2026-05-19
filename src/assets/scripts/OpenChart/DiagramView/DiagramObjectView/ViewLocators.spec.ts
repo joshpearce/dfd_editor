@@ -639,8 +639,6 @@ describe("findUnlinkedObjectAt — PolyLineSpanView pass-through (H1 regression)
     }> {
         const factory = await createLinesTestingFactory();
         const line = factory.createNewDiagramObject("data_flow", LineView);
-        line.node1.moveTo(0, 0);
-        line.node2.moveTo(400, 400);
 
         for (let i = 1; i < 3; i++) {
             const h = factory.createNewDiagramObject("generic_handle", HandleView);
@@ -649,9 +647,18 @@ describe("findUnlinkedObjectAt — PolyLineSpanView pass-through (H1 regression)
 
         line.replaceFace(new PolyLine(getDataFlowLineStyle(factory), factory.theme.grid));
 
-        (line.handles[0] as HandleView).moveTo(100, 50);
-        (line.handles[1] as HandleView).moveTo(200, 50);
-        (line.handles[2] as HandleView).moveTo(200, 150);
+        // node1 is linked to the block anchor (block at (50,50)) a few lines
+        // below, so its effective source position comes from that anchor.
+        // The linked anchor leaves the source end segment axis-aligned for
+        // this fixture's geometry, making the issue-#19 correction a no-op.
+        // node2 = (200, 400) is V-aligned with handles[2] x=200 (no-op there too).
+        line.node1.moveTo(0, 50);
+        line.node2.moveTo(200, 400);
+
+        // Use face.moveTo (no cascade) so calculateLayout runs once at the end.
+        (line.handles[0] as HandleView).face.moveTo(100, 50);
+        (line.handles[1] as HandleView).face.moveTo(200, 50);
+        (line.handles[2] as HandleView).face.moveTo(200, 150);
 
         // Link node1 to a block anchor → activates the span-aware getObjectAt path.
         const block = factory.createNewDiagramObject("process", BlockView);
@@ -695,8 +702,9 @@ describe("findUnlinkedObjectAt — PolyLineSpanView pass-through (H1 regression)
         // findUnlinkedObjectAt must pass this through normally.
         const { line } = await createAnchoredPolyLine();
 
-        // hitboxes[0]: end segment node1(0,0)→h0(100,50). Midpoint (50, 25).
-        const result = findUnlinkedObjectAt([line], 50, 25);
+        // hitboxes[0]: end segment node1(0,50)→h0(100,50), horizontal.
+        // Midpoint (50, 50) is inside the end hitbox.
+        const result = findUnlinkedObjectAt([line], 50, 50);
 
         expect(result).toBe(line);
         expect(result instanceof PolyLineSpanView).toBe(false);
